@@ -1,4 +1,5 @@
 import pprint
+import struct
 
 
 def parse(data, rdp_context = None):
@@ -46,6 +47,9 @@ def parse_uint32_le(data, start_index):
             + (data[start_index + 3] << 24)
             )
 
+def encode_uint16_be(value):
+    return struct.pack(">H", value)
+
 def parse_ber(data, start_index):
     # byte 0 is the type, and the lenght starts at byte 1
     length, i = parse_ber_length(data, start_index + 1)
@@ -75,15 +79,16 @@ def parse_per_length(data, start_index):
         
     i += 1
     return (payload_length, i)
-        
+
 class Tpkt(object):
     FAST_PATH = 'FastPath'
     SLOW_PATH = 'SlowPath'
     TPKT_VERSION = {
-        b'\x03': SLOW_PATH,
+        0x03: SLOW_PATH,
     }
     
     def __init__(self, data, rdp_context):
+        self._is_dirty = False
         self._raw_data = data
         if self.version != Tpkt.SLOW_PATH:
             raise ValueError('invalid version byte for the tpkt data')
@@ -91,11 +96,11 @@ class Tpkt(object):
         
     @classmethod
     def isTpkt(cls, data):
-        return Tpkt.TPKT_VERSION.get(bytes([data[0]]), None) == Tpkt.SLOW_PATH
+        return Tpkt.TPKT_VERSION.get(data[0], None) == Tpkt.SLOW_PATH
     
     @property
     def version(self):
-        return Tpkt.TPKT_VERSION.get(bytes([self._raw_data[0]]), Tpkt.FAST_PATH)
+        return Tpkt.TPKT_VERSION.get(self._raw_data[0], Tpkt.FAST_PATH)
     
     @property
     def length(self):
@@ -104,6 +109,19 @@ class Tpkt(object):
     @property
     def payload(self):
         return self._raw_data[4:self.length]
+        
+    def is_dirty(self):
+        return self._is_dirty or self.x224.is_dirty()
+
+    def packet_as_bytes(self):
+        if not self.is_dirty():
+            return self._raw_data
+        x224_packet = self.x224.packet_as_bytes()
+        return (b''
+            + self._raw_data[:2] # version
+            + encode_uint16_be(4 + len(x224_packet)) # length
+            + x224_packet # payload
+        )
     
 
 class X224(object):
@@ -116,12 +134,13 @@ class X224(object):
     TPDU_CONNECTION_REQUEST = 'Connection Request'
     TPDU_CONNECTION_CONFIRM = 'Connection Confirm'
     TPDU_TYPE = {
-        b'\xE0': TPDU_CONNECTION_REQUEST,
-        b'\xD0': TPDU_CONNECTION_CONFIRM,
-        b'\xF0': TPDU_DATA
+        0xE0: TPDU_CONNECTION_REQUEST,
+        0xD0: TPDU_CONNECTION_CONFIRM,
+        0xF0: TPDU_DATA
     }
     
     def __init__(self, data, rdp_context):
+        self._is_dirty = False
         self._raw_data = data
         self.mcs = None
         if self.tpdu_type == X224.TPDU_DATA:
@@ -133,7 +152,7 @@ class X224(object):
 
     @property
     def tpdu_type(self):
-        return X224.TPDU_TYPE.get(bytes([self._raw_data[1]]), 'unknown (%d)' % self._raw_data[1])
+        return X224.TPDU_TYPE.get(self._raw_data[1], 'unknown (%d)' % self._raw_data[1])
 
     @property
     def payload(self):
@@ -143,6 +162,21 @@ class X224(object):
             # ignore destination, source, and class fields
             payload = self._raw_data[7:]
         return payload
+    
+    def is_dirty(self):
+        return (self._is_dirty 
+                or (self.mcs and self.mcs.is_dirty()))
+        
+    def packet_as_bytes(self):
+        if not self.is_dirty():
+            return self._raw_data
+        if not self.mcs:
+            return self._raw_data
+        
+        return (b''
+            + self._raw_data[:3] # X224.TPDU_DATA is always b'\x02\xf0\x80'
+            + self.mcs.packet_as_bytes()
+        )
     
 class Mcs(object):
     SEND_DATA_CLIENT = 'send data request'
@@ -167,6 +201,7 @@ class Mcs(object):
     }
     
     def __init__(self, data, rdp_context):
+        self._is_dirty = False
         self._raw_data = data
         
         self.rdp = None

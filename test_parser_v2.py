@@ -37,7 +37,12 @@ class TestParsing(unittest.TestCase):
         
         self.assertEqual(pdu.tpkt.x224.length, 39)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_CONNECTION_REQUEST)
-
+        self.assertEqual(pdu.tpkt.x224.x224_connect.routing_token_or_cookie, 'Cookie: mstshash=eltons')
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq_header.type, Rdp.Negotiate.RDP_NEG_REQ)
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.flags, [])
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.length, 8)
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.requestedProtocols, [Rdp.Protocols.PROTOCOL_RDP])
+        
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
     def test_parse_connection_confirm(self):
@@ -53,6 +58,11 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 14)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_CONNECTION_CONFIRM)
 
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq_header.type, Rdp.Negotiate.RDP_NEG_RSP)
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.flags, [])
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.length, 8)
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.selectedProtocol, Rdp.Protocols.PROTOCOL_RDP)
+        
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
     def test_parse_connect_initial(self):
@@ -94,55 +104,61 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.CONNECT)
-        self.assertEqual(pdu.tpkt.x224.mcs.mcs_connect_header.get_mcs_connect_type(), Mcs.CONNECT_INITIAL)
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CONNECT)
+        self.assertEqual(pdu.tpkt.mcs.mcs_connect_header.get_mcs_connect_type(), Mcs.CONNECT_INITIAL)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.length, 404)
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.upwardFlag.payload, True)
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.userData.length, 307)
-        self.assertEqual(bytes(pdu.tpkt.x224.mcs.connect_payload.userData.payload.gcc_header[:4]), bytes.fromhex("00 05 00 14"))
-        self.assertEqual(bytes(pdu.tpkt.x224.mcs.connect_payload.userData.payload.gcc_header[-4:]), bytes.fromhex("44 75 63 61"))
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.userData.payload.gcc_userData.length, 284)
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.length, 404)
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.upwardFlag.payload, True)
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.userData.length, 307)
+        self.assertEqual(bytes(pdu.tpkt.mcs.connect_payload.userData.payload.gcc_header[:4]), bytes.fromhex("00 05 00 14"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.connect_payload.userData.payload.gcc_header[-4:]), bytes.fromhex("44 75 63 61"))
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.userData.payload.gcc_userData.length, 284)
 
-        # self.assertEqual(bytes(pdu.tpkt.x224.mcs.connect_payload.userData.payload.gcc_userData.payload[:4]), bytes.fromhex("01 c0 d8 00"))
+        # self.assertEqual(bytes(pdu.tpkt.mcs.connect_payload.userData.payload.gcc_userData.payload[:4]), bytes.fromhex("01 c0 d8 00"))
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.header.length, 216)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.header.get_type_name(), Rdp.UserData.CS_CORE)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.version, 0x00080004)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.desktopWidth, 1280)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.desktopHeight, 1024)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.colorDepth, 0xca01)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.SASSequence, 0xaa03)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.keyboardLayout, 1033)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.clientBuild, 3790)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.clientName, 'ELTONS-DEV2')
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.keyboardType, 4)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.keyboardSubType, 0)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.keyboardFunctionKey, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.imeFileName, '')
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.postBeta2ColorDepth, 0xca01)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.clientProductId, 1)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.serialNumber, 0)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.highColorDepth, 24)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.supportedColorDepths, 7)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.earlyCapabilityFlags, 1)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.clientDigProductId, "69712-783-0357974-42714")
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.serverSelectedProtocol, 0)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.desktopPhysicalWidth, None)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.desktopPhysicalHeight, None)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.desktopOrientation, None)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.desktopScaleFactor, None)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientCoreData.payload.deviceScaleFactor, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.header.length, 216)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.header.type, Rdp.UserData.CS_CORE)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.version, 0x00080004)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopWidth, 1280)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopHeight, 1024)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.colorDepth, 0xca01)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.SASSequence, 0xaa03)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.keyboardLayout, 1033)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.clientBuild, 3790)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.clientName, 'ELTONS-DEV2')
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.keyboardType, 4)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.keyboardSubType, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.keyboardFunctionKey, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.imeFileName, '')
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.postBeta2ColorDepth, 0xca01)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.clientProductId, 1)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.serialNumber, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.highColorDepth, 24)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.supportedColorDepths, 7)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.earlyCapabilityFlags, 1)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.clientDigProductId, "69712-783-0357974-42714")
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.serverSelectedProtocol, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopPhysicalWidth, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopPhysicalHeight, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopOrientation, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopScaleFactor, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.deviceScaleFactor, None)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientSecurityData.header.length, 216)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientSecurityData.header.get_type_name(), Rdp.UserData.CS_SECURITY)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientSecurityData.payload.encryptionMethods, 0x1b)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientSecurityData.payload.extEncryptionMethods, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.header.length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.header.type, Rdp.UserData.CS_SECURITY)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.payload.encryptionMethods, 0x1b)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.payload.extEncryptionMethods, 0)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientNetworkData.header.length, 216)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientNetworkData.header.get_type_name(), Rdp.UserData.CS_NET)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.clientNetworkData.payload.channelCount, 3)
-        
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.header.length, 44)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.header.type, Rdp.UserData.CS_NET)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelCount, 3)
+        self.assertEqual(len(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray), 3)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[0].name, "rdpdr")
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[0].options, 0x80800000)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[1].name, "cliprdr")
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[1].options, 0xc0a00000)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[2].name, "rdpsnd")
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[2].options, 0xc0000000)
         
         self.assertEqual(rdp_context.is_gcc_confrence, True)
 
@@ -184,38 +200,38 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)   
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.CONNECT)
-        self.assertEqual(pdu.tpkt.x224.mcs.mcs_connect_header.get_mcs_connect_type(), Mcs.CONNECT_RESPONSE)
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.length, 325)
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.result.payload, 0)
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CONNECT)
+        self.assertEqual(pdu.tpkt.mcs.mcs_connect_header.get_mcs_connect_type(), Mcs.CONNECT_RESPONSE)
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.length, 325)
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.result.payload, 0)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.userData.length, 287)
-        self.assertEqual(bytes(pdu.tpkt.x224.mcs.connect_payload.userData.payload.gcc_header[:4]), bytes.fromhex("00 05 00 14"))
-        self.assertEqual(pdu.tpkt.x224.mcs.connect_payload.userData.payload.gcc_userData.length, 264)
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.userData.length, 287)
+        self.assertEqual(bytes(pdu.tpkt.mcs.connect_payload.userData.payload.gcc_header[:4]), bytes.fromhex("00 05 00 14"))
+        self.assertEqual(pdu.tpkt.mcs.connect_payload.userData.payload.gcc_userData.length, 264)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverCoreData.header.length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverCoreData.header.get_type_name(), Rdp.UserData.SC_CORE)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverCoreData.payload.version, 0x00080004)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverCoreData.payload.get_clientRequestedProtocols_name(), Rdp.Protocols.PROTOCOL_RDP)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverCoreData.payload.earlyCapabilityFlags, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.header.length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.header.type, Rdp.UserData.SC_CORE)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.version, 0x00080004)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.clientRequestedProtocols, Rdp.Protocols.PROTOCOL_RDP)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.earlyCapabilityFlags, None)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.header.length, 16)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.header.get_type_name(), Rdp.UserData.SC_NET)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.payload.MCSChannelId, 1003)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.payload.channelCount, 3)
-        self.assertEqual(len(pdu.tpkt.x224.mcs.rdp.serverNetworkData.payload.channelIdArray), 3)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.payload.channelIdArray[0], 1004)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.payload.channelIdArray[1], 1005)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverNetworkData.payload.channelIdArray[2], 1006)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.header.length, 16)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.header.type, Rdp.UserData.SC_NET)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.payload.MCSChannelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelCount, 3)
+        self.assertEqual(len(pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray), 3)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray[0], 1004)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray[1], 1005)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray[2], 1006)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverSecurityData.header.length, 236)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverSecurityData.header.get_type_name(), Rdp.UserData.SC_SECURITY)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverSecurityData.payload.get_encryptionMethod_name(), Rdp.Security.ENCRYPTION_METHOD_128BIT)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverSecurityData.payload.get_encryptionLevel_name(), Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverSecurityData.payload.serverRandomLen, 32)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.serverSecurityData.payload.serverCertLen, 184)
-        self.assertEqual(bytes(pdu.tpkt.x224.mcs.rdp.serverSecurityData.payload.serverRandom[:4]), bytes.fromhex('10 11 77 20'))
-        self.assertEqual(bytes(pdu.tpkt.x224.mcs.rdp.serverSecurityData.payload.serverCertificate[:4]), bytes.fromhex('01 00 00 00'))
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverSecurityData.header.length, 236)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverSecurityData.header.type, Rdp.UserData.SC_SECURITY)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverSecurityData.payload.encryptionMethod, Rdp.Security.ENCRYPTION_METHOD_128BIT)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverSecurityData.payload.encryptionLevel, Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverSecurityData.payload.serverRandomLen, 32)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverSecurityData.payload.serverCertLen, 184)
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.serverSecurityData.payload.serverRandom[:4]), bytes.fromhex('10 11 77 20'))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.serverSecurityData.payload.serverCertificate[:4]), bytes.fromhex('01 00 00 00'))
         
         self.assertEqual(rdp_context.is_gcc_confrence, True)
         self.assertEqual(rdp_context.encryption_level, Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE)
@@ -234,8 +250,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.ERECT_DOMAIN)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload, bytes.fromhex("04 01 00 01 00"))
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.ERECT_DOMAIN)
+        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("04 01 00 01 00"))
 
     def test_parse_attach_user_request(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/5125dd86-1a99-46cd-bcae-d1c3c083eeb0
@@ -249,8 +265,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.ATTACH_USER_REQUEST)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload, bytes.fromhex("28"))
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.ATTACH_USER_REQUEST)
+        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("28"))
  
     def test_parse_attach_user_confirm(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/3a33f738-a023-4178-bcc3-28f953a038fc
@@ -264,8 +280,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.ATTACH_USER_CONFIRM)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload, bytes.fromhex("2e 00 00 06"))
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.ATTACH_USER_CONFIRM)
+        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("2e 00 00 06"))
 
     def test_parse_channel_join_request(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/8c14e16a-a556-4bcd-9e8f-5aa6ae360f45
@@ -279,8 +295,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.CHANNEL_JOIN_REQUEST)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload, bytes.fromhex("38 00 06 03 ef"))
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CHANNEL_JOIN_REQUEST)
+        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("38 00 06 03 ef"))
 
     def test_parse_channel_join_confirm(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/48bac244-bf30-4df1-8516-6dd31d917128
@@ -294,8 +310,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.CHANNEL_JOIN_CONFIRM)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload, bytes.fromhex("3e 00 00 06 03 ef 03 ef"))
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CHANNEL_JOIN_CONFIRM)
+        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("3e 00 00 06 03 ef 03 ef"))
 
     def test_parse_client_security_exchange(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/b6075470-bbdd-465a-b6d9-ef15941ae358
@@ -316,16 +332,16 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("01 02 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("01 02 00 00"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 4)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0201)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_BASIC)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_EXCHANGE)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 4)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0201)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_BASIC)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_EXCHANGE)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.TS_SECURITY_PACKET.length, 72)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.TS_SECURITY_PACKET.encrypted_client_random[:8], bytes.fromhex("91 ac 0c 8f 64 8c 39 f4"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SECURITY_PACKET.length, 72)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SECURITY_PACKET.encrypted_client_random[:8], bytes.fromhex("91 ac 0c 8f 64 8c 39 f4"))
 
         self.assertEqual(rdp_context.encrypted_client_random[:8], bytes.fromhex("91 ac 0c 8f 64 8c 39 f4"))
 
@@ -370,14 +386,14 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("48 00 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("48 00 00 00"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0048)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_INFO)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:4], bytes.fromhex("74 21 d3 65"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0048)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_INFO)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("74 21 d3 65"))
 
     def test_parse_client_info_decrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/ac6dc9ab-6f32-471e-8374-f80caab50069
@@ -422,15 +438,15 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("40 00 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("40 00 00 00"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0040)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_INFO)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:8], bytes.fromhex("09 04 09 04 b3 43 00 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0040)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_INFO)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:8], bytes.fromhex("09 04 09 04 b3 43 00 00"))
 
     def test_parse_license_valid(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/df4cc42d-9a67-4b16-bba1-e3ca1d36d30a
@@ -449,14 +465,14 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("88 02 02 03"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("88 02 02 03"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0288)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_LICENSE)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:4], bytes.fromhex("62 4d c1 ec"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0288)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_LICENSE)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("62 4d c1 ec"))
 
     def test_parse_demand_active_encrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/084026ea-8264-4315-ac66-c77dea02b0c1
@@ -498,16 +514,16 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("08 00 02 03"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("08 00 02 03"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0008)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.is_SEC_ENCRYPT, True)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0008)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, True)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header, None)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:4], bytes.fromhex("72 f9 c3 32"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("72 f9 c3 32"))
         
         
     def test_parse_demand_active_decrypted(self):
@@ -551,20 +567,20 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("00 00 02 03"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("00 00 02 03"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0000)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0000)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header.length, 359)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header.pdu_type, RdpShareControlHeader.PDUTYPE_DEMANDACTIVEPDU)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header.channel_id, 1002)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:4], bytes.fromhex("ea 03 01 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.length, 359)
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.pdu_type, RdpShareControlHeader.PDUTYPE_DEMANDACTIVEPDU)
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.channel_id, 1002)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("ea 03 01 00"))
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.TS_DEMAND_ACTIVE_PDU.number_capabilities, 13)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.number_capabilities, 13)
 
     def test_parse_confirm_active_encrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/54765b0a-39d4-4746-92c6-8914934023da
@@ -614,16 +630,16 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("38 00 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("38 00 00 00"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0038)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.is_SEC_ENCRYPT, True)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0038)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, True)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header, None)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:4], bytes.fromhex("04 36 38 41"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header, None)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("04 36 38 41"))
 
     def test_parse_confirm_active_decrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/54765b0a-39d4-4746-92c6-8914934023da
@@ -674,20 +690,20 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.length, 2)
         self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.x224.mcs.payload[:4], bytes.fromhex("30 00 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("30 00 00 00"))        
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.flags, 0x0030)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0030)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
 
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header.length, 492)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header.pdu_type, RdpShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.control_header.channel_id, 1007)
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.payload[:4], bytes.fromhex("ea 03 01 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.length, 492)
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.pdu_type, RdpShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU)
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.channel_id, 1007)
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("ea 03 01 00"))
         
-        self.assertEqual(pdu.tpkt.x224.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.number_capabilities, 18)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.number_capabilities, 18)
         
 
         

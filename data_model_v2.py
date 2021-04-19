@@ -26,9 +26,11 @@ from serializers import (
     BerEncodedIntegerSerializer,
     
     PerEncodedLengthSerializer,
+    FixedLengthEncodedStringSerializer,
     Utf16leEncodedStringSerializer,
     FixedLengthUtf16leEncodedStringSerializer,
     ArraySerializer,
+    BitFieldEncodedSerializer,
     DataUnitSerializer,
     RawLengthSerializer,
     LengthDependency,
@@ -219,10 +221,11 @@ class DataUnitField(BaseField):
         return self.data_unit.serialize_value(buffer, offset)
 
 class RemainingRawField(BaseField):
-    def __init__(self, name, orig_raw_value, length):
+    def __init__(self, name, orig_raw_value, offset):
         self.name = name
         self.orig_raw_value = orig_raw_value
-        self.remaining = memoryview(orig_raw_value)[length:]
+        self.offset = offset
+        self.remaining = memoryview(orig_raw_value)[offset:]
 
     def get_value(self) -> Any:
         return self.remaining
@@ -258,6 +261,9 @@ class ReferenceField(BaseField):
     def get_referenced_value(self) -> Any:
         return traverse_object_graph(self._obj, self._referenced_value_path)
 
+    def get_referenced_path(self) -> str:
+        return self._referenced_value_path
+        
     def get_length(self):
         return 0
 
@@ -452,13 +458,15 @@ class BaseDataUnit(object):
         
         for i, f in enumerate(self._fields):
             if f.name == name_to_reinterpret:
+                if isinstance(f, ReferenceField):
+                    raise ValueError('reinterpreting reference fields is not supported. Reinterpret the field by using the original path: %s' % (f.get_referenced_path()))
                 if use_remainder and isinstance(f, RemainingRawField):
                     # if not isinstance(f, RemainingRawField):
                     #     raise ValueError('field "%s" must be of type RemainingRawField' % (f.name))
                     orig_raw_value = f.orig_raw_value
                     orig_remaining = f.get_value()
                     length = new_field.deserialize_value(orig_remaining, 0)
-                    remaining_field = RemainingRawField(f.name, orig_raw_value, len(orig_remaining) + length)
+                    remaining_field = RemainingRawField(f.name, orig_raw_value, f.offset + length)
                 else:
                     orig_raw_value = bytearray()
                     length = f.serialize_value(orig_raw_value, 0)
@@ -763,15 +771,32 @@ class X224(object):
 class X224HeaderDataUnit(BaseDataUnit):
     def __init__(self):
         super(X224HeaderDataUnit, self).__init__(fields = [
-            PrimitiveField('length', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('length',
+                DependentValueSerializer(
+                    StructEncodedSerializer(UINT_8),
+                    ValueDependency(lambda x: len(self) - self._fields_by_name['length'].get_length(self.length)))),
             PrimitiveField('x224_type', StructEncodedSerializer(UINT_8)),
-            PrimitiveField('x224_EOT', StaticSerializer(b'\x08')),
-            PrimitiveField('x224UserData', RawLengthSerializer()),
+            PrimitiveField('payload',
+                RawLengthSerializer(LengthDependency(lambda x: self.length - self._fields_by_name['x224_type'].get_length()))),
         ])
 
     def get_x224_type_name(self):
         return X224.TPDU_TYPE.get(self.x224_type, 'unknown (%d)' % self.x224_type)
 
+class X224ConnectionDataUnit(BaseDataUnit):
+    def __init__(self):
+        super(X224ConnectionDataUnit, self).__init__(fields = [
+            PrimitiveField('destination', StructEncodedSerializer(UINT_16_BE)),
+            PrimitiveField('source', StructEncodedSerializer(UINT_16_BE)),
+            PrimitiveField('class', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('x224UserData', RawLengthSerializer()),
+        ])
+
+class X224DataHeaderDataUnit(BaseDataUnit):
+    def __init__(self):
+        super(X224DataHeaderDataUnit, self).__init__(fields = [
+            PrimitiveField('x224_EOT', StaticSerializer(b'\x08')),
+        ])
 
 class Mcs(object):
     SEND_DATA_CLIENT = 'send data request'
@@ -863,7 +888,7 @@ class McsGccConnectionDataUnit(BaseDataUnit):
                 PerEncodedDataUnit(
                     ArraySerializer(
                         DataUnitSerializer(RdpUserDataBlock),
-                        LengthDependency()))),
+                        length_dependency = LengthDependency()))),
         ])
         
 class McsSendDataUnit(BaseDataUnit):
@@ -976,38 +1001,71 @@ class Rdp_TS_SHARECONTROLHEADER(BaseDataUnit):
         return self.pduSource
 
 class Rdp(object):
+    class Negotiate(object):
+        RDP_NEG_REQ = 0x01
+        RDP_NEG_RSP = 0x02
+        RDP_NEG_FAILURE = 0x03
+        
+        NEGOTIATE_REQUEST_NAMES = {
+            RDP_NEG_REQ: 'RDP_NEG_REQ',
+            RDP_NEG_RSP: 'RDP_NEG_RSP',
+            RDP_NEG_FAILURE: 'RDP_NEG_FAILURE',
+        }
+        
+        RESTRICTED_ADMIN_MODE_REQUIRED = 0x01
+        REDIRECTED_AUTHENTICATION_MODE_REQUIRED = 0x02
+        CORRELATION_INFO_PRESENT = 0x03
+        REQUEST_FLAGS = {
+            RESTRICTED_ADMIN_MODE_REQUIRED: 'RESTRICTED_ADMIN_MODE_REQUIRED',
+            REDIRECTED_AUTHENTICATION_MODE_REQUIRED: 'REDIRECTED_AUTHENTICATION_MODE_REQUIRED',
+            CORRELATION_INFO_PRESENT: 'CORRELATION_INFO_PRESENT',
+        }
+        
+        EXTENDED_CLIENT_DATA_SUPPORTED = 0x01
+        DYNVC_GFX_PROTOCOL_SUPPORTED = 0x02
+        NEGRSP_FLAG_RESERVED = 0x04
+        RESTRICTED_ADMIN_MODE_SUPPORTED = 0x08
+        REDIRECTED_AUTHENTICATION_MODE_SUPPORTED = 0x10
+        RESPONSE_FLAGS = {
+            EXTENDED_CLIENT_DATA_SUPPORTED: 'EXTENDED_CLIENT_DATA_SUPPORTED',
+            DYNVC_GFX_PROTOCOL_SUPPORTED: 'DYNVC_GFX_PROTOCOL_SUPPORTED',
+            NEGRSP_FLAG_RESERVED: 'NEGRSP_FLAG_RESERVED',
+            RESTRICTED_ADMIN_MODE_SUPPORTED: 'RESTRICTED_ADMIN_MODE_SUPPORTED',
+            REDIRECTED_AUTHENTICATION_MODE_SUPPORTED: 'REDIRECTED_AUTHENTICATION_MODE_SUPPORTED',
+        }
+    
     class UserData(object):
-        SC_CORE = 'serverCoreData'
-        SC_SECURITY = 'serverSecurityData'
-        SC_NET = 'serverNetworkData'
+        CS_CORE = 0xC001
+        CS_SECURITY = 0xC002
+        CS_NET = 0xC003
         
-        CS_CORE = 'clientCoreData'
-        CS_SECURITY = 'clientSecurityData'
-        CS_NET = 'clientNetworkData'
+        SC_CORE = 0x0C01
+        SC_SECURITY = 0x0C02
+        SC_NET = 0x0C03
         
-        USER_DATA_TYPES = {
-            0xC001: CS_CORE,
-            0xC002: CS_SECURITY,
-            0xC003: CS_NET,
+        USER_DATA_NAMES = {
+            CS_CORE: 'CS_CORE',
+            CS_SECURITY: 'CS_SECURITY',
+            CS_NET: 'CS_NET',
             
-            0x0C01: SC_CORE,
-            0x0C02: SC_SECURITY,
-            0x0C03: SC_NET,
+            SC_CORE: 'SC_CORE',
+            SC_SECURITY: 'SC_SECURITY',
+            SC_NET: 'SC_NET',
         }
 
     class Protocols(object):
-        PROTOCOL_RDP = 'PROTOCOL_RDP'
-        PROTOCOL_SSL = 'PROTOCOL_SSL'
-        PROTOCOL_HYBRID = 'PROTOCOL_HYBRID'
-        PROTOCOL_RDSTLS = 'PROTOCOL_RDSTLS'
-        PROTOCOL_HYBRID_EX = 'PROTOCOL_HYBRID_EX'
+        PROTOCOL_RDP = 0x00000000
+        PROTOCOL_SSL = 0x00000001
+        PROTOCOL_HYBRID = 0x00000002
+        PROTOCOL_RDSTLS = 0x00000004
+        PROTOCOL_HYBRID_EX = 0x00000008
         
-        PROTOCOL_TYPES = {
-            0x00000000: PROTOCOL_RDP,
-            0x00000001: PROTOCOL_SSL,
-            0x00000002: PROTOCOL_HYBRID,
-            0x00000004: PROTOCOL_RDSTLS,
-            0x00000008: PROTOCOL_HYBRID_EX,
+        PROTOCOL_NAMES = {
+            0x00000000: 'PROTOCOL_RDP',
+            0x00000001: 'PROTOCOL_SSL',
+            0x00000002: 'PROTOCOL_HYBRID',
+            0x00000004: 'PROTOCOL_RDSTLS',
+            0x00000008: 'PROTOCOL_HYBRID_EX',
         }
         
     class Security(object):
@@ -1031,30 +1089,31 @@ class Rdp(object):
         for key in SEC_PACKET_TYPE.keys():
             SEC_PACKET_MASK |= key
     
-        ENCRYPTION_METHOD_NONE = 'ENCRYPTION_METHOD_NONE'
-        ENCRYPTION_METHOD_40BIT = 'ENCRYPTION_METHOD_40BIT'
-        ENCRYPTION_METHOD_128BIT = 'ENCRYPTION_METHOD_128BIT'
-        ENCRYPTION_METHOD_56BIT = 'ENCRYPTION_METHOD_56BIT'
-        ENCRYPTION_METHOD_FIPS = 'ENCRYPTION_METHOD_FIPS'
+        ENCRYPTION_METHOD_NONE = 0x00000000
+        ENCRYPTION_METHOD_40BIT = 0x00000001
+        ENCRYPTION_METHOD_128BIT = 0x00000002
+        ENCRYPTION_METHOD_56BIT = 0x00000008
+        ENCRYPTION_METHOD_FIPS = 0x00000010
         
         SEC_ENCRYPTION_METHOD = {
-            0x00000000: ENCRYPTION_METHOD_NONE,
-            0x00000001: ENCRYPTION_METHOD_40BIT,
-            0x00000002: ENCRYPTION_METHOD_128BIT,
-            0x00000008: ENCRYPTION_METHOD_56BIT,
-            0x00000010: ENCRYPTION_METHOD_FIPS,
+            ENCRYPTION_METHOD_NONE: 'ENCRYPTION_METHOD_NONE',
+            ENCRYPTION_METHOD_40BIT: 'ENCRYPTION_METHOD_40BIT',
+            ENCRYPTION_METHOD_128BIT: 'ENCRYPTION_METHOD_128BIT',
+            ENCRYPTION_METHOD_56BIT: 'ENCRYPTION_METHOD_56BIT',
+            ENCRYPTION_METHOD_FIPS: 'ENCRYPTION_METHOD_FIPS',
         }
     
-        SEC_ENCRYPTION_NONE = 'None'
-        SEC_ENCRYPTION_LOW = 'Low'
-        SEC_ENCRYPTION_CLIENT_COMPATIBLE = 'CLIENT_COMPATIBLE'
-        SEC_ENCRYPTION_FIPS = 'FIPS'
+        SEC_ENCRYPTION_NONE = 0
+        SEC_ENCRYPTION_LOW = 1
+        SEC_ENCRYPTION_CLIENT_COMPATIBLE = 2
+        SEC_ENCRYPTION_HIGH = 3
+        SEC_ENCRYPTION_FIPS = 4
         SEC_ENCRYPTION_LEVEL = {
-            0: SEC_ENCRYPTION_NONE,
-            1: SEC_ENCRYPTION_LOW,
-            2: SEC_ENCRYPTION_CLIENT_COMPATIBLE,
-            3: 'High',
-            4: SEC_ENCRYPTION_FIPS,
+            0: 'SEC_ENCRYPTION_NONE',
+            1: 'SEC_ENCRYPTION_LOW',
+            2: 'SEC_ENCRYPTION_CLIENT_COMPATIBLE',
+            3: 'SEC_ENCRYPTION_HIGH',
+            4: 'SEC_ENCRYPTION_FIPS',
         }
         
         # @property
@@ -1071,6 +1130,43 @@ class Rdp(object):
         #     else:
         #         return RdpSecurity.SEC_HDR_NON_FIPS
 
+
+class Rdp_RDP_NEG_header(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP_NEG_header, self).__init__(fields = [
+            PrimitiveField('type', StructEncodedSerializer(UINT_8)),
+        ])
+        
+    def get_type_name(self):
+        return Rdp.Negotiate.NEGOTIATE_REQUEST_NAMES.get(self.type, 'unknown type %d' % self.type)
+        
+class Rdp_RDP_NEG_REQ(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP_NEG_REQ, self).__init__(fields = [
+            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.Negotiate.REQUEST_FLAGS.keys())),
+            PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('requestedProtocols', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Protocols.PROTOCOL_NAMES.keys())),
+        ])
+
+class Rdp_RDP_NEG_RSP(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP_NEG_RSP, self).__init__(fields = [
+            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.Negotiate.RESPONSE_FLAGS.keys())),
+            PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('selectedProtocol', StructEncodedSerializer(UINT_32_LE)),
+        ])
+        
+    def get_selectedProtocol_name(self):
+        return Rdp.Protocols.PROTOCOL_NAMES.get(self.selectedProtocol, 'unknown selectedProtocol %d' % self.selectedProtocol)
+
+class Rdp_RDP_NEG_FAILURE(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP_NEG_FAILURE, self).__init__(fields = [
+            PrimitiveField('flags', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('failureCode', StructEncodedSerializer(UINT_32_LE)),
+        ])
+        
 class RdpUserDataBlock(BaseDataUnit):
     def __init__(self):
         super(RdpUserDataBlock, self).__init__(fields = [
@@ -1091,7 +1187,7 @@ class Rdp_TS_UD_HEADER(BaseDataUnit):
         ])
         
     def get_type_name(self):
-        return Rdp.UserData.USER_DATA_TYPES.get(self.type, 'unknown')
+        return Rdp.UserData.USER_DATA_NAMES.get(self.type, 'unknown')
 
 class Rdp_TS_UD_CS_CORE(BaseDataUnit):
     def __init__(self):
@@ -1140,6 +1236,30 @@ class Rdp_TS_UD_CS_CORE(BaseDataUnit):
                 PrimitiveField('deviceScaleFactor', StructEncodedSerializer(UINT_32_LE))),
         ])
 
+class Rdp_TS_UD_CS_SEC(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_UD_CS_SEC, self).__init__(fields = [
+            PrimitiveField('encryptionMethods', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('extEncryptionMethods', StructEncodedSerializer(UINT_32_LE)),
+        ])
+
+class Rdp_TS_UD_CS_NET(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_UD_CS_NET, self).__init__(fields = [
+            PrimitiveField('channelCount', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('channelDefArray',
+                ArraySerializer(
+                    DataUnitSerializer(Rdp_CHANNEL_DEF),
+                    item_count_dependency = ValueDependency(lambda x: self.channelCount))),
+        ])
+
+class Rdp_CHANNEL_DEF(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_CHANNEL_DEF, self).__init__(fields = [
+            PrimitiveField('name', FixedLengthEncodedStringSerializer('ascii', 8)),
+            PrimitiveField('options', StructEncodedSerializer(UINT_32_LE)),
+        ])
+
 class Rdp_TS_UD_SC_CORE(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_UD_SC_CORE, self).__init__(fields = [
@@ -1151,7 +1271,7 @@ class Rdp_TS_UD_SC_CORE(BaseDataUnit):
         ])
     
     def get_clientRequestedProtocols_name(self):
-        return Rdp.Protocols.PROTOCOL_TYPES.get(self.clientRequestedProtocols, 'unknown')
+        return Rdp.Protocols.PROTOCOL_NAMES.get(self.clientRequestedProtocols, 'unknown clientRequestedProtocols %d' % self.clientRequestedProtocols)
     
 class Rdp_TS_UD_SC_NET(BaseDataUnit):
     def __init__(self):
@@ -1161,7 +1281,7 @@ class Rdp_TS_UD_SC_NET(BaseDataUnit):
             PrimitiveField('channelIdArray',
                 ArraySerializer(
                         StructEncodedSerializer(UINT_16_LE),
-                        LengthDependency(lambda x: self.channelCount * StructEncodedSerializer(UINT_16_LE).get_length(None)))),
+                        item_count_dependency = ValueDependency(lambda x: self.channelCount))),
             OptionalField(
                 PrimitiveField('Pad', StructEncodedSerializer(PAD*2))),
         ])

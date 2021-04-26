@@ -72,38 +72,53 @@ class StructEncodedSerializer(BaseSerializer[int]):
             self._struct.pack_into(buffer, offset, value)
 
 class EncodedStringSerializer(BaseSerializer[str]):
+    UTF_16_LE = 'utf-16-le'
+    ASCII = 'ascii'
     def __init__(self, encoding, 
-            length_dependency = LengthDependency(),
-            delimiter_dependency = ValueDependency(lambda x: '\x00')):
+            length_dependency = None,
+            delimiter_dependency = None,
+            include_delimiter_in_length = True): # ValueDependency(lambda x: '\x00')
         self._encoding = encoding
+        if length_dependency is None:
+            length_dependency = LengthDependency()
         self._length_dependency = length_dependency
         self._delimiter_dependency = delimiter_dependency
+        self._include_delimiter_in_length = include_delimiter_in_length
     
     def get_length(self, value: str) -> int:
+        if self._include_delimiter_in_length and self._delimiter_dependency:
+            delimiter = self._delimiter_dependency.get_value(None)
+            value += delimiter
         return self._length_dependency.get_length(value)
         
     def unpack_from(self, raw_data: bytes, offset: int) -> str:
         length = self._length_dependency.get_length(raw_data[offset:])
-        s = raw_data[offset : offset+length].decode(self._encoding)
-        delimiter = self._delimiter_dependency.get_value(None)
-        end_of_string_index = s.find(delimiter)
-        if end_of_string_index >= 0:
-            s = s[:end_of_string_index]
+        s = bytes(raw_data[offset : offset+length]).decode(self._encoding)
+        if self._delimiter_dependency:
+            delimiter = self._delimiter_dependency.get_value(None)
+            end_of_string_index = s.find(delimiter)
+            if end_of_string_index >= 0:
+                s = s[:end_of_string_index]
         return s
     
     def pack_into(self, buffer: bytes, offset: int, value: str) -> None:
         length = self.get_length(value)
+        if self._include_delimiter_in_length and self._delimiter_dependency:
+            delimiter = self._delimiter_dependency.get_value(None)
+            value += delimiter
         buffer[offset : offset+length] = value.encode(self._encoding)
         
 class FixedLengthEncodedStringSerializer(EncodedStringSerializer):
-    def __init__(self, encoding, length):
-        super().__init__(encoding, LengthDependency(lambda x: length))
+    def __init__(self, encoding, length,
+            delimiter_dependency = ValueDependency(lambda x: '\x00'),
+            include_delimiter_in_length = False):
+        super().__init__(encoding,
+                length_dependency = LengthDependency(lambda x: length),
+                delimiter_dependency = delimiter_dependency,
+                include_delimiter_in_length = include_delimiter_in_length)
 
-    def get_length(self, value: str) -> int:
-        return self._length_dependency.get_length(None)
-        
     def pack_into(self, buffer: bytes, offset: int, value: str) -> None:
-        length = self.get_length()
+        length = self.get_length(value)
         buffer[offset : offset+length] = b'\x00' * length
         super().pack_into(buffer, offset, value)
 
@@ -119,20 +134,19 @@ class DelimitedEncodedStringSerializer(EncodedStringSerializer):
         return len(value) + len(delimiter)
 
 class Utf16leEncodedStringSerializer(EncodedStringSerializer):
-    UTF_16_LE = 'utf-16-le'
     def __init__(self, length_dependency):
-        super().__init__(self.UTF_16_LE, length_dependency)
+        super().__init__(EncodedStringSerializer.UTF_16_LE,
+                length_dependency,
+                delimiter_dependency = ValueDependency(lambda x: '\x00'),
+                include_delimiter_in_length = True)
     
     def get_length(self, value: str) -> int:
-        return 2 * len(value)
+        return 2 * len(value) + 2 # the '+2' is for the terminating null
         
 class FixedLengthUtf16leEncodedStringSerializer(FixedLengthEncodedStringSerializer):
     def __init__(self, length):
-        super().__init__(Utf16leEncodedStringSerializer.UTF_16_LE, length)
+        super().__init__(EncodedStringSerializer.UTF_16_LE, length)
 
-    def get_length(self, value: str) -> int:
-        return self._length_dependency.get_length(None)
-        
         
 class ArraySerializer(BaseSerializer[Sequence[Any]]):
     def __init__(self, item_serializer: BaseSerializer[Any], 
@@ -184,12 +198,12 @@ class BitFieldEncodedSerializer(BaseSerializer[Sequence[int]]):
         
     def unpack_from(self, raw_data: bytes, offset: int) -> int:
         value = self._struct_serializer.unpack_from(raw_data, offset)
-        result = []
+        result = set()
         for bit_mask in self._allowed_bits:
             if bit_mask & value:
-                result.append(bit_mask)
+                result.add(bit_mask)
             elif bit_mask == 0:
-                result.append(bit_mask)
+                result.add(bit_mask)
         return result
     
     def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any]) -> None:
@@ -197,6 +211,38 @@ class BitFieldEncodedSerializer(BaseSerializer[Sequence[int]]):
         for bit_mask in value:
             bit_flags |= bit_mask
         self._struct_serializer.pack_into(buffer, offset, bit_flags)
+
+class BitMaskSerializer(BaseSerializer[int]):
+    def __init__(self, bit_mask: int, int_serializer: BaseSerializer[int]):
+        self._int_serializer = int_serializer
+        self._bit_mask = bit_mask
+    
+    def get_length(self, value: Sequence[int]) -> int:
+        return self._int_serializer.get_length(value)
+        
+    def unpack_from(self, raw_data: bytes, offset: int) -> int:
+        value = self._int_serializer.unpack_from(raw_data, offset)
+        return self._bit_mask & value
+    
+    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any]) -> None:
+        masked_value = self._bit_mask & value
+        self._int_serializer.pack_into(buffer, offset, masked_value)
+
+class ValueTransformSerializer(BaseSerializer[int]):
+    def __init__(self, inner_serializer: BaseSerializer[Any], transform: Callable[[Any], Any]):
+        self._inner_serializer = inner_serializer
+        self._transform = transform
+    
+    def get_length(self, value: Any) -> int:
+        return self._inner_serializer.get_length(self._transform(value))
+        
+    def unpack_from(self, raw_data: bytes, offset: int) -> Any:
+        value = self._inner_serializer.unpack_from(raw_data, offset)
+        return self._transform(value)
+    
+    def pack_into(self, buffer: bytes, offset: int, value: Any) -> None:
+        transformed_value = self._transform(value)
+        self._inner_serializer.pack_into(buffer, offset, transformed_value)
 
 BASE_DATA_UNIT = TypeVar('BASE_DATA_UNIT')
 class DataUnitSerializer(BaseSerializer[BASE_DATA_UNIT]):

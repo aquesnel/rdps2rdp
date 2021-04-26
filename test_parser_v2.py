@@ -5,7 +5,6 @@ from data_model_v2 import (
         X224,
         Mcs,
         Rdp,
-        RdpShareControlHeader,
         
         RawDataUnit, 
         TpktDataUnit, 
@@ -36,12 +35,12 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 44)
         
         self.assertEqual(pdu.tpkt.x224.length, 39)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_CONNECTION_REQUEST)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_CONNECTION_REQUEST)
         self.assertEqual(pdu.tpkt.x224.x224_connect.routing_token_or_cookie, 'Cookie: mstshash=eltons')
         self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq_header.type, Rdp.Negotiate.RDP_NEG_REQ)
-        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.flags, [])
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.flags, set())
         self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.length, 8)
-        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.requestedProtocols, [Rdp.Protocols.PROTOCOL_RDP])
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq.requestedProtocols, {Rdp.Protocols.PROTOCOL_RDP})
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
@@ -56,10 +55,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 19)
         
         self.assertEqual(pdu.tpkt.x224.length, 14)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_CONNECTION_CONFIRM)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_CONNECTION_CONFIRM)
 
         self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegReq_header.type, Rdp.Negotiate.RDP_NEG_RSP)
-        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.flags, [])
+        self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.flags, set())
         self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.length, 8)
         self.assertEqual(pdu.tpkt.x224.x224_connect.rdpNegRsp.selectedProtocol, Rdp.Protocols.PROTOCOL_RDP)
         
@@ -102,10 +101,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 416)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CONNECT)
-        self.assertEqual(pdu.tpkt.mcs.mcs_connect_header.get_mcs_connect_type(), Mcs.CONNECT_INITIAL)
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.CONNECT)
+        self.assertEqual(pdu.tpkt.mcs.mcs_connect_header.mcs_connect_type, Mcs.CONNECT_INITIAL)
         
         self.assertEqual(pdu.tpkt.mcs.connect_payload.length, 404)
         self.assertEqual(pdu.tpkt.mcs.connect_payload.upwardFlag.payload, True)
@@ -198,10 +197,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 337)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)   
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)   
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CONNECT)
-        self.assertEqual(pdu.tpkt.mcs.mcs_connect_header.get_mcs_connect_type(), Mcs.CONNECT_RESPONSE)
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.CONNECT)
+        self.assertEqual(pdu.tpkt.mcs.mcs_connect_header.mcs_connect_type, Mcs.CONNECT_RESPONSE)
         self.assertEqual(pdu.tpkt.mcs.connect_payload.length, 325)
         self.assertEqual(pdu.tpkt.mcs.connect_payload.result.payload, 0)
         
@@ -235,6 +234,7 @@ class TestParsing(unittest.TestCase):
         
         self.assertEqual(rdp_context.is_gcc_confrence, True)
         self.assertEqual(rdp_context.encryption_level, Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE)
+        self.assertEqual(rdp_context.encryption_method, Rdp.Security.ENCRYPTION_METHOD_128BIT)
 
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
@@ -248,10 +248,12 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 12)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.ERECT_DOMAIN)
-        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("04 01 00 01 00"))
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.ERECT_DOMAIN)
+        self.assertEqual(bytes(pdu.tpkt.mcs.payload), bytes.fromhex("01 00 01 00"))
+        
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
     def test_parse_attach_user_request(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/5125dd86-1a99-46cd-bcae-d1c3c083eeb0
@@ -263,10 +265,11 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 8)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.ATTACH_USER_REQUEST)
-        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("28"))
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.ATTACH_USER_REQUEST)
+        
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
  
     def test_parse_attach_user_confirm(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/3a33f738-a023-4178-bcc3-28f953a038fc
@@ -278,10 +281,12 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 11)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.ATTACH_USER_CONFIRM)
-        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("2e 00 00 06"))
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.ATTACH_USER_CONFIRM)
+        self.assertEqual(bytes(pdu.tpkt.mcs.payload), bytes.fromhex("00 00 06"))
+        
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
     def test_parse_channel_join_request(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/8c14e16a-a556-4bcd-9e8f-5aa6ae360f45
@@ -293,10 +298,12 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 12)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CHANNEL_JOIN_REQUEST)
-        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("38 00 06 03 ef"))
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.CHANNEL_JOIN_REQUEST)
+        self.assertEqual(bytes(pdu.tpkt.mcs.payload), bytes.fromhex("00 06 03 ef"))
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
     def test_parse_channel_join_confirm(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/48bac244-bf30-4df1-8516-6dd31d917128
@@ -308,10 +315,12 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 15)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.CHANNEL_JOIN_CONFIRM)
-        self.assertEqual(pdu.tpkt.mcs.payload, bytes.fromhex("3e 00 00 06 03 ef 03 ef"))
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.CHANNEL_JOIN_CONFIRM)
+        self.assertEqual(bytes(pdu.tpkt.mcs.payload), bytes.fromhex("00 00 06 03 ef 03 ef"))
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
     def test_parse_client_security_exchange(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/b6075470-bbdd-465a-b6d9-ef15941ae358
@@ -325,25 +334,25 @@ class TestParsing(unittest.TestCase):
         """)
         rdp_context = RdpContext()
         rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_NONE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_NONE
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.tpkt.version, Tpkt.SLOW_PATH)
         self.assertEqual(pdu.tpkt.length, 94)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("01 02 00 00"))        
-
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 4)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0201)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_BASIC)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_EXCHANGE)
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70") )
+        
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_EXCHANGE_PKT, Rdp.Security.SEC_LICENSE_ENCRYPT})
         
         self.assertEqual(pdu.tpkt.mcs.rdp.TS_SECURITY_PACKET.length, 72)
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SECURITY_PACKET.encrypted_client_random[:8], bytes.fromhex("91 ac 0c 8f 64 8c 39 f4"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.TS_SECURITY_PACKET.encryptedClientRandom[:8]), bytes.fromhex("91 ac 0c 8f 64 8c 39 f4"))
 
         self.assertEqual(rdp_context.encrypted_client_random[:8], bytes.fromhex("91 ac 0c 8f 64 8c 39 f4"))
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
 
     def test_parse_client_info_encrypted(self):
@@ -378,22 +387,24 @@ class TestParsing(unittest.TestCase):
  000001a0 57 f5 c7 88 82 d1 c6 a3 b4 0b 29                W.........)
         """)
         rdp_context = RdpContext()
-        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_LOW
+        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.tpkt.version, Tpkt.SLOW_PATH)
         self.assertEqual(pdu.tpkt.length, 427)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("48 00 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))        
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0048)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_INFO)
-        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("74 21 d3 65"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_INFO_PKT, Rdp.Security.SEC_ENCRYPT})
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("45 ca 46 fa 5e a7 be bc"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.payload[:4]), bytes.fromhex("74 21 d3 65"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.payload[-4:]), bytes.fromhex("a3 b4 0b 29"))
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
     def test_parse_client_info_decrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/ac6dc9ab-6f32-471e-8374-f80caab50069
@@ -429,26 +440,59 @@ class TestParsing(unittest.TestCase):
         """)
         
         rdp_context = RdpContext()
-        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_LOW
+        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.tpkt.version, Tpkt.SLOW_PATH)
         self.assertEqual(pdu.tpkt.length, 427)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
-        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("40 00 00 00"))        
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))        
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0040)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_INFO)
-        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:8], bytes.fromhex("09 04 09 04 b3 43 00 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_INFO_PKT})
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("45 ca 46 fa 5e a7 be bc"))
+        
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.CodePage, 0x04090409)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags, {
+            Rdp.Info.INFO_MOUSE,
+            Rdp.Info.INFO_DISABLECTRLALTDEL,
+            Rdp.Info.INFO_UNICODE,
+            Rdp.Info.INFO_MAXIMIZESHELL,
+            Rdp.Info.INFO_COMPRESSION,
+            Rdp.Info.INFO_ENABLEWINDOWSKEY,
+            Rdp.Info.INFO_FORCE_ENCRYPTED_CS_PDU,
+        })
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.compressionType, Rdp.Info.PACKET_COMPR_TYPE_64K)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.cbDomain, 10)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.cbUserName, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.cbPassword, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.cbAlternateShell, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.cbWorkingDir, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.Domain, 'NTDEV')
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.UserName, 'eltons')
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.Password, '')
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.AlternateShell, '')
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.WorkingDir, '')
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.extraInfo.payload_todo[:4]), bytes.fromhex("02 00 1e 00"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.extraInfo.payload_todo[-4:]), bytes.fromhex("00 00 00 00"))
 
-    def test_parse_license_valid(self):
+        self.assertEqual(rdp_context.auto_logon, False)
+        self.assertEqual(rdp_context.rail_enabled, False)
+        self.assertEqual(rdp_context.compression_type, Rdp.Info.PACKET_COMPR_TYPE_64K)
+        self.assertEqual(rdp_context.domain, 'NTDEV')
+        self.assertEqual(rdp_context.user_name, 'eltons')
+        self.assertEqual(rdp_context.password, '')
+        self.assertEqual(rdp_context.alternate_shell, '')
+        self.assertEqual(rdp_context.working_dir, '')
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+
+    @unittest.skip("encrypted license not supported")
+    def test_parse_license_valid_encrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/df4cc42d-9a67-4b16-bba1-e3ca1d36d30a
         data = extract_as_bytes("""
  00000000 03 00 00 2a 02 f0 80 68 00 01 03 eb 70 1c 88 02 ...*...h....p...
@@ -456,24 +500,64 @@ class TestParsing(unittest.TestCase):
  00000020 88 e6 da ab 2c 02 72 4d 49 90                   ....,.rMI.
         """)
         rdp_context = RdpContext()
-        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_LOW
+        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.tpkt.version, Tpkt.SLOW_PATH)
         self.assertEqual(pdu.tpkt.length, 42)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
-        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("88 02 02 03"))        
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0288)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_packet_type, Rdp.Security.SEC_PKT_LICENSE)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_LICENSE_PKT, Rdp.Security.SEC_ENCRYPT, Rdp.Security.SEC_LICENSE_ENCRYPT_CS})
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("8d 43 9a ab d5 2a 31 39"))
         self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("62 4d c1 ec"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.payload[-4:], bytes.fromhex("72 4d 49 90"))
 
+        self.assertEqual(rdp_context.pre_capability_exchange, False)
+        
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+
+    def test_parse_license_valid_decrypted(self):
+        # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/df4cc42d-9a67-4b16-bba1-e3ca1d36d30a
+        data = extract_as_bytes("""
+ 00000000 03 00 00 2a 02 f0 80 68 00 01 03 eb 70 1c 80 02 ...*...h....p...
+ 00000010 02 03 8d 43 9a ab d5 2a 31 39                   ...C...*19
+ 
+ 00000000 ff 03 10 00 07 00 00 00 02 00 00 00 04 00 00 00 ................
+        """)
+        rdp_context = RdpContext()
+        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
+        rdp_context.encrypted_client_random = b'1234'
+        pdu = parse(data, rdp_context)
+        self.assertEqual(pdu.tpkt.version, Tpkt.SLOW_PATH)
+        self.assertEqual(pdu.tpkt.length, 42)
+        
+        self.assertEqual(pdu.tpkt.x224.length, 2)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
+
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
+
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_LICENSE_PKT, Rdp.Security.SEC_LICENSE_ENCRYPT_CS})
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("8d 43 9a ab d5 2a 31 39"))
+
+        self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.preamble.bMsgType, Rdp.License.ERROR_ALERT)
+        self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.preamble.flags, 0x03)
+        self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.preamble.wMsgSize, 16)
+        self.assertEqual(len(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.validClientMessage), 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.validClientMessage[:4], bytes.fromhex("07 00 00 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.validClientMessage[-4:], bytes.fromhex("04 00 00 00"))
+
+        self.assertEqual(rdp_context.pre_capability_exchange, False)
+        
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+        
     def test_parse_demand_active_encrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/084026ea-8264-4315-ac66-c77dea02b0c1
         data = extract_as_bytes("""
@@ -504,7 +588,8 @@ class TestParsing(unittest.TestCase):
  00000180 81 48                                           .H
         """)
         rdp_context = RdpContext()
-        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_LOW
+        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
         pdu = parse(data, rdp_context)
@@ -512,19 +597,17 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 386)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
-        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("08 00 02 03"))        
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0008)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, True)
-        
-        self.assertEqual(pdu.tpkt.mcs.rdp.control_header, None)
-        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("72 f9 c3 32"))
-        
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_ENCRYPT})
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("56 02 e1 47 ac 5c 50 d9"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.payload[:4]), bytes.fromhex("72 f9 c3 32"))
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.payload[-4:]), bytes.fromhex("99 ad 81 48"))
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
     def test_parse_demand_active_decrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/084026ea-8264-4315-ac66-c77dea02b0c1
@@ -557,31 +640,41 @@ class TestParsing(unittest.TestCase):
  00000160 00 00 00 00 00 00 00                            .......
         """)
         rdp_context = RdpContext()
-        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_LOW
+        rdp_context.encryption_level = Rdp.Security.SEC_ENCRYPTION_CLIENT_COMPATIBLE
+        rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
         pdu = parse(data, rdp_context)
+        print(pdu)
         self.assertEqual(pdu.tpkt.version, Tpkt.SLOW_PATH)
         self.assertEqual(pdu.tpkt.length, 386)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_SERVER)
-        self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("00 00 02 03"))        
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
+        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, 0x0000)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.sec_header_type, Rdp.Security.SEC_HDR_NON_FIPS)
-        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
+        self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, set())
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("56 02 e1 47 ac 5c 50 d9"))
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.length, 359)
-        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.pdu_type, RdpShareControlHeader.PDUTYPE_DEMANDACTIVEPDU)
-        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.channel_id, 1002)
-        self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("ea 03 01 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.totalLength, 359)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType, Rdp.ShareControlHeader.PDUTYPE_DEMANDACTIVEPDU)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduVersion, 0x0010)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduSource, 1002)
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.number_capabilities, 13)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.shareID, 0x000103ea)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.lengthSourceDescriptor, 4)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.lengthCombinedCapabilities, 337)
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.sourceDescriptor), bytes.fromhex("52 44 50 00"))
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.numberCapabilities, 13)
+        self.assertEqual(len(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets), 13)
 
+        raise ValueError('todo: the specific capability sets')
+
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+
+    @unittest.skip("refactoring in progress")
     def test_parse_confirm_active_encrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/54765b0a-39d4-4746-92c6-8914934023da
         data = extract_as_bytes("""
@@ -628,9 +721,9 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 519)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
         self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("38 00 00 00"))        
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
@@ -641,6 +734,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.control_header, None)
         self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("04 36 38 41"))
 
+    @unittest.skip("refactoring in progress")
     def test_parse_confirm_active_decrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/54765b0a-39d4-4746-92c6-8914934023da
         data = extract_as_bytes("""
@@ -688,9 +782,9 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.length, 519)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
-        self.assertEqual(pdu.tpkt.x224.get_x224_type_name(), X224.TPDU_DATA)
+        self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
-        self.assertEqual(pdu.tpkt.mcs.get_mcs_type_name(), Mcs.SEND_DATA_CLIENT)
+        self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
         self.assertEqual(pdu.tpkt.mcs.payload[:4], bytes.fromhex("30 00 00 00"))        
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.header_length, 12)
@@ -699,7 +793,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.is_SEC_ENCRYPT, False)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.control_header.length, 492)
-        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.pdu_type, RdpShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU)
+        self.assertEqual(pdu.tpkt.mcs.rdp.control_header.pdu_type, Rdp.ShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU)
         self.assertEqual(pdu.tpkt.mcs.rdp.control_header.channel_id, 1007)
         self.assertEqual(pdu.tpkt.mcs.rdp.payload[:4], bytes.fromhex("ea 03 01 00"))
         

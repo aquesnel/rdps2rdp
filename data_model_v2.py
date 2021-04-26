@@ -26,11 +26,15 @@ from serializers import (
     BerEncodedIntegerSerializer,
     
     PerEncodedLengthSerializer,
+    EncodedStringSerializer,
     FixedLengthEncodedStringSerializer,
     Utf16leEncodedStringSerializer,
     FixedLengthUtf16leEncodedStringSerializer,
     ArraySerializer,
     BitFieldEncodedSerializer,
+    BitMaskSerializer,
+    ValueTransformSerializer,
+    
     DataUnitSerializer,
     RawLengthSerializer,
     LengthDependency,
@@ -138,7 +142,7 @@ class BaseField(object):
     def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
         raise NotImplementedError()
     
-    def serialize_value(self, buffer: bytes, offset: int) -> None:
+    def serialize_value(self, buffer: bytes, offset: int) -> int:
         try:
             return self._serialize_value(buffer, offset)
         except Exception as e:
@@ -146,7 +150,7 @@ class BaseField(object):
                 'Error serializing "%s" into buffer length %d, offset %d' % (
                     self.name, len(buffer), offset)) from e
 
-    def _serialize_value(self, buffer: bytes, offset: int) -> None:
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
         raise NotImplementedError()
         
 class PrimitiveField(BaseField):
@@ -183,7 +187,7 @@ class PrimitiveField(BaseField):
         self.raw_value = memoryview(raw_data)[offset : offset+length]
         return length
     
-    def serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
         if self.is_value_dirty:
             self.serializer.pack_into(buffer, offset, self.value)
             length = self.serializer.get_length(self.value)
@@ -234,13 +238,15 @@ class RemainingRawField(BaseField):
         raise NotImplementedError('RemainingRawField does not support being set')
 
     def get_length(self):
-        return 0
+        return len(self.remaining)
 
     def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
-        return 0
+        raise NotImplementedError('RemainingRawField does not support being deserialized')
     
     def serialize_value(self, buffer: bytes, offset: int) -> int:
-        return 0
+        length = self.get_length()
+        buffer[offset: offset+length] = self.remaining
+        return length
         
 class ReferenceField(BaseField):
     def __init__(self, name, obj, referenced_value_path):
@@ -270,7 +276,7 @@ class ReferenceField(BaseField):
     def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
         return 0
     
-    def serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
         return 0
 
 class OptionalField(BaseField):
@@ -307,7 +313,7 @@ class OptionalField(BaseField):
             pass    
         return length
     
-    def serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
         if self._value_is_present:
             return self._optional_field.serialize_value(buffer, offset)
         else:
@@ -345,19 +351,85 @@ class ConditionallyPresentField(BaseField):
             pass    
         return length
     
-    def serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
         if self._is_present_condition():
             return self._optional_field.serialize_value(buffer, offset)
         else:
             return 0
 
+class UnionField(BaseField):
+    def __init__(self, fields):
+        self.name = 'UnionField'
+        self._fields = fields
+    
+    def __str__(self):
+        return '<UnionField(fields=%s)>' % (
+            [f.name for f in self._fields])
+    
+    def get_length(self):
+        length = None
+        for f in self._fields:
+            if length is None:
+                length = f.get_length()
+            else:
+                if length != f.get_length():
+                    raise ValueError('The length of all fields in the UnionField is not all the same')
+        return length
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+        for f in self._fields:
+            length = f.deserialize_value(raw_data, offset)
+        return length
+    
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+        length = 0
+        for f in self._fields:
+            length = f.get_length()
+            shared_data = memoryview(bytearray(length))
+            f.serialize_value(shared_data, 0)
+            for i in range(length):
+                buffer[offset+i] |= shared_data[i]
+        return length
+        
+    def get_union_fields(self):
+        return (UnionWrapperField(f) for f in self._fields)
+
+class UnionWrapperField(BaseField):
+    def __init__(self, field):
+        self._field = field
+
+    @property
+    def name(self):
+        return self._field.name
+        
+    def get_length(self):
+        return 0
+
+    def get_value(self) -> Any:
+        return self._field.get_value()
+        
+    def set_value(self, value: Any):
+        self._field.set_value(value)
+        
+    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+        return 0
+    
+    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+        return 0
+
 class BaseDataUnit(object):
     def __init__(self, fields):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})
         # self. = {}
-        self._fields = fields
+        self._fields = []
         for f in fields:
-            self._fields_by_name[f.name] = f
+            self._fields.append(f)
+            if isinstance(f, UnionField):
+                for uf in f.get_union_fields():
+                    self._fields.append(uf)
+        for f in self._fields:
+            if not isinstance(f, UnionField):
+                self._fields_by_name[f.name] = f
 
     def __getattr__(self, name: str) -> Any:
         if name in self._fields_by_name:
@@ -385,14 +457,19 @@ class BaseDataUnit(object):
         return length
 
     def __str__(self):
-        return pprint.pformat(self._as_dict_for_pprint())
-        
+        return pprint.pformat(self._as_dict_for_pprint(), width=160)
+
     def _as_dict_for_pprint(self):
-        result = {
-            '__python_type__': self.__class__
-        }
-        for f in self._fields:
-            if isinstance(f, ReferenceField):
+        # HACK for pprint sorting dict in custom order
+        # https://stackoverflow.com/a/32188121/561476 for custom ordering
+        # https://stackoverflow.com/a/4902870/561476 for simplified code as namedtuple
+        ItemKey = collections.namedtuple('ItemKey', ['position', 'name'])
+        ItemKey.__repr__ = lambda x: x.name
+
+        result = {}
+        result[ItemKey(-1, '__python_type__')] = self.__class__        
+        for field_index, f in enumerate(self._fields):
+            if isinstance(f, ReferenceField) or isinstance(f, UnionField):
                 v = str(f)
             else:
                 v = f.get_value()
@@ -400,7 +477,7 @@ class BaseDataUnit(object):
                 v_list = [v]
             else:
                 v_list = v[:]
-            for i, v in enumerate(v_list):
+            for value_index, v in enumerate(v_list):
                 if isinstance(v, BaseDataUnit):
                     v = v._as_dict_for_pprint()
                 elif isinstance(v, (bytes, bytearray, memoryview)):
@@ -410,13 +487,13 @@ class BaseDataUnit(object):
                     else:
                         s = "b'%s...%s'" % (as_hex_str(v[:4]), as_hex_str(v[-4:]))
                     v = '<bytes(len %d): %s>' % (length, s)
-                v_list[i] = v
+                v_list[value_index] = v
             if len(v_list) == 1:
                 v = v_list[0]
             else:
                 v = v_list
             
-            result[f.name] = v
+            result[ItemKey(field_index, f.name)] = v
         return result
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int = 0) -> int:
@@ -426,7 +503,7 @@ class BaseDataUnit(object):
             offset += length
         return offset - orig_offset
 
-    def serialize_value(self, buffer: bytes, orig_offset: int = 0) -> None:
+    def serialize_value(self, buffer: bytes, orig_offset: int = 0) -> int:
         offset = orig_offset
         for f in self._fields:
             length = f.serialize_value(buffer, offset)
@@ -435,7 +512,9 @@ class BaseDataUnit(object):
 
     def as_wire_bytes(self):
         buffer = bytearray(self.get_length())
-        self.serialize_value(memoryview(buffer))
+        length = self.serialize_value(memoryview(buffer))
+        if length != len(buffer):
+            raise ValueError('Unexpected serialized length: expected %d, got %d' % (len(buffer), length))
         return buffer
 
     def alias_field(self, new_name, path):
@@ -446,15 +525,18 @@ class BaseDataUnit(object):
         self._fields.append(new_field)
 
 
-    def reinterpret_field(self, name_to_reinterpret, new_field):
+    def reinterpret_field(self, name_to_reinterpret, new_field, allow_overwrite = False):
         use_remainder = False
+        if '.' in name_to_reinterpret and not name_to_reinterpret.endswith('.remaining'):
+            raise ValueError('Invalid reinterpert suffix: %s' % (name_to_reinterpret))
         if name_to_reinterpret.endswith('.remaining'):
             use_remainder = True
             name_to_reinterpret = name_to_reinterpret[:-1 * len('.remaining')]
         
         if name_to_reinterpret not in self._fields_by_name:
-            raise AttributeError(name_to_reinterpret)
-            # raise ValueError('field "%s" does not exist' % (name_to_reinterpret))
+            raise AttributeError('field "%s" does not exist' % (name_to_reinterpret))
+        if not allow_overwrite and new_field.name in self._fields_by_name:
+            raise AttributeError('field "%s" already exist' % (new_field.name))
         
         for i, f in enumerate(self._fields):
             if f.name == name_to_reinterpret:
@@ -707,7 +789,7 @@ class BerEncodedDataUnit(BaseDataUnit):
                 new_field = DataUnitField('payload', reinterpert_as)
             else:
                 new_field = PrimitiveField('payload', reinterpert_as)
-            self.reinterpret_field('payload', new_field)
+            self.reinterpret_field('payload', new_field, allow_overwrite = True)
         return result
         
 class PerEncodedDataUnit(BaseDataUnit):
@@ -730,7 +812,7 @@ class PerEncodedDataUnit(BaseDataUnit):
                 new_field = DataUnitField('payload', self._interpret_payload_as)
             else:
                 new_field = PrimitiveField('payload', self._interpret_payload_as)
-            self.reinterpret_field('payload', new_field)
+            self.reinterpret_field('payload', new_field, allow_overwrite = True)
         return result
 
 
@@ -759,13 +841,15 @@ class TpktDataUnit(BaseDataUnit):
         return Tpkt.TPKT_VERSIONS.get(self.version, Tpkt.FAST_PATH_NAME)
     
 class X224(object):
-    TPDU_DATA = 'Data'
-    TPDU_CONNECTION_REQUEST = 'Connection Request'
-    TPDU_CONNECTION_CONFIRM = 'Connection Confirm'
+    END_OF_TYPE = b'\x08'
+    
+    TPDU_DATA = 0xF0
+    TPDU_CONNECTION_REQUEST = 0xE0
+    TPDU_CONNECTION_CONFIRM = 0xD0
     TPDU_TYPE = {
-        0xE0: TPDU_CONNECTION_REQUEST,
-        0xD0: TPDU_CONNECTION_CONFIRM,
-        0xF0: TPDU_DATA
+        TPDU_CONNECTION_REQUEST: 'TPDU_CONNECTION_REQUEST',
+        TPDU_CONNECTION_CONFIRM: 'TPDU_CONNECTION_CONFIRM',
+        TPDU_DATA: 'TPDU_DATA',
     }
     
 class X224HeaderDataUnit(BaseDataUnit):
@@ -775,13 +859,13 @@ class X224HeaderDataUnit(BaseDataUnit):
                 DependentValueSerializer(
                     StructEncodedSerializer(UINT_8),
                     ValueDependency(lambda x: len(self) - self._fields_by_name['length'].get_length(self.length)))),
-            PrimitiveField('x224_type', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('type', StructEncodedSerializer(UINT_8)),
             PrimitiveField('payload',
-                RawLengthSerializer(LengthDependency(lambda x: self.length - self._fields_by_name['x224_type'].get_length()))),
+                RawLengthSerializer(LengthDependency(lambda x: self.length - self._fields_by_name['type'].get_length()))),
         ])
 
     def get_x224_type_name(self):
-        return X224.TPDU_TYPE.get(self.x224_type, 'unknown (%d)' % self.x224_type)
+        return X224.TPDU_TYPE.get(self.type, 'unknown (%d)' % self.type)
 
 class X224ConnectionDataUnit(BaseDataUnit):
     def __init__(self):
@@ -795,48 +879,48 @@ class X224ConnectionDataUnit(BaseDataUnit):
 class X224DataHeaderDataUnit(BaseDataUnit):
     def __init__(self):
         super(X224DataHeaderDataUnit, self).__init__(fields = [
-            PrimitiveField('x224_EOT', StaticSerializer(b'\x08')),
+            PrimitiveField('x224_EOT', StaticSerializer(X224.END_OF_TYPE)),
         ])
 
 class Mcs(object):
-    SEND_DATA_CLIENT = 'send data request'
-    SEND_DATA_SERVER = 'send data indication'
-    CONNECT = 'Connect'
-    ERECT_DOMAIN = 'Erect Domain'
-    ATTACH_USER_REQUEST = 'Attach user request'
-    ATTACH_USER_CONFIRM = 'Attach user confirm'
-    CHANNEL_JOIN_REQUEST = 'channel join request'
-    CHANNEL_JOIN_CONFIRM = 'channel join confirm'
+    CONNECT = 0x7f
+    ERECT_DOMAIN = 0x04
+    ATTACH_USER_REQUEST = 0x28
+    ATTACH_USER_CONFIRM = 0x2c # only uses high 6 bits
+    CHANNEL_JOIN_REQUEST = 0x38
+    CHANNEL_JOIN_CONFIRM = 0x3c # only uses high 6 bits
+    SEND_DATA_FROM_CLIENT = 0x64
+    SEND_DATA_FROM_SERVER = 0x68
     MCS_TYPE = {
-        0x7f: CONNECT,
-        0x04: ERECT_DOMAIN,
-        0x28: ATTACH_USER_REQUEST,
-        0x2c: ATTACH_USER_CONFIRM, # only uses high 6 bits
-        0x38: CHANNEL_JOIN_REQUEST,
-        0x3c: CHANNEL_JOIN_CONFIRM, # only uses high 6 bits
-        0x64: SEND_DATA_CLIENT,
-        0x68: SEND_DATA_SERVER,
+        CONNECT: 'CONNECT',
+        ERECT_DOMAIN: 'ERECT_DOMAIN',
+        ATTACH_USER_REQUEST: 'ATTACH_USER_REQUEST',
+        ATTACH_USER_CONFIRM: 'ATTACH_USER_CONFIRM',
+        CHANNEL_JOIN_REQUEST: 'CHANNEL_JOIN_REQUEST',
+        CHANNEL_JOIN_CONFIRM: 'CHANNEL_JOIN_CONFIRM',
+        SEND_DATA_FROM_CLIENT: 'SEND_DATA_FROM_CLIENT',
+        SEND_DATA_FROM_SERVER: 'SEND_DATA_FROM_SERVER',
     }
     
-    CONNECT_INITIAL = 'Connect Initial'
-    CONNECT_RESPONSE = 'Connect Response'
+    CONNECT_INITIAL = 0x65
+    CONNECT_RESPONSE = 0x66
     MCS_CONNECT_TYPE = {
-        0x65: CONNECT_INITIAL,
-        0x66: CONNECT_RESPONSE,
+        CONNECT_INITIAL: 'CONNECT_INITIAL',
+        CONNECT_RESPONSE: 'CONNECT_RESPONSE',
     }
     
 class McsHeaderDataUnit(BaseDataUnit):
     def __init__(self):
         super(McsHeaderDataUnit, self).__init__(fields = [
-            PrimitiveField('mcs_type', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('type', 
+                ValueTransformSerializer(
+                    StructEncodedSerializer(UINT_8), 
+                    lambda x: Mcs.CONNECT if x == Mcs.CONNECT else x & 0xfc)), # use the high 6 bits for all types except CONNECT
             PrimitiveField('payload', RawLengthSerializer()),
         ])
     
     def get_mcs_type_name(self):
-        mcs_type = Mcs.MCS_TYPE.get(self.mcs_type, None)
-        if mcs_type is None:
-            mcs_type = Mcs.MCS_TYPE[self.mcs_type & 0xfc] # for high 6 bits
-        return mcs_type
+        return Mcs.MCS_TYPE.get(self.type, 'unknown (%d)' % self.type)
 
 class McsConnectHeaderDataUnit(BaseDataUnit):
     def __init__(self):
@@ -845,7 +929,7 @@ class McsConnectHeaderDataUnit(BaseDataUnit):
         ])
         
     def get_mcs_connect_type(self):
-        return Mcs.MCS_CONNECT_TYPE.get(self.mcs_connect_type, None)
+        return Mcs.MCS_CONNECT_TYPE.get(self.mcs_connect_type, 'unknown (%d)' % self.mcs_connect_type)
 
 
 class McsConnectInitialDataUnit(BaseDataUnit):
@@ -894,7 +978,7 @@ class McsGccConnectionDataUnit(BaseDataUnit):
 class McsSendDataUnit(BaseDataUnit):
     def __init__(self):
         super(McsSendDataUnit, self).__init__(fields = [
-            PrimitiveField('mcs_data_parameters', RawLengthSerializer(LengthDependency(lambda x: 6))),
+            PrimitiveField('mcs_data_parameters', RawLengthSerializer(LengthDependency(lambda x: 5))),
             DataUnitField('mcs_data', PerEncodedDataUnit()),
         ])
         
@@ -954,51 +1038,6 @@ class McsSendDataUnit(BaseDataUnit):
     #         payload = self._raw_data
 
     #     return payload
-
-
-
-class Rdp_TS_SECURITY_HEADER(BaseDataUnit):
-    def __init__(self):
-        super(Rdp_TS_SECURITY_HEADER, self).__init__(fields = [
-            PrimitiveField('flags', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('flagsHi', StructEncodedSerializer(UINT_16_LE)),
-        ])
-
-    def sec_packet_type(self):
-        return Rdp.Security.SEC_PACKET_TYPE.get(self.flags & Rdp.Security.SEC_PACKET_MASK, 'unknown')
-
-    def is_SEC_ENCRYPT(self):
-        return self.flags & 0x0008 == 0x0008
-
-class RdpShareControlHeader(object):
-    PDUTYPE_DEMANDACTIVEPDU = 'Demand Active'
-    PDUTYPE_CONFIRMACTIVEPDU = 'Confirm Active'
-    PDUTYPE_DEACTIVATEALLPDU = 'Deactivate'
-    PDUTYPE_DATAPDU = 'Data'
-    PDUTYPE_SERVER_REDIR_PKT = 'Redirect'
-    PDU_TYPE = {
-        0x1: PDUTYPE_DEMANDACTIVEPDU,
-        0x3: PDUTYPE_CONFIRMACTIVEPDU,
-        0x6: PDUTYPE_DEACTIVATEALLPDU,
-        0x7: PDUTYPE_DATAPDU,
-        0xA: PDUTYPE_SERVER_REDIR_PKT,
-    }
-    
-
-class Rdp_TS_SHARECONTROLHEADER(BaseDataUnit):
-    def __init__(self):
-        super(Rdp_TS_SHARECONTROLHEADER, self).__init__(fields = [
-            PrimitiveField('totalLength', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('pduType', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('pduSource', StructEncodedSerializer(UINT_16_LE)),
-        ])
-
-    def pdu_type(self):
-        pdu_code = self.pduType & 0x0f
-        return RdpShareControlHeader.PDU_TYPE.get(pdu_code, 'unknown %s' % bytes.hex(bytes([pdu_code])))
-
-    def channel_id(self):
-        return self.pduSource
 
 class Rdp(object):
     class Negotiate(object):
@@ -1077,16 +1116,22 @@ class Rdp(object):
             3: 'FIPS',
         }
         
-        SEC_PKT_EXCHANGE = 'Client Security Exchange'
-        SEC_PKT_INFO = 'Client Info'
-        SEC_PKT_LICENSE = 'License'
-        SEC_PACKET_TYPE = {
-            0x0001: SEC_PKT_EXCHANGE,
-            0x0040: SEC_PKT_INFO,
-            0x0080: SEC_PKT_LICENSE,
+        SEC_EXCHANGE_PKT = 0x0001
+        SEC_ENCRYPT = 0x0008
+        SEC_INFO_PKT = 0x0040
+        SEC_LICENSE_PKT = 0x0080
+        SEC_LICENSE_ENCRYPT = 0x0200
+        SEC_LICENSE_ENCRYPT_CS = 0x0200
+        SEC_PACKET_FLAGS = {
+            SEC_EXCHANGE_PKT: 'SEC_EXCHANGE_PKT',
+            SEC_ENCRYPT: 'SEC_ENCRYPT',
+            SEC_INFO_PKT: 'SEC_INFO_PKT',
+            SEC_LICENSE_PKT: 'SEC_LICENSE_PKT',
+            SEC_LICENSE_ENCRYPT: 'SEC_LICENSE_ENCRYPT',
+            SEC_LICENSE_ENCRYPT_CS: 'SEC_LICENSE_ENCRYPT_CS',
         }
         SEC_PACKET_MASK = 0
-        for key in SEC_PACKET_TYPE.keys():
+        for key in SEC_PACKET_FLAGS.keys():
             SEC_PACKET_MASK |= key
     
         ENCRYPTION_METHOD_NONE = 0x00000000
@@ -1129,7 +1174,81 @@ class Rdp(object):
         #         return RdpSecurity.SEC_HDR_BASIC
         #     else:
         #         return RdpSecurity.SEC_HDR_NON_FIPS
+        
+    class Info(object):
+        INFO_MOUSE = 0x00000001
+        INFO_DISABLECTRLALTDEL = 0x00000002
+        INFO_AUTOLOGON = 0x00000008
+        INFO_UNICODE = 0x00000010
+        INFO_MAXIMIZESHELL = 0x00000020
+        INFO_LOGONNOTIFY = 0x00000040
+        INFO_COMPRESSION = 0x00000080
+        INFO_ENABLEWINDOWSKEY = 0x00000100
+        INFO_REMOTECONSOLEAUDIO = 0x00002000
+        INFO_FORCE_ENCRYPTED_CS_PDU = 0x00004000
+        INFO_RAIL = 0x00008000
+        INFO_LOGONERRORS = 0x00010000
+        INFO_MOUSE_HAS_WHEEL = 0x00020000
+        INFO_PASSWORD_IS_SC_PIN = 0x00040000
+        INFO_NOAUDIOPLAYBACK = 0x00080000
+        INFO_USING_SAVED_CREDS = 0x00100000
+        INFO_AUDIOCAPTURE = 0x00200000
+        INFO_VIDEO_DISABLE = 0x00400000
+        INFO_RESERVED1 = 0x00800000
+        INFO_RESERVED2 = 0x01000000
+        INFO_HIDEF_RAIL_SUPPORTED = 0x02000000
+        
+        INFO_FLAGS = {
+            INFO_MOUSE: 'INFO_MOUSE',
+            INFO_DISABLECTRLALTDEL: 'INFO_DISABLECTRLALTDEL',
+            INFO_AUTOLOGON: 'INFO_AUTOLOGON',
+            INFO_UNICODE: 'INFO_UNICODE',
+            INFO_MAXIMIZESHELL: 'INFO_MAXIMIZESHELL',
+            INFO_LOGONNOTIFY: 'INFO_LOGONNOTIFY',
+            INFO_COMPRESSION: 'INFO_COMPRESSION',
+            INFO_ENABLEWINDOWSKEY: 'INFO_ENABLEWINDOWSKEY',
+            INFO_REMOTECONSOLEAUDIO: 'INFO_REMOTECONSOLEAUDIO',
+            INFO_FORCE_ENCRYPTED_CS_PDU: 'INFO_FORCE_ENCRYPTED_CS_PDU',
+            INFO_RAIL: 'INFO_RAIL',
+            INFO_LOGONERRORS: 'INFO_LOGONERRORS',
+            INFO_MOUSE_HAS_WHEEL: 'INFO_MOUSE_HAS_WHEEL',
+            INFO_PASSWORD_IS_SC_PIN: 'INFO_PASSWORD_IS_SC_PIN',
+            INFO_NOAUDIOPLAYBACK: 'INFO_NOAUDIOPLAYBACK',
+            INFO_USING_SAVED_CREDS: 'INFO_USING_SAVED_CREDS',
+            INFO_AUDIOCAPTURE: 'INFO_AUDIOCAPTURE',
+            INFO_VIDEO_DISABLE: 'INFO_VIDEO_DISABLE',
+            INFO_RESERVED1: 'INFO_RESERVED1',
+            INFO_RESERVED2: 'INFO_RESERVED2',
+            INFO_HIDEF_RAIL_SUPPORTED: 'INFO_HIDEF_RAIL_SUPPORTED',
+            INFO_MOUSE: 'INFO_MOUSE',
+            INFO_MOUSE: 'INFO_MOUSE',
+        }
 
+        CompressionTypeMask = 0x00001E00
+        PACKET_COMPR_TYPE_8K = 0x00000000
+        PACKET_COMPR_TYPE_64K = (0x1 << 9)
+        PACKET_COMPR_TYPE_RDP6 = (0x2 << 9)
+        PACKET_COMPR_TYPE_RDP61 = (0x3 << 9)
+    
+    class License(object):
+        ERROR_ALERT = 0xff
+
+    class ShareControlHeader(object):
+        PDU_TYPE_MASK = 0x000f
+        PDU_VERSION_MASK = 0xfff0
+        
+        PDUTYPE_DEMANDACTIVEPDU = 0x1
+        PDUTYPE_CONFIRMACTIVEPDU = 0x3
+        PDUTYPE_DEACTIVATEALLPDU = 0x6
+        PDUTYPE_DATAPDU = 0x7
+        PDUTYPE_SERVER_REDIR_PKT = 0xA
+        PDU_TYPE = {
+            PDUTYPE_DEMANDACTIVEPDU: 'PDUTYPE_DEMANDACTIVEPDU',
+            PDUTYPE_CONFIRMACTIVEPDU: 'PDUTYPE_CONFIRMACTIVEPDU',
+            PDUTYPE_DEACTIVATEALLPDU: 'PDUTYPE_DEACTIVATEALLPDU',
+            PDUTYPE_DATAPDU: 'PDUTYPE_DATAPDU',
+            PDUTYPE_SERVER_REDIR_PKT: 'PDUTYPE_SERVER_REDIR_PKT',
+        }
 
 class Rdp_RDP_NEG_header(BaseDataUnit):
     def __init__(self):
@@ -1256,7 +1375,7 @@ class Rdp_TS_UD_CS_NET(BaseDataUnit):
 class Rdp_CHANNEL_DEF(BaseDataUnit):
     def __init__(self):
         super(Rdp_CHANNEL_DEF, self).__init__(fields = [
-            PrimitiveField('name', FixedLengthEncodedStringSerializer('ascii', 8)),
+            PrimitiveField('name', FixedLengthEncodedStringSerializer(EncodedStringSerializer.ASCII, 8)),
             PrimitiveField('options', StructEncodedSerializer(UINT_32_LE)),
         ])
 
@@ -1312,3 +1431,114 @@ class Rdp_TS_UD_SC_SEC1(BaseDataUnit):
 
     def get_encryptionLevel_name(self):
         return Rdp.Security.SEC_ENCRYPTION_LEVEL.get(self.encryptionLevel, 'unknown %d' % self.encryptionLevel)
+
+
+
+class Rdp_TS_SECURITY_HEADER(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_SECURITY_HEADER, self).__init__(fields = [
+            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_16_LE, Rdp.Security.SEC_PACKET_FLAGS.keys())),
+            PrimitiveField('flagsHi', StructEncodedSerializer(UINT_16_LE)),
+        ])
+
+    def sec_packet_type(self):
+        return Rdp.Security.SEC_PACKET_FLAGS.get(self.flags & Rdp.Security.SEC_PACKET_MASK, 'unknown')
+
+    def is_SEC_ENCRYPT(self):
+        return Rdp.Security.SEC_ENCRYPT in self.flags
+
+class Rdp_TS_SECURITY_HEADER1(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_SECURITY_HEADER1, self).__init__(fields = [
+            PrimitiveField('dataSignature', RawLengthSerializer(LengthDependency(lambda x: 8))),
+        ])
+        
+class Rdp_TS_SECURITY_PACKET(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_SECURITY_PACKET, self).__init__(fields = [
+            PrimitiveField('length',
+                DependentValueSerializer(
+                    StructEncodedSerializer(UINT_32_LE),
+                    ValueDependency(lambda x: len(self.encryptedClientRandom)))),
+            PrimitiveField('encryptedClientRandom',
+                RawLengthSerializer(LengthDependency(lambda x: self.length))),
+        ])
+
+class Rdp_TS_INFO_PACKET(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_INFO_PACKET, self).__init__(fields = [
+            PrimitiveField('CodePage', StructEncodedSerializer(UINT_32_LE)),
+            UnionField([
+                PrimitiveField('flags', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Info.INFO_FLAGS.keys())),
+                PrimitiveField('compressionType', 
+                    BitMaskSerializer(Rdp.Info.CompressionTypeMask, StructEncodedSerializer(UINT_32_LE))),
+            ]),
+            PrimitiveField('cbDomain', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('cbUserName', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('cbPassword', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('cbAlternateShell', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('cbWorkingDir', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('Domain', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbDomain))),
+            PrimitiveField('UserName', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbUserName))),
+            PrimitiveField('Password', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbPassword))),
+            PrimitiveField('AlternateShell', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbAlternateShell))),
+            PrimitiveField('WorkingDir', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbWorkingDir))),
+            OptionalField(DataUnitField('extraInfo', Rdp_TS_EXTENDED_INFO_PACKET())),
+        ])
+
+class Rdp_TS_EXTENDED_INFO_PACKET(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_EXTENDED_INFO_PACKET, self).__init__(fields = [
+            PrimitiveField('payload_todo', RawLengthSerializer()),
+        ])
+
+class Rdp_LICENSE_VALID_CLIENT_DATA(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_LICENSE_VALID_CLIENT_DATA, self).__init__(fields = [
+            DataUnitField('preamble', Rdp_LICENSE_PREAMBLE()),
+            PrimitiveField('validClientMessage', 
+                RawLengthSerializer(LengthDependency(lambda x: self.preamble.wMsgSize - len(self.preamble)))),
+        ])
+        
+class Rdp_LICENSE_PREAMBLE(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_LICENSE_PREAMBLE, self).__init__(fields = [
+            PrimitiveField('bMsgType', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('flags', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('wMsgSize', StructEncodedSerializer(UINT_16_LE)),
+        ])
+
+class Rdp_TS_SHARECONTROLHEADER(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_SHARECONTROLHEADER, self).__init__(fields = [
+            PrimitiveField('totalLength', StructEncodedSerializer(UINT_16_LE)),
+            UnionField([
+                PrimitiveField('pduType', BitMaskSerializer(Rdp.ShareControlHeader.PDU_TYPE_MASK, StructEncodedSerializer(UINT_16_LE))),
+                PrimitiveField('pduVersion', BitMaskSerializer(Rdp.ShareControlHeader.PDU_VERSION_MASK, StructEncodedSerializer(UINT_16_LE))),
+            ]),
+            PrimitiveField('pduSource', StructEncodedSerializer(UINT_16_LE)),
+        ])
+
+class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_DEMAND_ACTIVE_PDU, self).__init__(fields = [
+            PrimitiveField('shareID', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('lengthSourceDescriptor', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('lengthCombinedCapabilities', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('sourceDescriptor', RawLengthSerializer(LengthDependency(lambda x: self.lengthSourceDescriptor))),
+            PrimitiveField('numberCapabilities', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('pad2Octets', StructEncodedSerializer(PAD * 2)),
+            PrimitiveField('capabilitySets', 
+                ArraySerializer(
+                    DataUnitSerializer(Rdp_TS_CAPS_SET),
+                    item_count_dependency = ValueDependency(lambda x: self.numberCapabilities))),
+            PrimitiveField('sessionId', StructEncodedSerializer(UINT_32_LE)),
+        ])
+        
+class Rdp_TS_CAPS_SET(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_CAPS_SET, self).__init__(fields = [
+            PrimitiveField('capabilitySetType', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('lengthCapability', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('capabilityData', RawLengthSerializer(LengthDependency(lambda x: self.lengthCapability - self._fields_by_name['capabilitySetType'].get_length() - self._fields_by_name['lengthCapability'].get_length()))),
+        ])

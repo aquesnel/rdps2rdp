@@ -1,55 +1,63 @@
 from data_model_v2 import (
-        Tpkt,
-        X224,
-        Mcs,
-        Rdp,
-        
-        PrimitiveField,
-        DataUnitField,
-        OptionalField,
-        ConditionallyPresentField,
-    
-        RawDataUnit, 
-        TpktDataUnit, 
-        X224HeaderDataUnit, 
-        X224DataHeaderDataUnit,
-        X224ConnectionDataUnit,
-        
-        McsHeaderDataUnit, 
-        McsConnectHeaderDataUnit,
-        McsConnectInitialDataUnit,
-        McsConnectResponseDataUnit,
-        McsGccConnectionDataUnit,
-        McsSendDataUnit,
-        
-        Rdp_RDP_NEG_header,
-        Rdp_RDP_NEG_REQ,
-        Rdp_RDP_NEG_RSP,
-        
-        RdpUserDataBlock,
-        Rdp_TS_UD_CS_CORE,
-        Rdp_TS_UD_CS_SEC,
-        Rdp_TS_UD_CS_NET,
-        
-        Rdp_TS_UD_SC_CORE,
-        Rdp_TS_UD_SC_NET,
-        Rdp_TS_UD_SC_SEC1,
-        
-        Rdp_TS_SECURITY_HEADER,
-        Rdp_TS_SECURITY_HEADER1,
-        Rdp_TS_SECURITY_PACKET,
-        Rdp_TS_INFO_PACKET,
-        Rdp_LICENSE_VALID_CLIENT_DATA,
-        
-        Rdp_TS_SHARECONTROLHEADER,
-        Rdp_TS_DEMAND_ACTIVE_PDU,
-        )
+    PrimitiveField,
+    DataUnitField,
+    OptionalField,
+    ConditionallyPresentField,
+
+    RawDataUnit, 
+)
         
 from serializers import (
     ArraySerializer,
     EncodedStringSerializer,
     DelimitedEncodedStringSerializer,
-    )
+)
+
+from data_model_v2_tpkt import (
+    Tpkt,
+    TpktDataUnit, 
+)
+from data_model_v2_x224 import (
+    X224,
+    X224HeaderDataUnit, 
+    X224DataHeaderDataUnit,
+    X224ConnectionDataUnit,
+)
+from data_model_v2_mcs import (
+    Mcs,
+    McsHeaderDataUnit, 
+    McsConnectHeaderDataUnit,
+    McsConnectInitialDataUnit,
+    McsConnectResponseDataUnit,
+    McsGccConnectionDataUnit,
+    McsSendDataUnit,
+)
+from data_model_v2_rdp import (
+    Rdp,
+
+    Rdp_RDP_NEG_header,
+    Rdp_RDP_NEG_REQ,
+    Rdp_RDP_NEG_RSP,
+    
+    RdpUserDataBlock,
+    Rdp_TS_UD_CS_CORE,
+    Rdp_TS_UD_CS_SEC,
+    Rdp_TS_UD_CS_NET,
+    
+    Rdp_TS_UD_SC_CORE,
+    Rdp_TS_UD_SC_NET,
+    Rdp_TS_UD_SC_SEC1,
+    
+    Rdp_TS_SECURITY_HEADER,
+    Rdp_TS_SECURITY_HEADER1,
+    Rdp_TS_SECURITY_PACKET,
+    Rdp_TS_INFO_PACKET,
+    Rdp_LICENSE_VALID_CLIENT_DATA,
+    
+    Rdp_TS_SHARECONTROLHEADER,
+    Rdp_TS_DEMAND_ACTIVE_PDU,
+    Rdp_TS_CONFIRM_ACTIVE_PDU,
+)
 
 class RdpContext(object):
     def __init__(self):
@@ -257,6 +265,8 @@ def parse(data, rdp_context = None):
                     if pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DEMANDACTIVEPDU:
                         pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_DEMAND_ACTIVE_PDU', Rdp_TS_DEMAND_ACTIVE_PDU()))
                         
+                    elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU:
+                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_CONFIRM_ACTIVE_PDU', Rdp_TS_CONFIRM_ACTIVE_PDU()))
                         
     else:
         raise ValueError('not yet supported')

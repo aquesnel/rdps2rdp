@@ -55,8 +55,14 @@ from data_model_v2_rdp import (
     Rdp_LICENSE_VALID_CLIENT_DATA,
     
     Rdp_TS_SHARECONTROLHEADER,
+    Rdp_TS_SHAREDATAHEADER,
     Rdp_TS_DEMAND_ACTIVE_PDU,
     Rdp_TS_CONFIRM_ACTIVE_PDU,
+)
+
+from data_model_v2_rdp_fast_path import (
+    Rdp_TS_FP_INPUT_HEADER,
+    Rdp_TS_FP_INPUT_PDU,
 )
 
 class RdpContext(object):
@@ -90,9 +96,10 @@ def parse(data, rdp_context = None):
     data = memoryview(data)
     pdu = RawDataUnit()
     pdu.deserialize_value(data)
-    pdu.reinterpret_field('payload', DataUnitField('tpkt', TpktDataUnit()))
+    pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
     
-    if pdu.tpkt.version == Tpkt.SLOW_PATH:
+    if pdu.rdp_fp_header.action == Rdp.FastPath.FASTPATH_INPUT_ACTION_X224:
+        pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
         pdu.tpkt.reinterpret_field('tpktUserData', DataUnitField('x224', X224HeaderDataUnit()))
         if pdu.tpkt.x224.type == X224.TPDU_CONNECTION_REQUEST:
             pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_connect', X224ConnectionDataUnit()))
@@ -174,7 +181,7 @@ def parse(data, rdp_context = None):
                 is_payload_encrypted = False
                 is_payload_handeled = False
                 if (rdp_context.pre_capability_exchange or 
-                        rdp_context.encryption_level != Rdp.Security.SEC_ENCRYPTION_NONE):
+                        rdp_context.encryption_level != Rdp.Security.ENCRYPTION_LEVEL_NONE):
                     pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('sec_header', Rdp_TS_SECURITY_HEADER()))
                     is_payload_encrypted = Rdp.Security.SEC_ENCRYPT in pdu.tpkt.mcs.rdp.sec_header.flags
                     
@@ -185,7 +192,7 @@ def parse(data, rdp_context = None):
                         is_payload_handeled = True
                         
                     elif Rdp.Security.SEC_INFO_PKT in pdu.tpkt.mcs.rdp.sec_header.flags:
-                        if rdp_context.encryption_level == Rdp.Security.SEC_ENCRYPTION_NONE:
+                        if rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_NONE:
                             pass
                         elif rdp_context.encryption_method in {
                                 Rdp.Security.ENCRYPTION_METHOD_40BIT,
@@ -219,8 +226,8 @@ def parse(data, rdp_context = None):
 
                     elif Rdp.Security.SEC_LICENSE_PKT in pdu.tpkt.mcs.rdp.sec_header.flags:
                         if (rdp_context.encryption_level in {
-                                Rdp.Security.SEC_ENCRYPTION_NONE, 
-                                Rdp.Security.SEC_ENCRYPTION_LOW
+                                Rdp.Security.ENCRYPTION_LEVEL_NONE, 
+                                Rdp.Security.ENCRYPTION_LEVEL_LOW
                                 }):
                             pass
                         elif (rdp_context.encryption_method in {
@@ -243,7 +250,7 @@ def parse(data, rdp_context = None):
                             is_payload_handeled = True
                     else:
                         # raise ValueError('Protocol error: unknown security packet type')
-                        if rdp_context.encryption_level == Rdp.Security.SEC_ENCRYPTION_NONE:
+                        if rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_NONE:
                             pass
                         elif rdp_context.encryption_method in {
                                 Rdp.Security.ENCRYPTION_METHOD_40BIT,
@@ -268,8 +275,20 @@ def parse(data, rdp_context = None):
                     elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU:
                         pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_CONFIRM_ACTIVE_PDU', Rdp_TS_CONFIRM_ACTIVE_PDU()))
                         
+                    elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DATAPDU:
+                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SHAREDATAHEADER', Rdp_TS_SHAREDATAHEADER()))
+    
+    elif pdu.rdp_fp_header.action == Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH:
+        pdu.reinterpret_field('payload.remaining', 
+                DataUnitField('rdp_fp', 
+                    Rdp_TS_FP_INPUT_PDU(
+                        is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS), 
+                        is_data_signature_present = Rdp.FastPath.FASTPATH_INPUT_FLAG_SECURE_CHECKSUM in pdu.rdp_fp_header.flags, 
+                        is_num_events_present = pdu.rdp_fp_header.numEvents == 0)))
+        
+        
     else:
-        raise ValueError('not yet supported')
+        ValueError('Unsupported packaet type')
         
     # if rdp_context.is_gcc_confrence and tpkt.x224.mcs.rdp.rdpGcc_SERVER_SECURITY:
     #     rdp_context.encryption_level = tpkt.x224.mcs.rdp.rdpGcc_SERVER_SECURITY.encryption_level

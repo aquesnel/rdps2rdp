@@ -41,7 +41,7 @@ from serializers import (
     ValueDependency,
     )
 
-from typing import Any, Sequence, Callable, TypeVar, Generic, Union
+from typing import Any, Sequence, Callable, TypeVar, Generic, Union, Dict
 
 
 # FIELD_VALUE_TYPE = TypeVar('FIELD_VALUE_TYPE')
@@ -69,6 +69,30 @@ def traverse_object_graph(value, path):
 def as_hex_str(b):
     return " ".join("{:02x}".format(x) for x in b)
 
+def lookup_name_in(names_by_value):
+    def lookup_name_in_inner(value):
+        if isinstance(value, list):
+            result = ['%s (%s)' % (names_by_value.get(v, '<unknown>'), v) for v in value]
+        elif isinstance(value, set):
+            result = {'%s (%s)' % (names_by_value.get(v, '<unknown>'), v) for v in value}
+        else:
+            result = '%s (%s)' % (names_by_value.get(value, '<unknown>'), value)
+        return result
+    return lookup_name_in_inner
+
+
+def add_constants_names_mapping(constants_prefix, mapping_name=None):
+    if not mapping_name:
+        mapping_name = constants_prefix + '_NAMES'
+    def class_decorator(cls):
+        mapping = {}
+        for k,v in cls.__dict__.items():
+            if k.startswith(constants_prefix):
+                mapping[v] = k
+        setattr(cls, mapping_name, mapping)
+        return cls
+    return class_decorator
+
 class SerializationException(Exception):
     pass
 
@@ -79,6 +103,9 @@ class BaseField(object):
     def __init__(self, name):
         self.name = name
     
+    def get_human_readable_value(self):
+        return self.get_value()
+
     def get_value(self) -> Any:
         raise NotImplementedError()
     
@@ -111,9 +138,10 @@ class BaseField(object):
         raise NotImplementedError()
         
 class PrimitiveField(BaseField):
-    def __init__(self, name, serializer):
+    def __init__(self, name, serializer, to_human_readable = lambda x: x):
         self.name = name
         self.serializer = serializer
+        self._to_human_readable = to_human_readable
         self.value = None
         self.raw_value = None
         self.is_value_dirty = False
@@ -121,6 +149,9 @@ class PrimitiveField(BaseField):
     def __str__(self):
         return '<PrimitiveField(name=%s, serializer=%s)>' % (
             self.name, self.serializer)
+
+    def get_human_readable_value(self):
+        return self._to_human_readable(self.get_value())
 
     def get_value(self) -> Any:
         if self.is_value_dirty:
@@ -161,7 +192,7 @@ class DataUnitField(BaseField):
     def __str__(self):
         return '<DataUnitField(name=%s, data_unit class=%s)>' % (
             self.name, self.data_unit.__class__)
-            
+
     def get_value(self) -> Any:
         return self.data_unit
 
@@ -183,6 +214,10 @@ class RemainingRawField(BaseField):
         self.orig_raw_value = orig_raw_value
         self.offset = offset
         self.remaining = memoryview(orig_raw_value)[offset:]
+
+    def __str__(self):
+        return '<RemainingRawField(orig_len=%d, offset=%d)>' % (
+            len(self.orig_raw_value), self.offset)
 
     def get_value(self) -> Any:
         return self.remaining
@@ -211,6 +246,9 @@ class ReferenceField(BaseField):
         return '<ReferenceField(name=%s, referenced_value_path=%s)>' % (
             self.name, self._referenced_value_path)
 
+    def get_human_readable_value(self):
+        return str(self)
+
     def get_value(self) -> Any:
         raise NotImplementedError('ReferenceField does not support get')
 
@@ -237,9 +275,19 @@ class OptionalField(BaseField):
         self._optional_field = optional_field
         self._value_is_present = False
 
+    def __str__(self):
+        return '<OptionalField(is_present=%s, field=%s)>' % (
+            self._value_is_present, self._optional_field)
+
     @property
     def name(self):
         return self._optional_field.name
+
+    def get_human_readable_value(self):
+        if self._value_is_present:
+            return self._optional_field.get_human_readable_value()
+        else:
+            return None
 
     def get_value(self) -> Any:
         if self._value_is_present:
@@ -277,9 +325,19 @@ class ConditionallyPresentField(BaseField):
         self._optional_field = optional_field
         self._is_present_condition = is_present_condition
 
+    def __str__(self):
+        return '<ConditionallyPresentField(is_present=%s, field=%s)>' % (
+            self._is_present_condition(), self._optional_field)
+
     @property
     def name(self):
         return self._optional_field.name
+        
+    def get_human_readable_value(self):
+        if self._is_present_condition():
+            return self._optional_field.get_human_readable_value()
+        else:
+            return None
 
     def get_value(self) -> Any:
         if self._is_present_condition():
@@ -297,12 +355,10 @@ class ConditionallyPresentField(BaseField):
             return 0
 
     def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
-        length = 0
-        try:
-            length = self._optional_field._deserialize_value(raw_data, offset)
-        except struct.error:
-            pass    
-        return length
+        if self._is_present_condition():
+            return self._optional_field._deserialize_value(raw_data, offset)
+        else:
+            return 0
     
     def _serialize_value(self, buffer: bytes, offset: int) -> int:
         if self._is_present_condition():
@@ -319,6 +375,9 @@ class UnionField(BaseField):
         return '<UnionField(fields=%s)>' % (
             [f.name for f in self._fields])
     
+    def get_human_readable_value(self):
+        return str(self)
+
     def get_length(self):
         length = None
         for f in self._fields:
@@ -355,6 +414,9 @@ class UnionWrapperField(BaseField):
     def name(self):
         return self._field.name
         
+    def get_human_readable_value(self):
+        return self._field.get_human_readable_value()
+
     def get_length(self):
         return 0
 
@@ -370,9 +432,48 @@ class UnionWrapperField(BaseField):
     def _serialize_value(self, buffer: bytes, offset: int) -> int:
         return 0
 
+AutoReinterpretItem = collections.namedtuple('AutoReinterpretItem', ['name', 'factory'])
+AUTO_REINTERPRET_TYPE_ID = TypeVar('AUTO_REINTERPRET_TYPE_ID')
+
+class AutoReinterpretBase(object):
+    def auto_reinterpret(self, data_unit):
+        raise NotImplementedError()
+
+class ArrayAutoReinterpret(AutoReinterpretBase):
+    def __init__(self, 
+            array_field_to_reinterpret_name: str,
+            item_field_to_reinterpret_name: str,
+            type_getter: ValueDependency[AUTO_REINTERPRET_TYPE_ID], 
+            type_mapping: Dict[AUTO_REINTERPRET_TYPE_ID, AutoReinterpretItem]):
+        self.array_field_to_reinterpret_name = array_field_to_reinterpret_name
+        self.item_field_to_reinterpret_name = item_field_to_reinterpret_name
+        self.type_getter = type_getter
+        self.type_mapping = type_mapping
+
+    def auto_reinterpret(self, data_unit):
+        array_value = getattr(data_unit, self.array_field_to_reinterpret_name)
+        
+        if not isinstance(array_value, list):
+            raise ValueError('array field must be a list')
+            
+        for i, item in enumerate(array_value):
+            item_type = self.type_getter.get_value(item)
+            if item_type in self.type_mapping:
+                item_reinterpret_config = self.type_mapping[item_type]
+                item.reinterpret_field(
+                        self.item_field_to_reinterpret_name, 
+                        DataUnitField(
+                            self.item_field_to_reinterpret_name, 
+                            item_reinterpret_config.factory()), 
+                        allow_overwrite = True)
+                data_unit.alias_field(item_reinterpret_config.name, '%s.%d.%s' % (self.array_field_to_reinterpret_name, i, self.item_field_to_reinterpret_name))
+
 class BaseDataUnit(object):
-    def __init__(self, fields):
+    def __init__(self, fields, auto_reinterpret_configs = None):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})
+        if auto_reinterpret_configs is None:
+            auto_reinterpret_configs = []
+        self._auto_reinterpret_configs = auto_reinterpret_configs
         self._fields = []
         for f in fields:
             self._fields.append(f)
@@ -382,6 +483,7 @@ class BaseDataUnit(object):
         for f in self._fields:
             if not isinstance(f, UnionField):
                 self._fields_by_name[f.name] = f
+        
 
     def __getattr__(self, name: str) -> Any:
         if name in self._fields_by_name:
@@ -390,7 +492,7 @@ class BaseDataUnit(object):
                 return f.get_referenced_value()
             return f.get_value()
         else:
-            raise AttributeError(name)
+            raise AttributeError('Class <%s> does not have a field named: %s' % (self.__class__.__name__, name))
         
     def __setattr__(self, name: str, value: Any):
         if name not in self._fields_by_name:
@@ -421,10 +523,7 @@ class BaseDataUnit(object):
         result = {}
         result[ItemKey(-1, '__python_type__')] = self.__class__        
         for field_index, f in enumerate(self._fields):
-            if isinstance(f, ReferenceField) or isinstance(f, UnionField):
-                v = str(f)
-            else:
-                v = f.get_value()
+            v = f.get_human_readable_value()
             if not isinstance(v, list):
                 v_list = [v]
             else:
@@ -453,6 +552,8 @@ class BaseDataUnit(object):
         for f in self._fields:
             length = f.deserialize_value(raw_data, offset)
             offset += length
+        for config in self._auto_reinterpret_configs:
+            config.auto_reinterpret(self)
         return offset - orig_offset
 
     def serialize_value(self, buffer: bytes, orig_offset: int = 0) -> int:
@@ -475,7 +576,6 @@ class BaseDataUnit(object):
         new_field = ReferenceField(new_name, self, path)
         self._fields_by_name[new_field.name] = new_field
         self._fields.append(new_field)
-
 
     def reinterpret_field(self, name_to_reinterpret, new_field, allow_overwrite = False):
         use_remainder = False

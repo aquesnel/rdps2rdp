@@ -3,6 +3,9 @@ import struct
 from typing import Any, Sequence, Callable, TypeVar, Generic, Set
 
 FIELD_VALUE_TYPE = TypeVar('FIELD_VALUE_TYPE')
+VALUE_RESULT_TYPE = TypeVar('VALUE_RESULT_TYPE')
+SERIALIZED_TYPE = TypeVar('SERIALIZED_TYPE')
+DESERIALIZED_TYPE = TypeVar('DESERIALIZED_TYPE')
 
 UINT_8  = '<B'
 UINT_16_BE = '>H'
@@ -12,19 +15,30 @@ PAD = 'x'
 STRING_WITH_LENGTH = '%ds'
             
 class LengthDependency(object):
-    def __init__(self, length_getter = len):
+    def __init__(self, length_getter: Callable[[Any], int] = len):
         self._length_getter = length_getter
         
-    def get_length(self, value):
+    def get_length(self, value: Any) -> int:
         return self._length_getter(value)
 
-class ValueDependency(object):
-    def __init__(self, value_getter):
+class ValueDependency(Generic[VALUE_RESULT_TYPE]):
+    def __init__(self, value_getter: Callable[[Any], VALUE_RESULT_TYPE]):
         self._value_getter = value_getter
         
-    def get_value(self, value):
+    def get_value(self, value: Any):
         return self._value_getter(value)
 
+class ValueTransformer(Generic[SERIALIZED_TYPE, DESERIALIZED_TYPE]):
+    def __init__(self, to_serialized: Callable[[DESERIALIZED_TYPE], SERIALIZED_TYPE], from_serialized: Callable[[SERIALIZED_TYPE], DESERIALIZED_TYPE]):
+        self._to_serialized = to_serialized
+        self._from_serialized = from_serialized
+        
+    def to_serializable_value(self, value: DESERIALIZED_TYPE) -> SERIALIZED_TYPE:
+        return self._to_serialized(value)
+    
+    def from_serializable_value(self, serialized_value: SERIALIZED_TYPE) -> DESERIALIZED_TYPE:
+        return self._from_serialized(serialized_value)
+        
 class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
     """
     Serialization/deserialization unit for a value. Can be a single unnamed value, or a structure with named values.
@@ -228,20 +242,20 @@ class BitMaskSerializer(BaseSerializer[int]):
         masked_value = self._bit_mask & value
         self._int_serializer.pack_into(buffer, offset, masked_value)
 
-class ValueTransformSerializer(BaseSerializer[int]):
-    def __init__(self, inner_serializer: BaseSerializer[Any], transform: Callable[[Any], Any]):
+class ValueTransformSerializer(BaseSerializer[DESERIALIZED_TYPE]):
+    def __init__(self, inner_serializer: BaseSerializer[SERIALIZED_TYPE], transform: ValueTransformer[SERIALIZED_TYPE, DESERIALIZED_TYPE]):
         self._inner_serializer = inner_serializer
         self._transform = transform
     
-    def get_length(self, value: Any) -> int:
-        return self._inner_serializer.get_length(self._transform(value))
+    def get_length(self, value: DESERIALIZED_TYPE) -> int:
+        return self._inner_serializer.get_length(self._transform.to_serializable_value(value))
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Any:
+    def unpack_from(self, raw_data: bytes, offset: int) -> DESERIALIZED_TYPE:
         value = self._inner_serializer.unpack_from(raw_data, offset)
-        return self._transform(value)
+        return self._transform.from_serializable_value(value)
     
-    def pack_into(self, buffer: bytes, offset: int, value: Any) -> None:
-        transformed_value = self._transform(value)
+    def pack_into(self, buffer: bytes, offset: int, value: DESERIALIZED_TYPE) -> None:
+        transformed_value = self._transform.to_serializable_value(value)
         self._inner_serializer.pack_into(buffer, offset, transformed_value)
 
 BASE_DATA_UNIT = TypeVar('BASE_DATA_UNIT')
@@ -407,45 +421,6 @@ class RawLengthSerializer(BaseSerializer[bytes]):
     def pack_into(self, buffer: bytes, offset: int, value: bytes) -> None:
         buffer[offset : offset + self.get_length(value)] = value[:self.get_length(value)]
 
-
-
-# class CompositeSerializer(BaseSerializer[FIELD_VALUE_TYPE]):
-#     """
-#     Serialization/deserialization unit for mapping between ordered unamed values, and named unordered values.
-#     """
-#     TODO: rename as DataUnitFactory?
-#     def __init__(self, name_serializer_pairs: Sequence[NamedSerializer]):
-#         self._name_serializer_pairs = name_serializer_pairs
-
-#     # def _get_names_inorder(self):
-#     #     return (p.name for p in self._name_serializer_pairs)
-
-#     # def _get_serializers_inorder(self):
-#     #     return (p.serializer for p in self._name_serializer_pairs)
-
-#     def get_length(self, value: NamedValues) -> int:
-#         values = value.get_values()
-#         total_length = 0
-#         for p in self._name_serializer_pairs:
-#             total_length += p.serializer.get_length(values[p.name])
-#         return total_length
-        
-#     def unpack_from(self, raw_data: bytes, offset: int) -> NamedValues:
-#         result = {}
-#         for pair in self._name_serializer_pairs:
-#             value = pair.serializer.unpack_from(raw_data, offset)
-#             result[pair.name] = value
-#             offset += pair.serializer.get_length(value)
-#         return NamedValues(*result)
-    
-#     def pack_into(self, buffer: bytes, offset: int, value: NamedValues)  -> None:
-#         values = value.get_values()
-#         for p in self._name_serializer_pairs:
-#             v = values[p.name]
-#             p.serializer.pack_into(buffer, offset, v)
-#             offset += p.serializer.get_length(v)
-            
-
 class DependentValueSerializer(BaseSerializer):
     def __init__(self, serializer, dependency):
         self._serializer = serializer
@@ -460,75 +435,3 @@ class DependentValueSerializer(BaseSerializer):
     def pack_into(self, buffer, offset, value):
         dependent_value = self._dependency.get_value(value)
         self._serializer.pack_into(buffer, offset, dependent_value)
-
-# class NonSerializingReferenceSerializer(BaseSerializer):
-#     def __init__(self, name, value_getter):
-#         self.name = name
-#         self._value_getter = value_getter
-        
-#     def get_referenced_value(self):
-#         return self._value_getter()
-    
-#     def get_length(self, value):
-#         return 0
-
-#     def unpack_from(self, raw_data, offset):
-#         return None
-    
-#     def pack_into(self, buffer, offset, value):
-#         pass
-
-# class ReinterpretedSerializer(BaseSerializer):
-#     def __init__(self, name, original_field, new_field):
-#         self.name = name
-#         self._original_field = original_field
-#         self._new_field = new_field
-#         self._remaining_field = RawLengthSerializer(
-#                 name + "_remaining", 
-#                 LengthDependency(lambda x: self._original_field.get_length(x) - self._new_field.get_length(x)))
-        
-#     def get_original_field(self):
-#         return self._original_field
-    
-#     def get_remaining_field(self):
-#         return self._original_field
-    
-#     def clear_remaining_field(self):
-#         self._remaining_field = RawLengthSerializer(
-#                 self._remaining_field.name, 
-#                 LengthDependency(lambda x: 0))
-    
-#     def get_length(self, value):
-#         return self._new_field.get_length(value)
-
-#     def unpack_from(self, raw_data, offset):
-#         return self._new_field.unpack_from(raw_data, offset)
-    
-#     def pack_into(self, buffer, offset, value):
-#         self._new_field.pack_into(buffer, offset, value)
-#         raise ValueError("TODO: how do I pack the original remaining value if it has not been reinterpreted?")
-#         # length = self._new_field.get_length(value)
-#         # self._remaining_field.pack_into(buffer, offset + length, value)
-
-# class Marshaller(Generic[FIELD_VALUE_TYPE]):
-#     # def __init__(self, composer: Callable[Mapping[str, Any], FIELD_VALUE_TYPE], decomposer: Callable[FIELD_VALUE_TYPE, Mapping[str, Any]]):
-#     def __init__(self):
-#         self.compose = NamedValues
-#         self.decompose = NamedValues.get_values
-
-
-
-# class StructuredDataUnitSerializer(BaseSerializer):
-#     def __init__(self, name, data_unit_factory):
-#         self.name = name
-#         self._data_unit_factory = data_unit_factory
-
-#     def get_length(self, value):
-#         return len(value)
-        
-#     def unpack_from(self, data, offset):
-#         return self._data_unit_factory(data[offset:])
-    
-#     def pack_into(self, buffer, offset, value):
-#         wire_bytes = value.as_wire_bytes()
-#         buffer[offset : offset + len(wire_bytes)] = wire_bytes

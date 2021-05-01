@@ -2,6 +2,9 @@ from data_model_v2 import (
     BaseDataUnit,
     
     PrimitiveField,
+        
+    add_constants_names_mapping,
+    lookup_name_in,
 )
 from serializers import (
     RawLengthSerializer,
@@ -19,17 +22,13 @@ from serializers import (
     LengthDependency,
 )
 
+@add_constants_names_mapping('TPDU_', 'TPDU_NAMES')
 class X224(object):
     END_OF_TYPE = b'\x08'
     
     TPDU_DATA = 0xF0
     TPDU_CONNECTION_REQUEST = 0xE0
     TPDU_CONNECTION_CONFIRM = 0xD0
-    TPDU_TYPE = {
-        TPDU_CONNECTION_REQUEST: 'TPDU_CONNECTION_REQUEST',
-        TPDU_CONNECTION_CONFIRM: 'TPDU_CONNECTION_CONFIRM',
-        TPDU_DATA: 'TPDU_DATA',
-    }
     
 class X224HeaderDataUnit(BaseDataUnit):
     def __init__(self):
@@ -38,13 +37,10 @@ class X224HeaderDataUnit(BaseDataUnit):
                 DependentValueSerializer(
                     StructEncodedSerializer(UINT_8),
                     ValueDependency(lambda x: len(self) - self._fields_by_name['length'].get_length(self.length)))),
-            PrimitiveField('type', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('type', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(X224.TPDU_NAMES)),
             PrimitiveField('payload',
                 RawLengthSerializer(LengthDependency(lambda x: self.length - self._fields_by_name['type'].get_length()))),
         ])
-
-    def get_x224_type_name(self):
-        return X224.TPDU_TYPE.get(self.type, 'unknown (%d)' % self.type)
 
 class X224ConnectionDataUnit(BaseDataUnit):
     def __init__(self):

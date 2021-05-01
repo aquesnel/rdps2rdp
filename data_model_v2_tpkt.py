@@ -29,7 +29,7 @@ class Tpkt(object):
 class TpktDataUnit(BaseDataUnit):
     def __init__(self):
         super(TpktDataUnit, self).__init__(fields = [
-            PrimitiveField('version', StructEncodedSerializer(UINT_8)),
+            # PrimitiveField('version', StructEncodedSerializer(UINT_8)), # moved to Rdp_TS_FP_INPUT_HEADER.action
             PrimitiveField('_', StructEncodedSerializer(PAD)),
             PrimitiveField('length',
                 DependentValueSerializer(
@@ -38,6 +38,3 @@ class TpktDataUnit(BaseDataUnit):
             PrimitiveField('tpktUserData',
                 RawLengthSerializer(LengthDependency(lambda x: self.length - 4))),
         ])
-
-    def get_tpkt_version_name(self):
-        return Tpkt.TPKT_VERSIONS.get(self.version, Tpkt.FAST_PATH_NAME)

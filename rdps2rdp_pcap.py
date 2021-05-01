@@ -20,6 +20,7 @@ import re
 
 import credssp
 import mccp
+import parser_v2
 
 # import sslkeylog
 # sslkeylog.set_keylog(os.environ.get('SSLKEYLOGFILE'))  # Or directly specify a path
@@ -41,15 +42,17 @@ SERVER_USER_NAME = "runneradmin"
 SERVER_PASSWORD = "P@ssw0rd!"
 
 
-
+def to_hex(b):
+    # return ' '.join(x.encode('hex') for x in msg
+    return " ".join("{:02x}".format(x) for x in b)
 
 
 def receivePdu(sock, sockName):
-    msg = ""
+    msg = b''
     
     print("%s receive: waiting" % sockName)
     sock.settimeout(1)
-    temp = ''
+    temp = b''
     try:
         temp = sock.recv(BUFF_SIZE)
         msg += temp
@@ -57,13 +60,13 @@ def receivePdu(sock, sockName):
         if (not re.search("Resource temporarily unavailable", str(e))
                 and not re.search("The operation did not complete", str(e))):
             print("%s receive: %s" % (sockName, e))
-    print("           Msg from %s [len(msg) = %s] : '%s'" % (sockName, len(msg), ' '.join(x.encode('hex') for x in msg)))
+    print("           Msg from %s [len(msg) = %s] : '%s'" % (sockName, len(msg), to_hex(msg)))
     # print("      ->                '%s'" % msg)
     sock.settimeout(None)
     return msg
 
 def sendPdu(sock, sockName, pdu):
-    print("Forwarding Msg from %s [len(msg) = %s] : '%s'" % (sockName, len(pdu), ' '.join(x.encode('hex') for x in pdu)))
+    print("Forwarding Msg from %s [len(msg) = %s] : '%s'" % (sockName, len(pdu), to_hex(pdu)))
     # print("      ->                '%s'" % pdu)
     sock.sendall(pdu)
     
@@ -134,6 +137,9 @@ def handler(clientsock,addr):
         
         print('RDP: serverConnectionConfirm')
         serverConnectionConfirm = receivePdu(serversock, "Server")
+        print(parser_v2.parse(serverConnectionConfirm))
+        # print('serverConnectionConfirm[11] = ', serverConnectionConfirm[11])
+        # print('serverConnectionConfirm[15] = ', serverConnectionConfirm[15])
         # the first response PDU from the server is X.224 Connection Confirm
         # with a payload of [MS-RDPBCGR] RDP_NEG_RSP
         # byte 11 of the PDU is the PDU type
@@ -141,15 +147,15 @@ def handler(clientsock,addr):
         # \x03 = RDP_NEG_FAILURE
         # byte 16 of the PDU is RDP_NEG_RSP.selectedProtocol and
         # \x01 = PROTOCOL_SSL
-        if (serverConnectionConfirm[11] == '\x02' and serverConnectionConfirm[15] == '\x01'):
+        if (serverConnectionConfirm[11] == 0x02 and serverConnectionConfirm[15] == 0x01):
             print('Server requested TLS security')
-        elif (serverConnectionConfirm[11] == '\x02' 
-            and (serverConnectionConfirm[15] == '\x03'
-                or serverConnectionConfirm[15] == '\x08')):
+        elif (serverConnectionConfirm[11] == 0x02 
+            and (serverConnectionConfirm[15] == 0x03
+                or serverConnectionConfirm[15] == 0x08)):
             print('Server requested Hybrid security (CredSSP) with version %s' % str(serverConnectionConfirm[15]).encode('hex'))
             useCredSsp = True
             # serverConnectionConfirm = RDP_NEG_RSP_TLS
-        elif (serverConnectionConfirm[11] == '\x03'):
+        elif (serverConnectionConfirm[11] == 0x03):
             raise ValueError('Server rejected the connection with reason: %s' % str(serverConnectionConfirm[15]).encode('hex'))
         else:
             raise ValueError('Server requested unknown security')
@@ -199,45 +205,90 @@ def handler(clientsock,addr):
                 print('CredSSP: MitM with Client')
                 negotiate_credssp_as_server(sslclientsock)
 
-        passthrough('RDP: client ConfrenceCreate', sslclientsock, "Client", sslserversock, "Server")
-        passthrough('RDP: server ConfrenceResponse', sslserversock, "Server", sslclientsock, "Client")
+        # passthrough('RDP: client ConfrenceCreate', sslclientsock, "Client", sslserversock, "Server")
+        # passthrough('RDP: server ConfrenceResponse', sslserversock, "Server", sslclientsock, "Client")
         
-        
-
+        to_server, to_client = TcpStream.create_stream_pair(sslserversock,sslclientsock)
         print('Passing traffic through uninterpreted from client to server')
-        # thread.start_new_thread(trafficloop,(sslclientsock,sslserversock,True))
-        threading.Thread(target=trafficloop, args=(sslclientsock,sslserversock,True)).start()
+        threading.Thread(target=trafficloop, args=(to_server,True)).start()
 
-        time.sleep(2)
         print('Passing traffic through uninterpreted from server to client')
-        # thread.start_new_thread(trafficloop,(sslserversock,sslclientsock,True))
-        threading.Thread(target=trafficloop, args=(sslserversock,sslclientsock,True)).start()
+        threading.Thread(target=trafficloop, args=(to_client,True)).start()
         
     except:
         import traceback
         traceback.print_exc()
 
+class TcpStream(object):
+    def __init__(self, source, destination):
+        self.source = source
+        self.destination = destination
+        self.bytes_received = 0
+        self.bytes_sent = 0
+        self.oposite_stream = None
+        
+    @staticmethod
+    def create_stream_pair(server, client):
+        to_client = TcpStream(server, client)
+        to_server = TcpStream(client, server)
+        
+        to_client.oposite_stream = to_server
+        to_server.oposite_stream = to_client
+        
+        return (to_server, to_client)
+        
+    def make_tcp_packet(self, payload):
+        return (IP(src=self.source.getpeername()[0], dst=self.destination.getpeername()[0])
+                /TCP(sport=self.source.getpeername()[1], dport=self.destination.getpeername()[1], seq=self.bytes_sent, ack=self.oposite_stream.bytes_sent, flags='PA')
+                /Raw(payload))
+                
+    def receive(self, buffer_size):
+        msg = self.source.recv(buffer_size)
+        if msg:
+            self.bytes_received += len(msg)
+        return msg
+    
+    def send(self, msg):
+        self.destination.sendall(msg)
+        if msg:
+            self.bytes_sent += len(msg)
 
-def trafficloop(source,destination,dopcap):
-    string = ' '
+def trafficloop(tcpStream,dopcap):
+    msg = ' '
+    rdp_context = parser_v2.RdpContext()
     try:
-        while string:
-            string = source.recv(BUFF_SIZE)
-            if string:
-                destination.sendall(string)                
+        while msg:
+            msg = tcpStream.receive(BUFF_SIZE)
+            if msg:
+                if dopcap:
+                    # pkt_list = rdpcap(OUTPUTPCAP)
+                    # socket.getpeername()
+                    # socket.getsockname()
+                    pkt = tcpStream.make_tcp_packet(msg)
+                    # s = hexdump(pkt, dump=True)
+                    wrpcap(OUTPUTPCAP,pkt,append=True)
+                # print("           Msg from %s [len(msg) = %s] : '%s'" % (tcpStream.source.getpeername()[0], len(msg), to_hex(msg)))
+                print("           Msg from %s [len(msg) = %s] : '%s'" % (tcpStream.source.getpeername()[0], len(msg), parser_v2.parse(msg, rdp_context)))
+                tcpStream.send(msg)
             else:
                 print('Shutting down rdp session')
-                source.shutdown(socket.SHUT_RD)
-                destination.shutdown(socket.SHUT_WR) 
+                tcpStream.source.shutdown(socket.SHUT_RD)
+                tcpStream.destination.shutdown(socket.SHUT_WR) 
     except:
         import traceback
         traceback.print_exc()
-
 
 if __name__ == '__main__':
     True
     False
-    if True: # full MITM
+
+    if True: # MITM
+        print('deleting old pcap file: ', OUTPUTPCAP)
+        try:
+            os.remove(OUTPUTPCAP)
+        except FileNotFoundError:
+            pass
+        
         serversock = socket(AF_INET, SOCK_STREAM)
         serversock.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
         serversock.bind(LISTENCON)
@@ -246,8 +297,29 @@ if __name__ == '__main__':
             print('waiting for connection...')
             clientsock, addr = serversock.accept()
             print('...connected from:', addr)
-            handler(clientsock,addr)
+            
+            if True: # intercept and decrypte MITM
+                handler(clientsock,addr)
+                
+            if False: # observe only MITM
+                destsock = socket(AF_INET, SOCK_STREAM)
+                destsock.connect(REMOTECON)
+                destsock.setblocking(1)
+        
+                to_server, to_client = TcpStream.create_stream_pair(destsock,clientsock)
+                print('Passing traffic through uninterpreted from client to server')
+                threading.Thread(target=trafficloop, args=(to_server,True)).start()
+        
+                print('Passing traffic through uninterpreted from server to client')
+                threading.Thread(target=trafficloop, args=(to_client,True)).start()
+                break
 
+    if False: # read/print pcap file
+        pkt_list = rdpcap(OUTPUTPCAP)
+        for pkt in pkt_list:
+            print(repr(pkt))
+            print(pkt[Raw].load)
+        
     if False: # connect as client
         serversock = socket(AF_INET, SOCK_STREAM)
         serversock.connect(REMOTECON)
@@ -326,4 +398,9 @@ if __name__ == '__main__':
         )
         import pprint
         pprint.pprint(parse_flags(3800728117, enum_type=NegotiateFlags))
+        
+    if False: # play with scapy
+        tcp = (IP(src='8.8.8.8', dst='127.0.0.1')
+            / TCP(sport=63, dport=63, flags='PA', seq=1, ack=1))
+        tcp.display()
         

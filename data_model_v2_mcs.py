@@ -4,7 +4,10 @@ from data_model_v2 import (
     PerEncodedDataUnit,
     
     PrimitiveField,
-    DataUnitField,
+    DataUnitField,   
+    
+    add_constants_names_mapping,
+    lookup_name_in,
 )
 from data_model_v2_rdp import RdpUserDataBlock
 from serializers import (
@@ -23,6 +26,7 @@ from serializers import (
     UINT_32_LE,
     PAD,
     
+    ValueTransformer,
     ValueDependency,
     LengthDependency,
 )
@@ -59,23 +63,19 @@ class McsHeaderDataUnit(BaseDataUnit):
         super(McsHeaderDataUnit, self).__init__(fields = [
             PrimitiveField('type', 
                 ValueTransformSerializer(
-                    StructEncodedSerializer(UINT_8), 
-                    lambda x: Mcs.CONNECT if x == Mcs.CONNECT else x & 0xfc)), # use the high 6 bits for all types except CONNECT
+                    StructEncodedSerializer(UINT_8),
+                    ValueTransformer(
+                        to_serialized = lambda x: x,
+                        from_serialized = lambda x: Mcs.CONNECT if x == Mcs.CONNECT else x & 0xfc)), # use the high 6 bits for all types except CONNECT
+                to_human_readable = lookup_name_in(Mcs.MCS_TYPE)),
             PrimitiveField('payload', RawLengthSerializer()),
         ])
-    
-    def get_mcs_type_name(self):
-        return Mcs.MCS_TYPE.get(self.type, 'unknown (%d)' % self.type)
 
 class McsConnectHeaderDataUnit(BaseDataUnit):
     def __init__(self):
         super(McsConnectHeaderDataUnit, self).__init__(fields = [
-            PrimitiveField('mcs_connect_type', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('mcs_connect_type', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Mcs.MCS_CONNECT_TYPE)),
         ])
-        
-    def get_mcs_connect_type(self):
-        return Mcs.MCS_CONNECT_TYPE.get(self.mcs_connect_type, 'unknown (%d)' % self.mcs_connect_type)
-
 
 class McsConnectInitialDataUnit(BaseDataUnit):
     def __init__(self):

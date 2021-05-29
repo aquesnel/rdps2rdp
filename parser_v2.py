@@ -4,7 +4,8 @@ from data_model_v2 import (
     OptionalField,
     ConditionallyPresentField,
 
-    RawDataUnit, 
+    RawDataUnit,
+    BerEncodedDataUnit,
 )
         
 from serializers import (
@@ -63,6 +64,7 @@ from data_model_v2_rdp import (
 from data_model_v2_rdp_fast_path import (
     Rdp_TS_FP_INPUT_HEADER,
     Rdp_TS_FP_INPUT_PDU,
+    Rdp_TS_FP_INPUT_PDU_length_only,
 )
 
 class RdpContext(object):
@@ -85,20 +87,83 @@ class RdpContext(object):
     def clone(self):
         import copy
         return copy.deepcopy(self)
+        
+    def __str__(self):
+        return str({k:v for k,v in self.__dict__.items() if not callable(v)})
 
 IS_DECRYPTION_SUPPORTED = False
+
+def _get_pdu_type(data, rdp_context):
+    
+    # the first byte value of the payload for each type is:
+    # FASTPATH = xxxx xx00
+    # CREDSSP  = 0011 0000
+    # X224     = 0000 0011
+    #
+    # this give the possibility that CREDSSP and FASTPATH could have the same 
+    # value. This can be resolved because a CREDSSP pdu will only be sent during 
+    # connection initialization, while FASTPATH will only be sent after the 
+    # connection initialization is complete.
+    
+    first_byte = data[0]
+    if first_byte == Rdp.DataUnitTypes.X224:
+        return Rdp.DataUnitTypes.X224
+    
+    elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_INPUT_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
+        return Rdp.DataUnitTypes.FAST_PATH
+    
+    elif rdp_context.pre_capability_exchange and first_byte == Rdp.DataUnitTypes.CREDSSP:
+        return Rdp.DataUnitTypes.CREDSSP
+    
+    else:
+        raise ValueError('Unsupported packet type')
+
+def parse_pdu_length(data, rdp_context = None):
+    if rdp_context is None:
+        rdp_context = RdpContext()
+    
+    pdu_type = _get_pdu_type(data, rdp_context)
+    
+    if pdu_type == Rdp.DataUnitTypes.X224:
+        pdu = RawDataUnit().with_value(data)
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
+        pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
+        
+        return pdu.tpkt.length
+    
+    elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
+        pdu = RawDataUnit().with_value(data)
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
+        pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_INPUT_PDU_length_only()))
+        
+        return pdu.rdp_fp.length
+    
+    elif pdu_type == Rdp.DataUnitTypes.CREDSSP:
+        # the pdu.credssp.length field only contains the length of 
+        # the payload and not the header. Taking the length of the DataUnit 
+        # works eventhough we only have the partial pdu because the 
+        # RawLengthField size is taken from the value of the length field.
+        pdu = RawDataUnit().with_value(data)
+        pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()))
+        
+        return len(pdu.credssp)
+    
+    else:
+        raise ValueError('Unsupported packet type')
 
 def parse(data, rdp_context = None):
     if rdp_context is None:
         rdp_context = RdpContext()
         
     # rdp_context.is_gcc_confrence = False
-    data = memoryview(data)
-    pdu = RawDataUnit()
-    pdu.deserialize_value(data)
-    pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
+    pdu_type = _get_pdu_type(data, rdp_context)
     
-    if pdu.rdp_fp_header.action == Rdp.FastPath.FASTPATH_INPUT_ACTION_X224:
+    pdu = RawDataUnit().with_value(data)
+    
+    if pdu_type in { Rdp.DataUnitTypes.X224, Rdp.DataUnitTypes.FAST_PATH }:
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
+    
+    if pdu_type == Rdp.DataUnitTypes.X224:
         pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
         pdu.tpkt.reinterpret_field('tpktUserData', DataUnitField('x224', X224HeaderDataUnit()))
         if pdu.tpkt.x224.type == X224.TPDU_CONNECTION_REQUEST:
@@ -278,7 +343,7 @@ def parse(data, rdp_context = None):
                     elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DATAPDU:
                         pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SHAREDATAHEADER', Rdp_TS_SHAREDATAHEADER()))
     
-    elif pdu.rdp_fp_header.action == Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH:
+    elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
         pdu.reinterpret_field('payload.remaining', 
                 DataUnitField('rdp_fp', 
                     Rdp_TS_FP_INPUT_PDU(
@@ -287,8 +352,11 @@ def parse(data, rdp_context = None):
                         is_num_events_present = pdu.rdp_fp_header.numEvents == 0)))
         
         
+    elif pdu_type == Rdp.DataUnitTypes.CREDSSP:
+        pass
+    
     else:
-        ValueError('Unsupported packaet type')
+        ValueError('Unsupported packet type')
         
     # if rdp_context.is_gcc_confrence and tpkt.x224.mcs.rdp.rdpGcc_SERVER_SECURITY:
     #     rdp_context.encryption_level = tpkt.x224.mcs.rdp.rdpGcc_SERVER_SECURITY.encryption_level
@@ -310,3 +378,5 @@ def parse(data, rdp_context = None):
     #     rdp_context.pre_capability_exchange = False
     
     return pdu
+
+

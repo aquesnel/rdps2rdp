@@ -16,6 +16,7 @@ from serializers import (
     StaticSerializer,
     ValueTransformSerializer,
     BerEncodedLengthSerializer,
+    PerEncodedLengthSerializer,
     ArraySerializer,
     DataUnitSerializer,
     
@@ -115,6 +116,7 @@ class McsGccConnectionDataUnit(BaseDataUnit):
             PrimitiveField('gcc_header', RawLengthSerializer(LengthDependency(lambda x: 21))),
             DataUnitField('gcc_userData', 
                 PerEncodedDataUnit(
+                    PerEncodedLengthSerializer.RANGE_0_64K,
                     ArraySerializer(
                         DataUnitSerializer(RdpUserDataBlock),
                         length_dependency = LengthDependency()))),
@@ -124,5 +126,5 @@ class McsSendDataUnit(BaseDataUnit):
     def __init__(self):
         super(McsSendDataUnit, self).__init__(fields = [
             PrimitiveField('mcs_data_parameters', RawLengthSerializer(LengthDependency(lambda x: 5))),
-            DataUnitField('mcs_data', PerEncodedDataUnit()),
+            DataUnitField('mcs_data', PerEncodedDataUnit(PerEncodedLengthSerializer.RANGE_VALUE_DEFINED)),
         ])

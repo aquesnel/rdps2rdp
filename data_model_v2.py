@@ -8,6 +8,7 @@ import functools
 import collections
 import pprint
 
+import utils
 import serializers
 from serializers import (
     BaseSerializer,
@@ -66,8 +67,6 @@ def traverse_object_graph(value, path):
         value = getattr(value, field_name)
     return value
 
-def as_hex_str(b):
-    return " ".join("{:02x}".format(x) for x in b)
 
 def lookup_name_in(names_by_value):
     def lookup_name_in_inner(value):
@@ -165,22 +164,26 @@ class PrimitiveField(BaseField):
         self.value = value
 
     def get_length(self):
-        return self.serializer.get_length(self.get_value())
+        if self.is_value_dirty:
+            return self.serializer.get_serialized_length(self.get_value())
+        else:
+            return len(self.raw_value)
         
     def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
-        value = self.serializer.unpack_from(raw_data, offset)
+        value, length = self.serializer.unpack_from(raw_data, offset)
         self.value = value
         self.is_value_dirty = False
-        length = self.serializer.get_length(value)
+        # utils.assertEqual(length, self.serializer.get_serialized_length(value))
+        # length = self.serializer.get_serialized_length(value)
         self.raw_value = memoryview(raw_data)[offset : offset+length]
         return length
     
     def _serialize_value(self, buffer: bytes, offset: int) -> int:
         if self.is_value_dirty:
-            self.serializer.pack_into(buffer, offset, self.value)
-            length = self.serializer.get_length(self.value)
+            length = self.serializer.pack_into(buffer, offset, self.value)
         else:
             length = len(self.raw_value)
+            utils.assertLessEqual(offset+length, len(buffer))
             buffer[offset : offset+length] = self.raw_value
         return length
 
@@ -505,10 +508,12 @@ class BaseDataUnit(object):
         return self.get_length()
         
     def get_length(self):
-        length = 0
+        total_length = 0
         for f in self._fields:
-            length += f.get_length()
-        return length
+            length = f.get_length()
+            total_length += length
+            # print('field %s has length %d' % (f.name, length))
+        return total_length
 
     def __str__(self):
         return pprint.pformat(self._as_dict_for_pprint(), width=160)
@@ -534,9 +539,9 @@ class BaseDataUnit(object):
                 elif isinstance(v, (bytes, bytearray, memoryview)):
                     length = len(v)
                     if length < 10:
-                        s = "b'%s'" % as_hex_str(v)
+                        s = "b'%s'" % utils.as_hex_str(v)
                     else:
-                        s = "b'%s...%s'" % (as_hex_str(v[:4]), as_hex_str(v[-4:]))
+                        s = "b'%s...%s'" % (utils.as_hex_str(v[:4]), utils.as_hex_str(v[-4:]))
                     v = '<bytes(len %d): %s>' % (length, s)
                 v_list[value_index] = v
             if len(v_list) == 1:
@@ -546,6 +551,10 @@ class BaseDataUnit(object):
             
             result[ItemKey(field_index, f.name)] = v
         return result
+        
+    def with_value(self, raw_data: bytes):
+        self.deserialize_value(memoryview(raw_data))
+        return self
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int = 0) -> int:
         offset = orig_offset
@@ -595,14 +604,12 @@ class BaseDataUnit(object):
                 if isinstance(f, ReferenceField):
                     raise ValueError('reinterpreting reference fields is not supported. Reinterpret the field by using the original path: %s' % (f.get_referenced_path()))
                 if use_remainder and isinstance(f, RemainingRawField):
-                    # if not isinstance(f, RemainingRawField):
-                    #     raise ValueError('field "%s" must be of type RemainingRawField' % (f.name))
                     orig_raw_value = f.orig_raw_value
                     orig_remaining = f.get_value()
                     length = new_field.deserialize_value(orig_remaining, 0)
                     remaining_field = RemainingRawField(f.name, orig_raw_value, f.offset + length)
                 else:
-                    orig_raw_value = bytearray()
+                    orig_raw_value = bytearray(f.get_length())
                     length = f.serialize_value(orig_raw_value, 0)
                     orig_raw_value = orig_raw_value[:length]
                     
@@ -611,8 +618,17 @@ class BaseDataUnit(object):
                 
                 if new_field.name == remaining_field.name:
                     if len(remaining_field.get_value()) > 0:
-                        raise ValueError('Cannot overwrite field "%s" because not all of the bytes were consumed during the re-interpretation as %s. Existing length %d, consumed length %d' % (
-                            remaining_field.name, new_field, len(remaining_field.get_value()) + length, length))
+                        pass
+                        raise ValueError(
+                            ('Cannot overwrite field "%s" because not all of the bytes were consumed during '
+                                + 'the re-interpretation as %s. Existing length %d, consumed length %d. '
+                                + 'Original bytes: %s, reinterprested_field: %s') % (
+                            remaining_field.name, 
+                            new_field, 
+                            len(remaining_field.get_value()) + length, 
+                            length,
+                            utils.as_hex_str(orig_raw_value),
+                            new_field.get_human_readable_value()))
                 else:
                     self._fields_by_name[remaining_field.name] = remaining_field
                     self._fields.insert(i+1, remaining_field)
@@ -627,6 +643,12 @@ class RawDataUnit(BaseDataUnit):
         super().__init__([
             PrimitiveField('payload', RawLengthSerializer()),
         ])
+       
+    @staticmethod 
+    def parse(data):
+        pdu = RawDataUnit()
+        pdu.deserialize_value(memoryview(data))
+        return pdu
 
 class Ber(object):
     # ITU-T X.690
@@ -684,11 +706,11 @@ class BerEncodedDataUnit(BaseDataUnit):
         return result
         
 class PerEncodedDataUnit(BaseDataUnit):
-    def __init__(self, interpret_payload_as: Union[BaseSerializer[Any], BaseDataUnit] = None):
+    def __init__(self, length_range, interpret_payload_as: Union[BaseSerializer[Any], BaseDataUnit] = None):
         super(PerEncodedDataUnit, self).__init__(fields = [
             PrimitiveField('length', 
                 DependentValueSerializer(
-                    PerEncodedLengthSerializer(),
+                    PerEncodedLengthSerializer(length_range),
                     ValueDependency(lambda x: self._fields_by_name['payload'].get_length()))),
             PrimitiveField('payload', 
                 RawLengthSerializer(LengthDependency(lambda x: self.length)))

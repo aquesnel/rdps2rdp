@@ -1,3 +1,4 @@
+from typing import Tuple
 
 from data_model_v2 import (
     BaseDataUnit,
@@ -48,7 +49,7 @@ class Rdp_TS_FP_INPUT_HEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_FP_INPUT_HEADER, self).__init__(fields = [
             UnionField([
-                PrimitiveField('action', BitMaskSerializer(Rdp.FastPath.FASTPATH_INPUT_ACTION_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_INPUT_ACTION_NAMES)),
+                PrimitiveField('action', BitMaskSerializer(Rdp.FastPath.FASTPATH_INPUT_ACTIONS_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_INPUT_ACTION_NAMES)),
                 PrimitiveField('numEvents', 
                     ValueTransformSerializer(
                         BitMaskSerializer(Rdp.FastPath.FASTPATH_INPUT_NUM_EVENTS_MASK, StructEncodedSerializer(UINT_8)),
@@ -65,21 +66,23 @@ class TS_FP_LengthSerializer(BaseSerializer[int]):
     def __init__(self):
         pass
     
-    def get_length(self, value: int) -> int:
+    def get_serialized_length(self, value: int) -> int:
         if value < 0x80:
             return 1
         else:
             return 2
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> int:
+    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+        length = 1
         value = raw_data[offset]
-        if value > 0x7fff:
-            raise ValueError('value too large: %d' % value)
+        # if value > 0x7fff:
+        #     raise ValueError('value too large: %d' % value)
         if value & 0x80 == 0x80:
             value &= 0x7f
             value <<= 8
             value += raw_data[offset + 1]
-        return value
+            length += 1
+        return value, length
     
     def pack_into(self, buffer: bytes, offset: int, value: int) -> None:
         if value < 0x80:
@@ -88,6 +91,13 @@ class TS_FP_LengthSerializer(BaseSerializer[int]):
             struct.pack_into(UINT_16_BE, buffer, offset, value | 0x8000)
         else:
             raise ValueError('value too large: %d' % value)
+
+class Rdp_TS_FP_INPUT_PDU_length_only(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_FP_INPUT_PDU_length_only, self).__init__(fields = [
+            PrimitiveField('length', TS_FP_LengthSerializer()),
+            ])
+
             
 class Rdp_TS_FP_INPUT_PDU(BaseDataUnit):
     def __init__(self, is_fips_present = False, is_data_signature_present = False, is_num_events_present = False):

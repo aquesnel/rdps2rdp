@@ -5,7 +5,7 @@ from data_model_v2_x224 import X224
 from data_model_v2_mcs import Mcs
 from data_model_v2_rdp import Rdp
 
-from parser_v2 import parse, RdpContext
+from parser_v2 import parse, parse_pdu_length, RdpContext
 
 def extract_as_bytes(data):
     result = ''
@@ -23,6 +23,8 @@ class TestParsing(unittest.TestCase):
 00000010 65 3a 20 6d 73 74 73 68 61 73 68 3d 65 6c 74 6f     e: mstshash=elto
 00000020 6e 73 0d 0a 01 00 08 00 00 00 00 00                 ns..........
         """)
+        self.assertEqual(parse_pdu_length(data), 44)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 44)
@@ -43,6 +45,8 @@ class TestParsing(unittest.TestCase):
 00000000 03 00 00 13 0e d0 00 00 12 34 00 02 00 08 00 00 .........4......
 00000010 00 00 00                                        ...
         """)
+        self.assertEqual(parse_pdu_length(data), 19)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 19)
@@ -88,6 +92,8 @@ class TestParsing(unittest.TestCase):
  00000190 00 00 a0 c0 72 64 70 73 6e 64 00 00 00 00 00 c0 ....rdpsnd......                                     ...
         """)
         rdp_context = RdpContext()
+        self.assertEqual(parse_pdu_length(data, rdp_context), 416)
+        
         pdu = parse(data, rdp_context)
 
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
@@ -138,7 +144,7 @@ class TestParsing(unittest.TestCase):
         
         self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.header.length, 12)
         self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.header.type, Rdp.UserData.CS_SECURITY)
-        self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.payload.encryptionMethods, 0x1b)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.payload.encryptionMethods, {Rdp.Security.ENCRYPTION_METHOD_NONE, Rdp.Security.ENCRYPTION_METHOD_40BIT, Rdp.Security.ENCRYPTION_METHOD_128BIT, Rdp.Security.ENCRYPTION_METHOD_56BIT, Rdp.Security.ENCRYPTION_METHOD_FIPS})
         self.assertEqual(pdu.tpkt.mcs.rdp.clientSecurityData.payload.extEncryptionMethods, 0)
         
         self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.header.length, 44)
@@ -184,6 +190,8 @@ class TestParsing(unittest.TestCase):
  00000150 00                                              .
         """)
         rdp_context = RdpContext()
+        self.assertEqual(parse_pdu_length(data, rdp_context), 337)
+        
         pdu = parse(data, rdp_context)
         
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
@@ -204,7 +212,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.header.length, 12)
         self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.header.type, Rdp.UserData.SC_CORE)
         self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.version, 0x00080004)
-        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.clientRequestedProtocols, Rdp.Protocols.PROTOCOL_RDP)
+        self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.clientRequestedProtocols, {Rdp.Protocols.PROTOCOL_RDP})
         self.assertEqual(pdu.tpkt.mcs.rdp.serverCoreData.payload.earlyCapabilityFlags, None)
         
         self.assertEqual(pdu.tpkt.mcs.rdp.serverNetworkData.header.length, 16)
@@ -236,6 +244,8 @@ class TestParsing(unittest.TestCase):
         data = extract_as_bytes("""
  00000000 03 00 00 0c 02 f0 80 04 01 00 01 00     ............
         """)
+        self.assertEqual(parse_pdu_length(data), 12)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 12)
@@ -253,6 +263,8 @@ class TestParsing(unittest.TestCase):
         data = extract_as_bytes("""
  00000000 03 00 00 08 02 f0 80 28                     .......(
         """)
+        self.assertEqual(parse_pdu_length(data), 8)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 8)
@@ -269,6 +281,8 @@ class TestParsing(unittest.TestCase):
         data = extract_as_bytes("""
  00000000 03 00 00 0b 02 f0 80 2e 00 00 06           ...........
         """)
+        self.assertEqual(parse_pdu_length(data), 11)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 11)
@@ -286,6 +300,8 @@ class TestParsing(unittest.TestCase):
         data = extract_as_bytes("""
  00000000 03 00 00 0c 02 f0 80 38 00 06 03 ef             .......8....
         """)
+        self.assertEqual(parse_pdu_length(data), 12)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 12)
@@ -303,6 +319,8 @@ class TestParsing(unittest.TestCase):
         data = extract_as_bytes("""
  00000000 03 00 00 0f 02 f0 80 3e 00 00 06 03 ef 03 ef    .......>.......
         """)
+        self.assertEqual(parse_pdu_length(data), 15)
+        
         pdu = parse(data)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 15)
@@ -328,6 +346,8 @@ class TestParsing(unittest.TestCase):
         rdp_context = RdpContext()
         rdp_context.encryption_level = Rdp.Security.ENCRYPTION_LEVEL_NONE
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_NONE
+        self.assertEqual(parse_pdu_length(data, rdp_context), 94)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 94)
@@ -382,6 +402,8 @@ class TestParsing(unittest.TestCase):
         rdp_context = RdpContext()
         rdp_context.encryption_level = Rdp.Security.ENCRYPTION_LEVEL_CLIENT_COMPATIBLE
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
+        self.assertEqual(parse_pdu_length(data, rdp_context), 427)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 427)
@@ -436,6 +458,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_level = Rdp.Security.ENCRYPTION_LEVEL_CLIENT_COMPATIBLE
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
+        self.assertEqual(parse_pdu_length(data, rdp_context), 427)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 427)
@@ -496,6 +520,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_level = Rdp.Security.ENCRYPTION_LEVEL_CLIENT_COMPATIBLE
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
+        self.assertEqual(parse_pdu_length(data, rdp_context), 42)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 42)
@@ -527,6 +553,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_level = Rdp.Security.ENCRYPTION_LEVEL_CLIENT_COMPATIBLE
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
+        self.assertEqual(parse_pdu_length(data, rdp_context), 42)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 42)
@@ -585,6 +613,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 386)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 386)
@@ -637,6 +667,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 386)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 386)
@@ -708,6 +740,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 519)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 519)
@@ -770,6 +804,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 519)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 519)
@@ -812,6 +848,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 48)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 48)
@@ -844,6 +882,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 48)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 48)
@@ -887,6 +927,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 52)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 52)
@@ -919,6 +961,8 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 52)
+        
         pdu = parse(data, rdp_context)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 52)
@@ -960,8 +1004,10 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
+        self.assertEqual(parse_pdu_length(data, rdp_context), 17)
+        
         pdu = parse(data, rdp_context)
-        print(pdu)
+        # print(pdu)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH)
         self.assertEqual(pdu.rdp_fp_header.numEvents, 1)
         self.assertEqual(pdu.rdp_fp_header.flags, {Rdp.FastPath.FASTPATH_INPUT_FLAG_SECURE_CHECKSUM, Rdp.FastPath.FASTPATH_INPUT_FLAG_ENCRYPTED})

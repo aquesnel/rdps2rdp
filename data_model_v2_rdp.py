@@ -43,7 +43,7 @@ class Rdp(object):
     @add_constants_names_mapping('FASTPATH_INPUT_FLAG_', 'FASTPATH_INPUT_FLAG_NAMES')
     @add_constants_names_mapping('FASTPATH_INPUT_ACTION_', 'FASTPATH_INPUT_ACTION_NAMES')
     class FastPath(object):
-        FASTPATH_INPUT_ACTION_MASK = 0x03
+        FASTPATH_INPUT_ACTIONS_MASK = 0x03
         FASTPATH_INPUT_NUM_EVENTS_MASK = 0x3c
         
         FASTPATH_INPUT_ACTION_FASTPATH = 0x00
@@ -273,6 +273,13 @@ class Rdp(object):
             VCCAPS_NO_COMPR = 0x00000000
             VCCAPS_COMPR_SC = 0x00000001
             VCCAPS_COMPR_CS_8K = 0x00000002
+
+class DataUnitTypes(object):
+    X224 = Rdp.FastPath.FASTPATH_INPUT_ACTION_X224
+    FAST_PATH = Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH
+    CREDSSP = 0x30 # 0x30 is the DER identifier for SEQUNCE which is the top level type of the [MS-CSSP] TSRequest struct.
+
+Rdp.DataUnitTypes = DataUnitTypes  
             
 
 class Rdp_RDP_NEG_header(BaseDataUnit):
@@ -374,8 +381,11 @@ class Rdp_TS_UD_CS_CORE(BaseDataUnit):
 class Rdp_TS_UD_CS_SEC(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_UD_CS_SEC, self).__init__(fields = [
-            PrimitiveField('encryptionMethods', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Security.ENCRYPTION_METHOD_NAMES)),
-            PrimitiveField('extEncryptionMethods', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Security.ENCRYPTION_LEVEL_NAMES)),
+            PrimitiveField(
+                'encryptionMethods', 
+                BitFieldEncodedSerializer(UINT_32_LE, Rdp.Security.ENCRYPTION_METHOD_NAMES.keys()), 
+                to_human_readable = lookup_name_in(Rdp.Security.ENCRYPTION_METHOD_NAMES)),
+            PrimitiveField('extEncryptionMethods', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Security.ENCRYPTION_METHOD_NAMES)),
         ])
 
 class Rdp_TS_UD_CS_NET(BaseDataUnit):
@@ -400,7 +410,10 @@ class Rdp_TS_UD_SC_CORE(BaseDataUnit):
         super(Rdp_TS_UD_SC_CORE, self).__init__(fields = [
             PrimitiveField('version', StructEncodedSerializer(UINT_32_LE)),
             OptionalField(
-                PrimitiveField('clientRequestedProtocols', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Protocols.PROTOCOL_NAMES))),
+                PrimitiveField(
+                    'clientRequestedProtocols', 
+                    BitFieldEncodedSerializer(UINT_32_LE, Rdp.Protocols.PROTOCOL_NAMES.keys()), 
+                    to_human_readable = lookup_name_in(Rdp.Protocols.PROTOCOL_NAMES))),
             OptionalField(
                 PrimitiveField('earlyCapabilityFlags', StructEncodedSerializer(UINT_32_LE))),
         ])
@@ -600,7 +613,7 @@ class Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET, self).__init__(fields = [
             PrimitiveField('flags', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Capabilities.VirtualChannel.VCCAPS_NAMES)),
-            OptionalField(PrimitiveField('VCChunkSize', StructEncodedSerializer(UINT_16_LE))),
+            OptionalField(PrimitiveField('VCChunkSize', StructEncodedSerializer(UINT_32_LE))),
         ])
 
 class Rdp_TS_RAIL_CAPABILITYSET(BaseDataUnit):

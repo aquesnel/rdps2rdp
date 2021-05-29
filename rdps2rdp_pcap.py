@@ -17,6 +17,7 @@ import threading
 import binascii
 import time
 import re
+import queue
 
 import credssp
 import mccp
@@ -86,7 +87,7 @@ def passthrough(pduName, sourceSocket, sourceName, destSocket, destName):
 
 def negotiate_credssp_as_server(sock):
     context = credssp.CredSSPContext(sock.getpeername()[0], None, None, auth_mechanism='ntlm')
-    credssp_gen = context.credssp_generator_as_server(sock)
+    credssp_gen = context.credssp_generator_as_server()#sock)
 
     # loop through the CredSSP generator to exchange the tokens between the
     # client and the server until either an error occurs or we reached the
@@ -107,8 +108,9 @@ def negotiate_credssp_as_server(sock):
 
 def negotiate_credssp_as_client(sock, username=None, password=None):
     context = credssp.CredSSPContext(sock.getpeername()[0], username, password, auth_mechanism='ntlm')
-    credssp_gen = context.credssp_generator_as_client(sock)
-
+    certificate = sock.getpeercert(binary_form=True) # must be from ssl.wrap_socket()
+    credssp_gen = context.credssp_generator_as_client(certificate)
+    
     # loop through the CredSSP generator to exchange the tokens between the
     # client and the server until either an error occurs or we reached the
     # end of the exchange
@@ -219,39 +221,347 @@ def handler(clientsock,addr):
         import traceback
         traceback.print_exc()
 
+# problem:
+# * single threaded message processing for both connections
+# * log all messages received by each connection
+# * pass socket to function (credssp/ssl)
+# * pause listening on a connection so that the connection control can be transfered
+# * get bytes sent on other connection? should be equal to the bytes recieved
+# * receive messages from either connection at the same time, and know which connection the message is from
+def handler_v2(stream):
+    try:
+        useCredSsp = False
+        
+        print('RDP: clientConnectionRequest')
+        clientConnectionRequestPdu = stream.receive_pdu_from_client(blocking=True)
+        stream.send_pdu_to_server(clientConnectionRequestPdu) #RDP_NEG_REQ_TLS)
+        
+        print('RDP: serverConnectionConfirm')
+        pdu = stream.receive_pdu_from_server(blocking=True)
+        if pdu.tpkt.x224.x224_connect.rdpNegReq_header.type == Rdp.Negotiate.RDP_NEG_RSP:
+            if pdu.tpkt.x224.x224_connect.rdpNegRsp.selectedProtocol == Rdp.Protocols.PROTOCOL_SSL:
+                print('Server requested TLS security')
+            elif pdu.tpkt.x224.x224_connect.rdpNegRsp.selectedProtocol in (
+                    Rdp.Protocols.PROTOCOL_HYBRID, Rdp.Protocols.PROTOCOL_HYBRID_EX):
+                print('Server requested Hybrid security (CredSSP)')
+                useCredSsp = True
+            else:
+                raise ValueError('Server requested unknown security')
+        stream.send_pdu_to_client(pdu)
+        
+        print('Intercepting rdp SSL session from %s' % clientsock.getpeername()[0])
+        stream.server = stream.server.clone_wrapper_onto(ssl.wrap_socket(stream.server,ssl_version=ssl.PROTOCOL_TLS))
+        stream.server.do_handshake() #just in case
+        stream.client = stream.client.clone_wrapper_onto(ssl.wrap_socket(stream.client, server_side=True,certfile='cert.pem',keyfile='cert.key',ciphers=NON_DH_CIPHERS))#, ssl_version=ssl.PROTOCOL_TLSv1)
+        stream.client.do_handshake() #just in case
+        
+        if useCredSsp:
+            print('CredSSP: MitM with Server')
+            negotiate_credssp_as_client(stream.server, username=SERVER_USER_NAME, password=SERVER_PASSWORD)
+            print('CredSSP: MitM with Client')
+            negotiate_credssp_as_server(stream.client)
+
+        while True:
+            print('Passing traffic through uninterpreted from client to server')
+            pdu = stream.receive_pdu_from_client()
+            if pdu:
+                stream.send_pdu_to_server(pdu)
+            pdu = stream.receive_pdu_from_server()
+            if pdu:
+                stream.send_pdu_to_client(pdu)
+
+    except:
+        import traceback
+        traceback.print_exc()
+
+
 class TcpStream(object):
-    def __init__(self, source, destination):
+    def __init__(self, source, source_name, destination, destination_name):
         self.source = source
+        self.source_name = source_name
         self.destination = destination
+        self.destination_name = destination_name
+        self.receive_queue = queue.Queue()
         self.bytes_received = 0
         self.bytes_sent = 0
         self.oposite_stream = None
         
+        def receive_from(stream):
+            try:
+                while True:
+                    msg = stream.source.receive(BUFF_SIZE)
+                    if msg:
+                        stream.receive_queue.push(msg)
+                        stream.receive_queue.join()
+            except:
+                import traceback
+                traceback.print_exc()
+        
+        self.receive_thread = threading.Thread(target=receive_from, args=(self,))
+        self.receive_thread.start()
+        
+        
     @staticmethod
     def create_stream_pair(server, client):
-        to_client = TcpStream(server, client)
-        to_server = TcpStream(client, server)
+        from_server = TcpStream(server, 'Server', client, 'Client')
+        from_client = TcpStream(client, 'Client', server, 'Server')
         
-        to_client.oposite_stream = to_server
-        to_server.oposite_stream = to_client
+        from_server.oposite_stream = from_client
+        from_client.oposite_stream = from_server
         
-        return (to_server, to_client)
+        return (from_client, from_server)
         
     def make_tcp_packet(self, payload):
         return (IP(src=self.source.getpeername()[0], dst=self.destination.getpeername()[0])
-                /TCP(sport=self.source.getpeername()[1], dport=self.destination.getpeername()[1], seq=self.bytes_sent, ack=self.oposite_stream.bytes_sent, flags='PA')
+                # /TCP(sport=self.source.getpeername()[1], dport=self.destination.getpeername()[1], seq=self.bytes_sent, ack=self.oposite_stream.bytes_sent, flags='PA')
+                /TCP(sport=self.source.getpeername()[1], dport=self.destination.getpeername()[1], seq=self.bytes_sent, ack=self.bytes_received, flags='PA')
                 /Raw(payload))
-                
-    def receive(self, buffer_size):
-        msg = self.source.recv(buffer_size)
+    
+    def receive(self, buffer_size = BUFF_SIZE):
+        print("%s receive: waiting" % self.source_name)
+        # sock.settimeout(1)
+        # try:
+        #     # msg = sock.recv(BUFF_SIZE)
+        #     msg = self.source.recv(buffer_size)
+        # except IOError as e:
+        #     if (not re.search("Resource temporarily unavailable", str(e))
+        #             and not re.search("The operation did not complete", str(e))):
+        #         print("%s receive: %s" % (self.source_name, e))
+        # sock.settimeout(None)
+        
+        try:
+            msg = self.receive_queue.get_nowait()
+        except queue.Empty:
+            return None
+        
         if msg:
             self.bytes_received += len(msg)
-        return msg
+        
+            pkt = self.make_tcp_packet(msg)
+            # s = hexdump(pkt, dump=True)
+            wrpcap(OUTPUTPCAP,pkt,append=True)
+            
+            pdu = parser_v2.parse(msg, rdp_context)
+            # print("           Msg from %s [len(msg) = %s] : '%s'" % (self.source_name, len(msg), to_hex(msg)))
+            print("           Msg from %s [len(msg) = %s] : %s" % (self.source_name, len(msg), pdu))
+            # print("      ->                '%s'" % msg)
+        else:
+            print('Shutting down rdp session')
+            self.source.shutdown(socket.SHUT_RD)
+            self.destination.shutdown(socket.SHUT_WR) 
+        return pdu
     
-    def send(self, msg):
+    def send(self, msg, is_mitm_msg = False):
+        if is_mitm_msg:
+            source_name = "MitM"
+        else:
+            source_name = self.source_name
+            self.receive_queue.task_done()
+        print("Forwarding Msg from %s [len(msg) = %s] : '%s'" % (source_name, len(msg), to_hex(msg)))
         self.destination.sendall(msg)
-        if msg:
-            self.bytes_sent += len(msg)
+        self.bytes_sent += len(msg)
+
+class TcpStream_v2(object):
+    def __init__(self, server, client):
+        self.server = server
+        self.client = client
+
+    def make_tcp_packet(self, source, payload):
+        if source is not self.client and source is not self.server:
+            raise ValueError('Source is not one of the sockets of the stream')
+        elif source is self.client:
+            destination = self.server
+        else:
+            destination = self.client
+        return (IP(src=source.getpeername()[0], dst=destination.getpeername()[0])
+                # /TCP(sport=source.getpeername()[1], dport=destination.getpeername()[1], seq=self.bytes_sent, ack=self.oposite_stream.bytes_sent, flags='PA')
+                /TCP(sport=source.getpeername()[1], dport=destination.getpeername()[1], seq=self.bytes_sent, ack=self.bytes_received, flags='PA')
+                /Raw(payload))
+
+    def _receivePdu(self, sock, sockName, blocking=False):
+        pdu = None
+        
+        print("%s receive: waiting" % sockName)
+        if blocking:
+            orig_timeout = sock.gettimeout()
+            sock.settimeout(None)
+        try:
+            msg = sock.receive_peek(4)
+            if msg:
+                pdu_length = parser_v2.parse_pdu_length(msg)
+                msg = sock.receive_exactly(pdu_length)
+                if msg:
+                    if False:#do_log:
+                        pkt = self.make_tcp_packet(sock, msg)
+                        # s = hexdump(pkt, dump=True)
+                        wrpcap(OUTPUTPCAP,pkt,append=True)
+                    pdu = parser_v2.parse(msg)
+        except IOError as e:
+            if (not re.search("Resource temporarily unavailable", str(e))
+                    and not re.search("The operation did not complete", str(e))):
+                print("%s receive: %s" % (sockName, e))
+        # print("           Msg from %s [len(msg) = %s] : '%s'" % (sockName, len(msg), to_hex(msg)))
+        # print("      ->                '%s'" % msg)
+        if blocking:
+            sock.settimeout(orig_timeout)
+        return pdu
+    
+    def receive_pdu_from_server(self, blocking=False):
+        return self._receivePdu(self.server, 'Server', blocking)
+
+    def receive_pdu_from_client(self, blocking=False):
+        return self._receivePdu(self.client, 'Client', blocking)
+
+    def _send_pdu(self, pdu, sock, sock_name, source_name):
+        msg = pdu.as_wire_bytes()
+        # print("Forwarding Msg from %s to %s [len(msg) = %s] : '%s'" % (source_name, sock_name, len(msg), to_hex(msg)))
+        sock.sendall(msg)
+
+    def send_pdu_to_server(self, pdu, is_mitm_msg = False):
+        if is_mitm_msg:
+            source = "MitM"
+        else:
+            source = "Client"
+        self._send_pdu(pdu, self.server, "Server", source)
+        
+    def send_pdu_to_client(self, pdu, is_mitm_msg = False):
+        if is_mitm_msg:
+            source = "MitM"
+        else:
+            source = "Server"
+        self._send_pdu(pdu, self.client, "Client", source)
+
+# class BufferList(object):
+#     def __init__(self):
+#         self._buffers = []
+        
+#     def __len__(self):
+#         length = 0
+#         for buffer in self._buffers:
+#             length += len(buffer)
+#         return length
+    
+
+class SocketWrapper(object):
+    def __init__(self, sock, bytes_received=0, bytes_sent=0):
+        self.socket = sock
+        self.bytes_received = bytes_received
+        self.bytes_sent = bytes_sent
+        self._receive_buffer = bytes()
+        # self._send_buffer = bytes()
+        
+    def __getattr__(self, name):
+        if hasattr(self.socket, name):
+            return getattr(self.socket, name)
+        else:
+            raise AttributeError('Class <%s> does not have a field named: %s' % (self.__class__.__name__, name))
+
+    def clone_wrapper_onto(self, new_socket):
+        self.socket = None
+        return SocketWrapper(new_socket, bytes_received=self.bytes_received, bytes_sent=self.bytes_sent)
+
+    def receive_peek(self, num_bytes):
+        if len(self._receive_buffer) > num_bytes:
+            return self._receive_buffer[:num_bytes]
+        buffer = self.recv(num_bytes)
+        if buffer:
+            self._receive_buffer += buffer
+            if len(self._receive_buffer) > num_bytes:
+                return self._receive_buffer[:num_bytes]
+        return bytes()
+
+    def receive_exactly(self, num_bytes):
+        if len(self._receive_buffer) > num_bytes:
+            result = self._receive_buffer[:num_bytes]
+            self._receive_buffer = self._receive_buffer[num_bytes:]
+            return result
+        buffer = self.recv(num_bytes)
+        if buffer:
+            self._receive_buffer += buffer
+            if len(self._receive_buffer) > num_bytes:
+                result = self._receive_buffer[:num_bytes]
+                self._receive_buffer = self._receive_buffer[num_bytes:]
+                return result
+        return bytes()
+
+    def recv(self, bufsize, flags=0):
+        return self.recvfrom(bufsize, flags)[0]
+
+    def recvfrom(self, bufsize, flags=0):
+        (data, ancdata, msg_flags, address) = self.recvmsg(bufsize, flags=0)
+        return (data, address)
+
+    def recvmsg(self, bufsize, ancbufsize=0, flags=0):
+        buffer = bytearray(bufsize)
+        (nbytes, ancdata, msg_flags, address) = self.recvmsg_into([buffer], ancbufsize, flags)
+        return (buffer[:nbytes], ancdata, msg_flags, address)
+
+    def recv_into(self, buffer, nbytes=0, flags=0):
+        return self.recvfrom_into(buffer, nbytes, flags)[0]
+    
+    def recvfrom_into(self, buffer, nbytes=0, flags=0):
+        (nbytes, ancdata, msg_flags, address) = self.recvmsg_into([buffer], flags=0)
+        return (nbytes, address)
+
+    def recvmsg_into(self, buffers, ancbufsize=0, flags=0):
+        (nbytes, ancdata, msg_flags, address) = self.socket.recvmsg_into(buffers, ancbufsize, flags)
+        
+        self.bytes_received += nbytes
+        # bytes_remaining = nbytes
+        # offset = 0
+        # merged_buffer = bytearray(nbytes)
+        # for buffer in buffers:
+        #     if bytes_remaining > 0:
+        #         buffer_len = len(buffer)
+        #         if buffer_len <= bytes_remaining:
+        #             bytes_remaining -= buffer_len
+        #         else:
+        #             buffer = buffer[:bytes_remaining]
+        #             buffer_len = bytes_remaining
+        #             bytes_remaining = 0
+        #         merged_buffer[offset:offset+buffer_len] = buffer
+        #         offset += buffer_len
+        # if nbytes > 0:
+        #     pkt = self.make_tcp_packet(merged_buffer)
+        #     # s = hexdump(pkt, dump=True)
+        #     wrpcap(OUTPUTPCAP,pkt,append=True)
+            
+        return (nbytes, ancdata, msg_flags, address)
+    
+    def send(self, bytes, flags=0):
+        # if self._send_buffer:
+        #     bytes_sent = self.socket.send(self._send_buffer, flags)
+        #     self.bytes_sent += bytes_sent
+        #     self._send_buffer = self._send_buffer[bytes_sent:]
+        #     if self._send_buffer:
+        #         return 0
+        bytes_sent = self.socket.send(bytes, flags)
+        self.bytes_sent += bytes_sent
+        return bytes_sent
+    
+    def sendall(self, bytes, flags=0):
+        # if self._send_buffer:
+        #     self.socket.sendall(self._send_buffer, flags)
+        #     self.bytes_sent += len(self._send_buffer)
+        #     self._send_buffer = bytes()
+        self.socket.sendall(bytes, flags)
+        self.bytes_sent += len(bytes)
+        return None
+        
+    def sendmsg(self, buffers, ancdata=[], flags=0, address=None):
+        # if self._send_buffer:
+        #     bytes_sent = self.socket.send(self._send_buffer, flags)
+        #     self.bytes_sent += bytes_sent
+        #     self._send_buffer = self._send_buffer[bytes_sent:]
+        #     if self._send_buffer:
+        #         return 0
+        bytes_sent = self.socket.sendmsg(buffers, ancdata, flags, address)
+        self.bytes_sent += bytes_sent
+        return bytes_sent
+        
+    def sendfile(self, file, offset=0, count=None):
+        raise NotImplementedError()
+    
 
 def trafficloop(tcpStream,dopcap):
     msg = ' '
@@ -268,7 +578,7 @@ def trafficloop(tcpStream,dopcap):
                     # s = hexdump(pkt, dump=True)
                     wrpcap(OUTPUTPCAP,pkt,append=True)
                 # print("           Msg from %s [len(msg) = %s] : '%s'" % (tcpStream.source.getpeername()[0], len(msg), to_hex(msg)))
-                print("           Msg from %s [len(msg) = %s] : '%s'" % (tcpStream.source.getpeername()[0], len(msg), parser_v2.parse(msg, rdp_context)))
+                # print("           Msg from %s [len(msg) = %s] : '%s'" % (tcpStream.source.getpeername()[0], len(msg), parser_v2.parse(msg, rdp_context)))
                 tcpStream.send(msg)
             else:
                 print('Shutting down rdp session')
@@ -282,7 +592,7 @@ if __name__ == '__main__':
     True
     False
 
-    if True: # MITM
+    if False: # MITM
         print('deleting old pcap file: ', OUTPUTPCAP)
         try:
             os.remove(OUTPUTPCAP)
@@ -306,19 +616,21 @@ if __name__ == '__main__':
                 destsock.connect(REMOTECON)
                 destsock.setblocking(1)
         
-                to_server, to_client = TcpStream.create_stream_pair(destsock,clientsock)
+                from_client, from_server = TcpStream.create_stream_pair(destsock,clientsock)
                 print('Passing traffic through uninterpreted from client to server')
-                threading.Thread(target=trafficloop, args=(to_server,True)).start()
+                threading.Thread(target=trafficloop, args=(from_client,True)).start()
         
                 print('Passing traffic through uninterpreted from server to client')
-                threading.Thread(target=trafficloop, args=(to_client,True)).start()
+                threading.Thread(target=trafficloop, args=(from_server,True)).start()
                 break
 
-    if False: # read/print pcap file
+    if True: # read/print pcap file
+        rdp_context = parser_v2.RdpContext()
         pkt_list = rdpcap(OUTPUTPCAP)
         for pkt in pkt_list:
             print(repr(pkt))
-            print(pkt[Raw].load)
+            print(parser_v2.parse(pkt[Raw].load, rdp_context))
+                
         
     if False: # connect as client
         serversock = socket(AF_INET, SOCK_STREAM)

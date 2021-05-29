@@ -326,7 +326,7 @@ class CredSSPContext(object):
         # self.tls_context.set_cipher_list(b'ALL')
         # self.tls_connection = None
 
-    def credssp_generator_as_server(self, ssl_sock):
+    def credssp_generator_as_server(self):#, ssl_sock):
         context = spnego.server(hostname=self.hostname, protocol=self.auth_mechanism)
 
         in_token = yield None, None
@@ -349,7 +349,7 @@ class CredSSPContext(object):
             
         from cryptography import x509
         from cryptography.hazmat import backends
-        with open('cert.pem', 'r') as f:
+        with open('cert.pem', 'rb') as f:
             cert = x509.load_pem_x509_certificate(f.read(), backends.default_backend())
         cryptographic_key = cert.public_key()
         server_public_key = cryptographic_key.public_bytes(Encoding.DER, PublicFormat.PKCS1)
@@ -366,7 +366,7 @@ class CredSSPContext(object):
         in_token = yield self.wrap(pub_key_auth), "Step 3. Server Authentication"
         
 
-    def credssp_generator_as_client(self, ssl_sock):
+    def credssp_generator_as_client(self, certificate):#ssl_sock):
         """
         [MS-CSSP] 3.1.5 Processing Events and Sequencing Rules
         https://msdn.microsoft.com/en-us/library/cc226791.aspx
@@ -425,7 +425,8 @@ class CredSSPContext(object):
             if context.complete or b"NTLMSSP\x00\x03\x00\x00\x00" in out_token:
                 break
 
-        server_public_key = self._get_subject_public_key(ssl_sock)
+        # certificate = ssl_sock.getpeercert(binary_form=True) # must be from ssl.wrap_socket()
+        server_public_key = self._get_subject_public_key(certificate)
         version = min(version, TSRequest.CLIENT_VERSION)
         log.debug("Starting public key verification process at version %d" % version)
         if version < self.minimum_version:
@@ -610,7 +611,7 @@ class CredSSPContext(object):
     #     return subject_public_key
 
     @staticmethod
-    def _get_subject_public_key(ssl_sock):
+    def _get_subject_public_key(certificate):#ssl_sock):
         """
         Returns the SubjectPublicKey asn.1 field of the SubjectPublicKeyInfo
         field of the server's certificate. This is used in the server
@@ -621,7 +622,7 @@ class CredSSPContext(object):
         """
         Extract an X.509 certificate from a socket connection.
         """
-        certificate = ssl_sock.getpeercert(binary_form=True) # must be from ssl.wrap_socket()
+        # certificate = ssl_sock.getpeercert(binary_form=True) # must be from ssl.wrap_socket()
         from cryptography import x509
         from cryptography.hazmat import backends
         cert = x509.load_der_x509_certificate(certificate, backends.default_backend())

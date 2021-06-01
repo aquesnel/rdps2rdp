@@ -44,6 +44,7 @@ LISTENCON = ('0.0.0.0', 3389)
 host_port = '127.0.0.1:3390'
 host_port = '0.tcp.ngrok.io:18745'
 REMOTECON = (host_port.split(':')[0], int(host_port.split(':')[1]))
+SERVER_PORT = int(host_port.split(':')[1])
 
 SERVER_USER_NAME = "runneradmin"
 SERVER_PASSWORD = "P@ssw0rd!"
@@ -156,7 +157,7 @@ if __name__ == '__main__':
     True
     False
 
-    if True: # MITM
+    if False: # MITM
         print('deleting old pcap file: ', OUTPUTPCAP)
         try:
             os.remove(OUTPUTPCAP)
@@ -196,17 +197,36 @@ if __name__ == '__main__':
             #     threading.Thread(target=trafficloop, args=(from_server,True)).start()
             #     break
 
-    if False: # read/print pcap file
+    if True: # read/print pcap file
         rdp_context = parser_v2.RdpContext()
-        # OUTPUTPCAP = 'output.win10.full.rail.pcap'
+        OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
         pkt_list = rdpcap(OUTPUTPCAP)
+        offset = 0
+        limit = 99
+        
+        # offset = 15
+        # limit = 1
+        
+        # offset = 54
+        # limit = 10
+        i = 0
         for pkt in pkt_list:
-            print(repr(pkt))
-            print(utils.as_hex_str(pkt[Raw].load))
-            print(rdp_context)
             pdu = parser_v2.parse(pkt[Raw].load, rdp_context)
-            print(pdu)
-            pdu.as_wire_bytes()
+            if offset <= i and i < offset + limit:
+                if pkt[TCP].sport == SERVER_PORT:
+                    source = 'Server'
+                else:
+                    source = 'Client'
+                print('%d %s - %s' % (i, source, pdu.get_pdu_name()))
+                if limit <= 10:
+                    # print(repr(pkt))
+                    print(utils.as_hex_str(pkt[Raw].load))
+                    print(rdp_context)
+                    print(pdu)
+                    pdu.as_wire_bytes()
+            if offset  + limit + 1 < i: 
+                break
+            i += 1
 
     if False: # connect as client
         serversock = socket.socket(AF_INET, SOCK_STREAM)

@@ -105,6 +105,9 @@ class BaseField(object):
     def get_human_readable_value(self):
         return self.get_value()
 
+    def get_pdu_types(self):
+        return []
+
     def get_value(self) -> Any:
         raise NotImplementedError()
     
@@ -195,6 +198,9 @@ class DataUnitField(BaseField):
     def __str__(self):
         return '<DataUnitField(name=%s, data_unit class=%s)>' % (
             self.name, self.data_unit.__class__)
+
+    def get_pdu_types(self):
+        return self.data_unit.get_pdu_types()
 
     def get_value(self) -> Any:
         return self.data_unit
@@ -292,6 +298,12 @@ class OptionalField(BaseField):
         else:
             return None
 
+    def get_pdu_types(self):
+        if self._value_is_present:
+            return self._optional_field.get_pdu_types()
+        else:
+            return []
+
     def get_value(self) -> Any:
         if self._value_is_present:
             return self._optional_field.get_value()
@@ -342,6 +354,12 @@ class ConditionallyPresentField(BaseField):
         else:
             return None
 
+    def get_pdu_types(self):
+        if self._is_present_condition():
+            return self._optional_field.get_pdu_types()
+        else:
+            return []
+            
     def get_value(self) -> Any:
         if self._is_present_condition():
             return self._optional_field.get_value()
@@ -380,6 +398,12 @@ class UnionField(BaseField):
     
     def get_human_readable_value(self):
         return str(self)
+
+    def get_pdu_types(self):
+        retval = []
+        for f in self._fields:
+            retval.extend(f.get_pdu_types())
+        return retval
 
     def get_length(self):
         length = None
@@ -420,6 +444,9 @@ class UnionWrapperField(BaseField):
     def get_human_readable_value(self):
         return self._field.get_human_readable_value()
 
+    def get_pdu_types(self):
+        return self._field.get_pdu_types()
+        
     def get_length(self):
         return 0
 
@@ -472,11 +499,12 @@ class ArrayAutoReinterpret(AutoReinterpretBase):
                 data_unit.alias_field(item_reinterpret_config.name, '%s.%d.%s' % (self.array_field_to_reinterpret_name, i, self.item_field_to_reinterpret_name))
 
 class BaseDataUnit(object):
-    def __init__(self, fields, auto_reinterpret_configs = None):
+    def __init__(self, fields, auto_reinterpret_configs = None, use_class_as_pdu_name = False):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})
         if auto_reinterpret_configs is None:
             auto_reinterpret_configs = []
         self._auto_reinterpret_configs = auto_reinterpret_configs
+        self.use_class_as_pdu_name = use_class_as_pdu_name
         self._fields = []
         for f in fields:
             self._fields.append(f)
@@ -518,6 +546,21 @@ class BaseDataUnit(object):
     def __str__(self):
         return pprint.pformat(self._as_dict_for_pprint(), width=160)
 
+    def get_pdu_name(self):
+        types = self.get_pdu_types()
+        if types:
+            return ' '.join(types)
+        else:
+            return 'Unknown'
+        
+    def get_pdu_types(self):
+        retval = []
+        if self.use_class_as_pdu_name:
+            retval.append(str(self.__class__))
+        for f in self._fields:
+            retval.extend(f.get_pdu_types())
+        return retval
+        
     def _as_dict_for_pprint(self):
         # HACK for pprint sorting dict in custom order
         # https://stackoverflow.com/a/32188121/561476 for custom ordering
@@ -640,7 +683,7 @@ class BaseDataUnit(object):
 
 class RawDataUnit(BaseDataUnit):
     def __init__(self):
-        super().__init__([
+        super().__init__(fields = [
             PrimitiveField('payload', RawLengthSerializer()),
         ])
        

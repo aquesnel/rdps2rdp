@@ -8,16 +8,8 @@ from data_model_v2_rdp import Rdp
 
 from parser_v2 import parse, RdpContext
 
-def extract_as_bytes(data):
-    result = ''
-    for line in data.splitlines():
-        if line:
-            line = line.split('#')[0]
-            result += ''.join(line.lstrip(' ').split(' '))
-    return bytes.fromhex(result)
+from test_utils import extract_as_bytes, extract_as_context
 
-def as_hex_str(b):
-    return " ".join("{:02x}".format(x) for x in b)
 
 class TestParsing(unittest.TestCase):
 
@@ -200,7 +192,39 @@ class TestParsing(unittest.TestCase):
         rdp_context.pre_capability_exchange = False
         rdp_context.is_gcc_confrence = True
         pdu = parse(data, rdp_context)
-        
+    
+    def test_parse_from_server_request_udp_fec(self):
+        # data captured from an MSTSC rail session with a Win10 datacenter RDP 10? server
+        # pdu from server
+        data = extract_as_bytes("""
+            03 00 00 2a # TPKT(len=42)
+            02 f0 80    # X224(len=2, type=data)
+            68 00 01 03 f3 70 1c # Mcs(len=28, type=TPDU_DATA)
+            02 00 00 00 # TS_SECURITY_HEADER(falgs=SEC_TRANSPORT_REQ)
+            05 00 00 00 # requestId
+            01 00       # requestedProtocol = INITITATE_REQUEST_PROTOCOL_UDPFECR
+            00 00       # pad
+            7c fd 72 23 c2 6d 4e 48 89 aa 75 88 68 94 1f da # securityCookie (random)
+            """)
+        rdp_context = extract_as_context({'password': 'P@ssw0rd!', 'encryption_level': 0, 'is_gcc_confrence': True, 'encrypted_client_random': None, 'encryption_method': 0, 'alternate_shell': 'rdpinit.exe', 'pre_capability_exchange': True, 'auto_logon': True, 'rail_enabled': True, 'compression_type': 1536, 'user_name': 'runneradmin', 'domain': '', 'working_dir': ''})
 
+        pdu = parse(data, rdp_context)
+    
+    def test_parse_from_server_channel_unknown_1(self):
+        # data captured from an MSTSC rail session with a Win10 datacenter RDP 10? server
+        # pdu from server
+        data = extract_as_bytes("""
+            03 00 00 22 # TPKT(len=34)
+            02 f0 80    # X224(len=2, type=data)
+            68 00 01 03 f2 f0 14 # Mcs(len=20, type=TPDU_DATA)
+            0c 00 00 00 03 00 00 00 # CHANNEL_PDU_HEADER(len=12, flags=FIRST|LAST)
+            50 00 03 00 33 33 11 11 3d 0a a7 04 
+            """)
+        rdp_context = extract_as_context({'encryption_method': 0, 'encryption_level': 0, 'encrypted_client_random': None, 'alternate_shell': 'rdpinit.exe', 'rail_enabled': True, 'compression_type': 1536, 'domain': '', 'password': 'P@ssw0rd!', 'pre_capability_exchange': False, 'auto_logon': True, 'is_gcc_confrence': True, 'working_dir': '', 'user_name': 'runneradmin'})
+
+        pdu = parse(data, rdp_context)
+        
+       
+    
 if __name__ == '__main__':
     unittest.main()

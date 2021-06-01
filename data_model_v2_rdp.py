@@ -40,6 +40,22 @@ from serializers import (
 )
 
 class Rdp(object):
+    class ConnectionSequence(object):
+        SEQUENCE = [
+            'connection negotiate',
+            'optional - authentication',
+            'MCS connect - basic setting exchange',
+            'MCS - channel connection',
+            'RDP - security comencement',
+            'RDP - security settings',
+            'RDP - optional - auto detect',
+            'RDP - licensing',
+            'RDP - optional - multi-transport',
+            'RDP - capability exchange',
+            'RDP - connection finalization',
+            'RDP - remote control',
+        ]
+    
     @add_constants_names_mapping('FASTPATH_INPUT_FLAG_', 'FASTPATH_INPUT_FLAG_NAMES')
     @add_constants_names_mapping('FASTPATH_INPUT_ACTION_', 'FASTPATH_INPUT_ACTION_NAMES')
     class FastPath(object):
@@ -107,18 +123,21 @@ class Rdp(object):
         PROTOCOL_RDSTLS = 0x00000004
         PROTOCOL_HYBRID_EX = 0x00000008
         
+    @add_constants_names_mapping('SEC_', 'SEC_FLAG_NAMES')
     @add_constants_names_mapping('ENCRYPTION_METHOD_', 'ENCRYPTION_METHOD_NAMES')
     @add_constants_names_mapping('ENCRYPTION_LEVEL_', 'ENCRYPTION_LEVEL_NAMES')
     class Security(object):
-        SEC_HDR_BASIC = 'Basic'
-        SEC_HDR_NON_FIPS = 'Non-FIPS'
-        SEC_HEADER_TYPE = {
-            1: SEC_HDR_BASIC,
-            2: SEC_HDR_NON_FIPS,
-            3: 'FIPS',
-        }
+        # SEC_HDR_BASIC = 'Basic'
+        # SEC_HDR_NON_FIPS = 'Non-FIPS'
+        # SEC_HEADER_TYPE = {
+        #     1: SEC_HDR_BASIC,
+        #     2: SEC_HDR_NON_FIPS,
+        #     3: 'FIPS',
+        # }
         
         SEC_EXCHANGE_PKT = 0x0001
+        SEC_TRANSPORT_REQ = 0x0002
+        SEC_TRANSPORT_RSP = 0x0004
         SEC_ENCRYPT = 0x0008
         SEC_RESET_SEQNO = 0x0010
         SEC_IGNORE_SEQNO = 0x0020
@@ -126,19 +145,24 @@ class Rdp(object):
         SEC_LICENSE_PKT = 0x0080
         SEC_LICENSE_ENCRYPT = 0x0200
         SEC_LICENSE_ENCRYPT_CS = 0x0200
-        SEC_PACKET_FLAGS = {
-            SEC_EXCHANGE_PKT: 'SEC_EXCHANGE_PKT',
-            SEC_ENCRYPT: 'SEC_ENCRYPT',
-            SEC_RESET_SEQNO: 'SEC_RESET_SEQNO',
-            SEC_IGNORE_SEQNO: 'SEC_IGNORE_SEQNO',
-            SEC_INFO_PKT: 'SEC_INFO_PKT',
-            SEC_LICENSE_PKT: 'SEC_LICENSE_PKT',
-            SEC_LICENSE_ENCRYPT: 'SEC_LICENSE_ENCRYPT',
-            SEC_LICENSE_ENCRYPT_CS: 'SEC_LICENSE_ENCRYPT_CS',
-        }
-        SEC_PACKET_MASK = 0
-        for key in SEC_PACKET_FLAGS.keys():
-            SEC_PACKET_MASK |= key
+        SEC_REDIRECTION_PKT = 0x0400
+        SEC_SECURE_CHECKSUM = 0x0800
+        SEC_AUTODETECT_REQ = 0x1000
+        SEC_AUTODETECT_RSP = 0x2000
+        SEC_HEARTBEAT = 0x4000
+        SEC_FLAGSHI_VALID = 0x8000
+        PACKET_MASK = (
+            SEC_EXCHANGE_PKT
+            | SEC_TRANSPORT_REQ
+            | SEC_TRANSPORT_RSP
+            | SEC_INFO_PKT
+            | SEC_LICENSE_PKT
+            | SEC_REDIRECTION_PKT
+            | SEC_AUTODETECT_REQ
+            | SEC_AUTODETECT_RSP
+            | SEC_HEARTBEAT
+            )
+        
     
         ENCRYPTION_METHOD_NONE = 0x00000000
         ENCRYPTION_METHOD_40BIT = 0x00000001
@@ -222,6 +246,37 @@ class Rdp(object):
         PACKET_COMPR_TYPE_RDP6 = (0x2 << 9)
         PACKET_COMPR_TYPE_RDP61 = (0x3 << 9)
     
+    @add_constants_names_mapping('CHANNEL_OPTION_', 'CHANNEL_OPTION_NAMES')
+    @add_constants_names_mapping('CHANNEL_FLAG_', 'CHANNEL_FLAG_NAMES')
+    class Channel(object):
+        CHANNEL_OPTION_INITIALIZED = 0x80000000
+        CHANNEL_OPTION_ENCRYPT_RDP = 0x40000000
+        CHANNEL_OPTION_ENCRYPT_SC = 0x20000000
+        CHANNEL_OPTION_ENCRYPT_CS = 0x10000000
+        CHANNEL_OPTION_PRI_HIGH = 0x08000000
+        CHANNEL_OPTION_PRI_MED = 0x04000000
+        CHANNEL_OPTION_PRI_LOW = 0x02000000
+        CHANNEL_OPTION_COMPRESS_RDP = 0x00800000
+        CHANNEL_OPTION_COMPRESS = 0x00400000
+        CHANNEL_OPTION_SHOW_PROTOCOL = 0x00200000
+        CHANNEL_OPTION_REMOTE_CONTROL_PERSISTENT = 0x00100000
+        
+        CHANNEL_FLAG_FIRST = 0x00000001
+        CHANNEL_FLAG_LAST = 0x00000002
+        CHANNEL_FLAG_SHADOW_PERSISTENT = 0x00000080
+        CHANNEL_FLAG_SHOW_PROTOCOL = 0x00000010
+        CHANNEL_FLAG_SUSPEND = 0x00000020
+        CHANNEL_FLAG_RESUME = 0x00000040
+        CHANNEL_FLAG_PACKET_COMPRESSED = 0x00200000
+        CHANNEL_FLAG_PACKET_AT_FRONT = 0x00400000
+        CHANNEL_FLAG_PACKET_FLUSHED = 0x00800000
+        
+        CompressionTypeMask = 0x000F0000
+        PACKET_COMPR_TYPE_8K = 0x00000000
+        PACKET_COMPR_TYPE_64K = (0x1 << 16)
+        PACKET_COMPR_TYPE_RDP6 = (0x2 << 16)
+        PACKET_COMPR_TYPE_RDP61 = (0x3 << 16)
+        
     class License(object):
         ERROR_ALERT = 0xff
 
@@ -259,8 +314,30 @@ class Rdp(object):
         PACKET_COMPR_TYPE_RDP6 = 0x02
         PACKET_COMPR_TYPE_RDP61 = 0x03
         
+        PDUTYPE2_UPDATE = 0x02
         PDUTYPE2_CONTROL = 0x14
+        PDUTYPE2_POINTER = 0x1B
+        PDUTYPE2_INPUT = 0x1C
         PDUTYPE2_SYNCHRONIZE = 0x1f
+        PDUTYPE2_REFRESH_RECT = 0x21
+        PDUTYPE2_PLAY_SOUND = 0x22
+        PDUTYPE2_SUPPRESS_OUTPUT = 0x23
+        PDUTYPE2_SHUTDOWN_REQUEST = 0x24
+        PDUTYPE2_SHUTDOWN_DENIED = 0x25
+        PDUTYPE2_SAVE_SESSION_INFO = 0x26
+        PDUTYPE2_FONTLIST = 0x27
+        PDUTYPE2_FONTMAP = 0x28
+        PDUTYPE2_SET_KEYBOARD_INDICATORS = 0x29
+        PDUTYPE2_BITMAPCACHE_PERSISTENT_LIST = 0x2B
+        PDUTYPE2_BITMAPCACHE_ERROR_PDU = 0x2C
+        PDUTYPE2_SET_KEYBOARD_IME_STATUS = 0x2D
+        PDUTYPE2_OFFSCRCACHE_ERROR_PDU = 0x2E
+        PDUTYPE2_SET_ERROR_INFO_PDU = 0x2F
+        PDUTYPE2_DRAWNINEGRID_ERROR_PDU = 0x30
+        PDUTYPE2_DRAWGDIPLUS_ERROR_PDU = 0x31
+        PDUTYPE2_ARC_STATUS_PDU = 0x32
+        PDUTYPE2_STATUS_INFO_PDU = 0x36
+        PDUTYPE2_MONITOR_LAYOUT_PDU = 0x37
 
     @add_constants_names_mapping('CAPSTYPE_', 'CAPSTYPE_NAMES')
     class Capabilities(object):
@@ -290,27 +367,33 @@ class Rdp_RDP_NEG_header(BaseDataUnit):
         
 class Rdp_RDP_NEG_REQ(BaseDataUnit):
     def __init__(self):
-        super(Rdp_RDP_NEG_REQ, self).__init__(fields = [
-            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.Negotiate.REQUEST_FLAGS.keys()), to_human_readable = lookup_name_in(Rdp.Negotiate.REQUEST_FLAGS)),
-            PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('requestedProtocols', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Protocols.PROTOCOL_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Protocols.PROTOCOL_NAMES)),
-        ])
+        super(Rdp_RDP_NEG_REQ, self).__init__(
+            use_class_as_pdu_name = True,
+            fields = [
+                PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.Negotiate.REQUEST_FLAGS.keys()), to_human_readable = lookup_name_in(Rdp.Negotiate.REQUEST_FLAGS)),
+                PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
+                PrimitiveField('requestedProtocols', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Protocols.PROTOCOL_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Protocols.PROTOCOL_NAMES)),
+            ])
 
 class Rdp_RDP_NEG_RSP(BaseDataUnit):
     def __init__(self):
-        super(Rdp_RDP_NEG_RSP, self).__init__(fields = [
-            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.Negotiate.RESPONSE_FLAGS.keys()), to_human_readable = lookup_name_in(Rdp.Negotiate.RESPONSE_FLAGS)),
-            PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('selectedProtocol', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Protocols.PROTOCOL_NAMES)),
-        ])
+        super(Rdp_RDP_NEG_RSP, self).__init__(
+            use_class_as_pdu_name = True,
+            fields = [
+                PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.Negotiate.RESPONSE_FLAGS.keys()), to_human_readable = lookup_name_in(Rdp.Negotiate.RESPONSE_FLAGS)),
+                PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
+                PrimitiveField('selectedProtocol', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Protocols.PROTOCOL_NAMES)),
+            ])
 
 class Rdp_RDP_NEG_FAILURE(BaseDataUnit):
     def __init__(self):
-        super(Rdp_RDP_NEG_FAILURE, self).__init__(fields = [
-            PrimitiveField('flags', StructEncodedSerializer(UINT_8)),
-            PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('failureCode', StructEncodedSerializer(UINT_32_LE)),
-        ])
+        super(Rdp_RDP_NEG_FAILURE, self).__init__(
+            use_class_as_pdu_name = True,
+            fields = [
+                PrimitiveField('flags', StructEncodedSerializer(UINT_8)),
+                PrimitiveField('length', StructEncodedSerializer(UINT_16_LE)),
+                PrimitiveField('failureCode', StructEncodedSerializer(UINT_32_LE)),
+            ])
         
 class RdpUserDataBlock(BaseDataUnit):
     def __init__(self):
@@ -402,7 +485,7 @@ class Rdp_CHANNEL_DEF(BaseDataUnit):
     def __init__(self):
         super(Rdp_CHANNEL_DEF, self).__init__(fields = [
             PrimitiveField('name', FixedLengthEncodedStringSerializer(EncodedStringSerializer.ASCII, 8)),
-            PrimitiveField('options', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('options', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_OPTION_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Channel.CHANNEL_OPTION_NAMES)),
         ])
 
 class Rdp_TS_UD_SC_CORE(BaseDataUnit):
@@ -456,7 +539,7 @@ class Rdp_TS_UD_SC_SEC1(BaseDataUnit):
 class Rdp_TS_SECURITY_HEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_SECURITY_HEADER, self).__init__(fields = [
-            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_16_LE, Rdp.Security.SEC_PACKET_FLAGS.keys()), to_human_readable = lookup_name_in(Rdp.Security.SEC_PACKET_FLAGS)),
+            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_16_LE, Rdp.Security.SEC_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Security.SEC_FLAG_NAMES)),
             PrimitiveField('flagsHi', StructEncodedSerializer(UINT_16_LE)),
         ])
 
@@ -497,7 +580,8 @@ class Rdp_TS_INFO_PACKET(BaseDataUnit):
             PrimitiveField('AlternateShell', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbAlternateShell))),
             PrimitiveField('WorkingDir', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.cbWorkingDir))),
             OptionalField(DataUnitField('extraInfo', Rdp_TS_EXTENDED_INFO_PACKET())),
-        ])
+        ],
+        use_class_as_pdu_name = True)
 
 class Rdp_TS_EXTENDED_INFO_PACKET(BaseDataUnit):
     def __init__(self):
@@ -505,13 +589,32 @@ class Rdp_TS_EXTENDED_INFO_PACKET(BaseDataUnit):
             PrimitiveField('payload_todo', RawLengthSerializer()),
         ])
 
+class Rdp_SEC_TRANSPORT_REQ(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_SEC_TRANSPORT_REQ, self).__init__(fields = [
+            PrimitiveField('requestId', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('requestedProtocol', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('reserved', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('securityCookie', RawLengthSerializer(LengthDependency(lambda x: 16))),
+        ],
+        use_class_as_pdu_name = True)
+
+class Rdp_SEC_TRANSPORT_RSP(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_SEC_TRANSPORT_RSP, self).__init__(fields = [
+            PrimitiveField('requestId', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('hrResponse', StructEncodedSerializer(UINT_32_LE)),
+        ],
+        use_class_as_pdu_name = True)
+
 class Rdp_LICENSE_VALID_CLIENT_DATA(BaseDataUnit):
     def __init__(self):
         super(Rdp_LICENSE_VALID_CLIENT_DATA, self).__init__(fields = [
             DataUnitField('preamble', Rdp_LICENSE_PREAMBLE()),
             PrimitiveField('validClientMessage', 
                 RawLengthSerializer(LengthDependency(lambda x: self.preamble.wMsgSize - len(self.preamble)))),
-        ])
+        ],
+        use_class_as_pdu_name = True)
         
 class Rdp_LICENSE_PREAMBLE(BaseDataUnit):
     def __init__(self):
@@ -526,11 +629,21 @@ class Rdp_TS_SHARECONTROLHEADER(BaseDataUnit):
         super(Rdp_TS_SHARECONTROLHEADER, self).__init__(fields = [
             PrimitiveField('totalLength', StructEncodedSerializer(UINT_16_LE)),
             UnionField([
-                PrimitiveField('pduType', BitMaskSerializer(Rdp.ShareControlHeader.PDU_TYPE_MASK, StructEncodedSerializer(UINT_16_LE))),
+                PrimitiveField(
+                    'pduType', 
+                    BitMaskSerializer(Rdp.ShareControlHeader.PDU_TYPE_MASK, StructEncodedSerializer(UINT_16_LE)), 
+                    to_human_readable = lookup_name_in(Rdp.ShareControlHeader.PDUTYPE_NAMES)),
                 PrimitiveField('pduVersion', BitMaskSerializer(Rdp.ShareControlHeader.PDU_VERSION_MASK, StructEncodedSerializer(UINT_16_LE))),
             ]),
             PrimitiveField('pduSource', StructEncodedSerializer(UINT_16_LE)),
         ])
+    
+    def get_pdu_types(self):
+        retval = []
+        retval.append('RDP')
+        retval.append(str(self._fields_by_name['pduType'].get_human_readable_value()))
+        retval.extend(super(Rdp_TS_SHARECONTROLHEADER, self).get_pdu_types())
+        return retval
 
 class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
     def __init__(self):
@@ -539,13 +652,19 @@ class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
             PrimitiveField('pad1', StructEncodedSerializer(PAD)),
             PrimitiveField('streamID', StructEncodedSerializer(UINT_8)),
             PrimitiveField('uncompressedLength', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('pduType2', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('pduType2', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PDUTYPE2_NAMES)),
             UnionField([
                 PrimitiveField('compressionArgs', BitFieldEncodedSerializer(UINT_8, Rdp.ShareDataHeader.PACKET_ARG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_ARG_NAMES)),
                 PrimitiveField('compressionType', BitMaskSerializer(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_NAMES)),
             ]),
             PrimitiveField('compressedLength', StructEncodedSerializer(UINT_16_LE)),
         ])
+    
+    def get_pdu_types(self):
+        retval = []
+        retval.append(str(self._fields_by_name['pduType2'].get_human_readable_value()))
+        retval.extend(super(Rdp_TS_SHAREDATAHEADER, self).get_pdu_types())
+        return retval
 
 class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
     def __init__(self):
@@ -572,7 +691,8 @@ class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
                     Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretItem('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
                     Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretItem('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
                 })
-        ])
+        ],
+        use_class_as_pdu_name = True)
 
 class Rdp_TS_CONFIRM_ACTIVE_PDU(BaseDataUnit):
     def __init__(self):
@@ -599,7 +719,8 @@ class Rdp_TS_CONFIRM_ACTIVE_PDU(BaseDataUnit):
                     Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretItem('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
                     Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretItem('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
                 })
-        ])
+        ],
+        use_class_as_pdu_name = True)
 
 class Rdp_TS_CAPS_SET(BaseDataUnit):
     def __init__(self):
@@ -628,4 +749,11 @@ class Rdp_TS_WINDOW_CAPABILITYSET(BaseDataUnit):
             PrimitiveField('WndSupportLevel', StructEncodedSerializer(UINT_32_LE)),
             PrimitiveField('NumIconCaches', StructEncodedSerializer(UINT_8)),
             PrimitiveField('NumIconCacheEntries', StructEncodedSerializer(UINT_16_LE)),
+        ])
+
+class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_CHANNEL_PDU_HEADER, self).__init__(fields = [
+            PrimitiveField('length', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Channel.CHANNEL_FLAG_NAMES)),
         ])

@@ -4,7 +4,8 @@ from data_model_v2 import (
     PerEncodedDataUnit,
     
     PrimitiveField,
-    DataUnitField,   
+    DataUnitField,
+    UnionField,
     
     add_constants_names_mapping,
     lookup_name_in,
@@ -72,59 +73,96 @@ class McsHeaderDataUnit(BaseDataUnit):
             PrimitiveField('payload', RawLengthSerializer()),
         ])
 
+    def get_pdu_types(self):
+        retval = []
+        retval.append('MCS')
+        retval.append(str(self._fields_by_name['type'].get_human_readable_value()))
+        retval.extend(super(McsHeaderDataUnit, self).get_pdu_types())
+        return retval
+
 class McsConnectHeaderDataUnit(BaseDataUnit):
     def __init__(self):
-        super(McsConnectHeaderDataUnit, self).__init__(fields = [
-            PrimitiveField('mcs_connect_type', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Mcs.MCS_CONNECT_TYPE)),
-        ])
+        super(McsConnectHeaderDataUnit, self).__init__(
+            fields = [
+                PrimitiveField('mcs_connect_type', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Mcs.MCS_CONNECT_TYPE)),
+            ])
+
+    def get_pdu_types(self):
+        retval = []
+        retval.append(str(self._fields_by_name['mcs_connect_type'].get_human_readable_value()))
+        retval.extend(super(McsConnectHeaderDataUnit, self).get_pdu_types())
+        return retval
 
 class McsConnectInitialDataUnit(BaseDataUnit):
     def __init__(self):
-        super(McsConnectInitialDataUnit, self).__init__(fields = [
-            PrimitiveField('length',
-                DependentValueSerializer(
-                    BerEncodedLengthSerializer(),
-                    ValueDependency(lambda x: len(self)))),
-            DataUnitField('callingDomainSelector', BerEncodedDataUnit()),
-            DataUnitField('calledDomainSelector', BerEncodedDataUnit()),
-            DataUnitField('upwardFlag', BerEncodedDataUnit()),
-            DataUnitField('targetParameters', BerEncodedDataUnit()),
-            DataUnitField('minimumParameters', BerEncodedDataUnit()),
-            DataUnitField('maximumParameters', BerEncodedDataUnit()),
-            DataUnitField('userData', 
-                BerEncodedDataUnit(McsGccConnectionDataUnit())),
-        ])
+        super(McsConnectInitialDataUnit, self).__init__(
+            use_class_as_pdu_name = True,
+            fields = [
+                PrimitiveField('length',
+                    DependentValueSerializer(
+                        BerEncodedLengthSerializer(),
+                        ValueDependency(lambda x: len(self)))),
+                DataUnitField('callingDomainSelector', BerEncodedDataUnit()),
+                DataUnitField('calledDomainSelector', BerEncodedDataUnit()),
+                DataUnitField('upwardFlag', BerEncodedDataUnit()),
+                DataUnitField('targetParameters', BerEncodedDataUnit()),
+                DataUnitField('minimumParameters', BerEncodedDataUnit()),
+                DataUnitField('maximumParameters', BerEncodedDataUnit()),
+                DataUnitField('userData', 
+                    BerEncodedDataUnit(McsGccConnectionDataUnit())),
+            ])
 
 
 class McsConnectResponseDataUnit(BaseDataUnit):
     def __init__(self):
-        super(McsConnectResponseDataUnit, self).__init__(fields = [
-            PrimitiveField('length',
-                DependentValueSerializer(
-                    BerEncodedLengthSerializer(),
-                    ValueDependency(lambda x: len(self)))),
-            DataUnitField('result', BerEncodedDataUnit()),
-            DataUnitField('calledConnectId', BerEncodedDataUnit()),
-            DataUnitField('domainParameters', BerEncodedDataUnit()),
-            DataUnitField('userData', 
-                BerEncodedDataUnit(McsGccConnectionDataUnit())),
-        ])
+        super(McsConnectResponseDataUnit, self).__init__(
+            use_class_as_pdu_name = True,
+            fields = [
+                PrimitiveField('length',
+                    DependentValueSerializer(
+                        BerEncodedLengthSerializer(),
+                        ValueDependency(lambda x: len(self)))),
+                DataUnitField('result', BerEncodedDataUnit()),
+                DataUnitField('calledConnectId', BerEncodedDataUnit()),
+                DataUnitField('domainParameters', BerEncodedDataUnit()),
+                DataUnitField('userData', 
+                    BerEncodedDataUnit(McsGccConnectionDataUnit())),
+            ])
 
 class McsGccConnectionDataUnit(BaseDataUnit):
     def __init__(self): 
-        super(McsGccConnectionDataUnit, self).__init__(fields = [
-            PrimitiveField('gcc_header', RawLengthSerializer(LengthDependency(lambda x: 21))),
-            DataUnitField('gcc_userData', 
-                PerEncodedDataUnit(
-                    PerEncodedLengthSerializer.RANGE_0_64K,
-                    ArraySerializer(
-                        DataUnitSerializer(RdpUserDataBlock),
-                        length_dependency = LengthDependency()))),
-        ])
+        super(McsGccConnectionDataUnit, self).__init__(
+            fields = [
+                PrimitiveField('gcc_header', RawLengthSerializer(LengthDependency(lambda x: 21))),
+                DataUnitField('gcc_userData', 
+                    PerEncodedDataUnit(
+                        PerEncodedLengthSerializer.RANGE_0_64K,
+                        ArraySerializer(
+                            DataUnitSerializer(RdpUserDataBlock),
+                            length_dependency = LengthDependency()))),
+            ])
         
 class McsSendDataUnit(BaseDataUnit):
     def __init__(self):
         super(McsSendDataUnit, self).__init__(fields = [
-            PrimitiveField('mcs_data_parameters', RawLengthSerializer(LengthDependency(lambda x: 5))),
+            # PrimitiveField('mcs_data_parameters', RawLengthSerializer(LengthDependency(lambda x: 5))),
+            PrimitiveField('initiator', 
+                ValueTransformSerializer(
+                    StructEncodedSerializer(UINT_16_BE),
+                    ValueTransformer( # initiator is in the range 1001..65535
+                        to_serialized = lambda x: x - 1001,
+                        from_serialized = lambda x: x + 1001))),
+            PrimitiveField('channelId', StructEncodedSerializer(UINT_16_BE)),
+            UnionField(fields = [
+                PrimitiveField('dataPriority_TODO', StructEncodedSerializer(UINT_8)), # TODO: add bit mask
+                PrimitiveField('segmentation_TODO', StructEncodedSerializer(UINT_8)), # TODO: add bit mask
+            ]),
             DataUnitField('mcs_data', PerEncodedDataUnit(PerEncodedLengthSerializer.RANGE_VALUE_DEFINED)),
         ])
+
+    def get_pdu_types(self):
+        retval = []
+        retval.append('channelId')
+        retval.append(str(self._fields_by_name['channelId'].get_human_readable_value()))
+        retval.extend(super(McsSendDataUnit, self).get_pdu_types())
+        return retval

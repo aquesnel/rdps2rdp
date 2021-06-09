@@ -7,10 +7,25 @@ from data_model_v2 import (
     DataUnitField,
     UnionField,
     
+    ArrayAutoReinterpret,
+    AutoReinterpretConfig,
+    
     add_constants_names_mapping,
     lookup_name_in,
 )
-from data_model_v2_rdp import RdpUserDataBlock
+from data_model_v2_rdp import (
+    Rdp,
+    RdpUserDataBlock,
+    
+    Rdp_TS_UD_CS_CORE,
+    Rdp_TS_UD_CS_SEC,
+    Rdp_TS_UD_CS_NET,
+    
+    Rdp_TS_UD_SC_CORE,
+    Rdp_TS_UD_SC_NET,
+    Rdp_TS_UD_SC_SEC1,
+    Rdp_TS_UD_SC_MCS_MSGCHANNEL,
+)
 from serializers import (
     RawLengthSerializer,
     DependentValueSerializer,
@@ -73,11 +88,11 @@ class McsHeaderDataUnit(BaseDataUnit):
             PrimitiveField('payload', RawLengthSerializer()),
         ])
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         retval = []
         retval.append('MCS')
         retval.append(str(self._fields_by_name['type'].get_human_readable_value()))
-        retval.extend(super(McsHeaderDataUnit, self).get_pdu_types())
+        retval.extend(super(McsHeaderDataUnit, self).get_pdu_types(rdp_context))
         return retval
 
 class McsConnectHeaderDataUnit(BaseDataUnit):
@@ -87,10 +102,10 @@ class McsConnectHeaderDataUnit(BaseDataUnit):
                 PrimitiveField('mcs_connect_type', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Mcs.MCS_CONNECT_TYPE)),
             ])
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         retval = []
         retval.append(str(self._fields_by_name['mcs_connect_type'].get_human_readable_value()))
-        retval.extend(super(McsConnectHeaderDataUnit, self).get_pdu_types())
+        retval.extend(super(McsConnectHeaderDataUnit, self).get_pdu_types(rdp_context))
         return retval
 
 class McsConnectInitialDataUnit(BaseDataUnit):
@@ -140,6 +155,22 @@ class McsGccConnectionDataUnit(BaseDataUnit):
                         ArraySerializer(
                             DataUnitSerializer(RdpUserDataBlock),
                             length_dependency = LengthDependency()))),
+            ],
+            auto_reinterpret_configs = [
+                ArrayAutoReinterpret(
+                    array_field_to_reinterpret_name = 'gcc_userData.payload',
+                    item_field_to_reinterpret_name = 'payload',
+                    type_getter = ValueDependency(lambda user_data_block: user_data_block.header.type),
+                    type_mapping = {
+                        Rdp.UserData.CS_CORE: AutoReinterpretConfig('clientCoreData', Rdp_TS_UD_CS_CORE),
+                        Rdp.UserData.CS_SECURITY: AutoReinterpretConfig('clientSecurityData', Rdp_TS_UD_CS_SEC),
+                        Rdp.UserData.CS_NET: AutoReinterpretConfig('clientNetworkData', Rdp_TS_UD_CS_NET),
+                        
+                        Rdp.UserData.SC_CORE: AutoReinterpretConfig('serverCoreData', Rdp_TS_UD_SC_CORE),
+                        Rdp.UserData.SC_NET: AutoReinterpretConfig('serverNetworkData', Rdp_TS_UD_SC_NET),
+                        Rdp.UserData.SC_SECURITY: AutoReinterpretConfig('serverSecurityData', Rdp_TS_UD_SC_SEC1),
+                        Rdp.UserData.SC_MCS_MSGCHANNEL: AutoReinterpretConfig('serverMessageChannelData', Rdp_TS_UD_SC_MCS_MSGCHANNEL),
+                    })
             ])
         
 class McsSendDataUnit(BaseDataUnit):
@@ -160,9 +191,33 @@ class McsSendDataUnit(BaseDataUnit):
             DataUnitField('mcs_data', PerEncodedDataUnit(PerEncodedLengthSerializer.RANGE_VALUE_DEFINED)),
         ])
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
+        channel_id = self._fields_by_name['channelId'].get_human_readable_value()
+        if channel_id in rdp_context.channels:
+            channel_name = "%s (%d)" % (rdp_context.channels[channel_id].name, channel_id)
+        else:
+            channel_name = str(channel_id)
+        retval = []
+        retval.append('channelId')
+        retval.append(channel_name)
+        retval.extend(super(McsSendDataUnit, self).get_pdu_types(rdp_context))
+        return retval
+
+class McsChannelJoinRequestDataUnit(BaseDataUnit):
+    def __init__(self):
+        super(McsChannelJoinRequestDataUnit, self).__init__(fields = [
+            PrimitiveField('initiator', 
+                ValueTransformSerializer(
+                    StructEncodedSerializer(UINT_16_BE),
+                    ValueTransformer(
+                        to_serialized = lambda x: x - 1001,
+                        from_serialized = lambda x: x + 1001))),
+            PrimitiveField('channelId', StructEncodedSerializer(UINT_16_BE)),
+        ])
+
+    def get_pdu_types(self, rdp_context):
         retval = []
         retval.append('channelId')
         retval.append(str(self._fields_by_name['channelId'].get_human_readable_value()))
-        retval.extend(super(McsSendDataUnit, self).get_pdu_types())
+        retval.extend(super(McsChannelJoinRequestDataUnit, self).get_pdu_types(rdp_context))
         return retval

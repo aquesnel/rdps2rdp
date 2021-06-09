@@ -204,10 +204,13 @@ if __name__ == '__main__':
         offset = 0
         limit = 99
         
-        # offset = 15
+        # offset = 15 # connect initial
         # limit = 1
         
-        # offset = 54
+        # offset = 42 # first mcs channel msg
+        # limit = 1
+        
+        # offset = 55 # post-setup
         # limit = 10
         i = 0
         for pkt in pkt_list:
@@ -217,7 +220,7 @@ if __name__ == '__main__':
                     source = 'Server'
                 else:
                     source = 'Client'
-                print('%d %s - %s' % (i, source, pdu.get_pdu_name()))
+                print('%d %s - %s' % (i, source, pdu.get_pdu_name(rdp_context)))
                 if limit <= 10:
                     # print(repr(pkt))
                     print(utils.as_hex_str(pkt[Raw].load))

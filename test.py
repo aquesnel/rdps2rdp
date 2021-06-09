@@ -5,7 +5,7 @@ import importlib
 
 def load_tests(loader, standard_tests, pattern):
     # top level directory cached on loader instance
-    this_dir = os.path.dirname(__file__)
+    this_dir = os.path.dirname(os.path.abspath(__file__))
     package_tests = loader.discover(start_dir=this_dir, pattern='test_*.py')
     standard_tests.addTests(package_tests)
     return standard_tests
@@ -15,8 +15,8 @@ def load_tests(loader, standard_tests, pattern):
 # ```
 # test.py test_module.TestClass.test_method
 # ```
-def load_test_modules():
-    this_dir = os.path.dirname(__file__)
+def import_test_modules():
+    this_dir = os.path.dirname(os.path.abspath(__file__))
     files = os.listdir(this_dir)
     # load the modules
     for f in files:
@@ -27,5 +27,5 @@ def load_test_modules():
             
     
 if __name__ == '__main__':
-    load_test_modules()
+    import_test_modules()
     unittest.main()

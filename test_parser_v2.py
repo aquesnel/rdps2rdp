@@ -152,11 +152,11 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelCount, 3)
         self.assertEqual(len(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray), 3)
         self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[0].name, "rdpdr")
-        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[0].options, 0x80800000)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[0].options, {Rdp.Channel.CHANNEL_OPTION_INITIALIZED, Rdp.Channel.CHANNEL_OPTION_COMPRESS_RDP})
         self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[1].name, "cliprdr")
-        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[1].options, 0xc0a00000)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[1].options, {Rdp.Channel.CHANNEL_OPTION_INITIALIZED, Rdp.Channel.CHANNEL_OPTION_ENCRYPT_RDP, Rdp.Channel.CHANNEL_OPTION_COMPRESS_RDP, Rdp.Channel.CHANNEL_OPTION_SHOW_PROTOCOL})
         self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[2].name, "rdpsnd")
-        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[2].options, 0xc0000000)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray[2].options, {Rdp.Channel.CHANNEL_OPTION_INITIALIZED, Rdp.Channel.CHANNEL_OPTION_ENCRYPT_RDP})
         
         self.assertEqual(rdp_context.is_gcc_confrence, True)
 
@@ -310,7 +310,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.CHANNEL_JOIN_REQUEST)
-        self.assertEqual(bytes(pdu.tpkt.mcs.payload), bytes.fromhex("00 06 03 ef"))
+        self.assertEqual(pdu.tpkt.mcs.channel_join_request.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.channel_join_request.channelId, 1007)
 
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
@@ -356,7 +357,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70") )
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
         
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_EXCHANGE_PKT, Rdp.Security.SEC_LICENSE_ENCRYPT})
         
@@ -412,7 +416,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))        
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_INFO_PKT, Rdp.Security.SEC_ENCRYPT})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("45 ca 46 fa 5e a7 be bc"))
@@ -468,7 +475,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))        
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_INFO_PKT})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("45 ca 46 fa 5e a7 be bc"))
@@ -530,7 +540,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1002)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_LICENSE_PKT, Rdp.Security.SEC_ENCRYPT, Rdp.Security.SEC_LICENSE_ENCRYPT_CS})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("8d 43 9a ab d5 2a 31 39"))
@@ -563,7 +576,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1002)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_LICENSE_PKT, Rdp.Security.SEC_LICENSE_ENCRYPT_CS})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("8d 43 9a ab d5 2a 31 39"))
@@ -575,8 +591,6 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.validClientMessage[:4], bytes.fromhex("07 00 00 00"))
         self.assertEqual(pdu.tpkt.mcs.rdp.LICENSE_VALID_CLIENT_DATA.validClientMessage[-4:], bytes.fromhex("04 00 00 00"))
 
-        self.assertEqual(rdp_context.pre_capability_exchange, False)
-        
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
     def test_parse_demand_active_encrypted(self):
@@ -623,7 +637,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1002)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_ENCRYPT})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("56 02 e1 47 ac 5c 50 d9"))
@@ -666,7 +683,7 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_level = Rdp.Security.ENCRYPTION_LEVEL_CLIENT_COMPATIBLE
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
-        rdp_context.pre_capability_exchange = False
+        rdp_context.pre_capability_exchange = True
         self.assertEqual(parse_pdu_length(data, rdp_context), 386)
         
         pdu = parse(data, rdp_context)
@@ -677,7 +694,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_SERVER)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 01 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1002)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, set())
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("56 02 e1 47 ac 5c 50 d9"))
@@ -694,7 +714,9 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.numberCapabilities, 13)
         self.assertEqual(len(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets), 13)
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K)
+        
+        self.assertEqual(rdp_context.pre_capability_exchange, False)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
 
@@ -750,7 +772,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_RESET_SEQNO, Rdp.Security.SEC_IGNORE_SEQNO, Rdp.Security.SEC_ENCRYPT})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("ab 1f 51 e7 93 17 5c 45"))
@@ -814,7 +839,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_RESET_SEQNO, Rdp.Security.SEC_IGNORE_SEQNO})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("ab 1f 51 e7 93 17 5c 45"))
@@ -832,7 +860,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.numberCapabilities, 18)
         self.assertEqual(len(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets), 18)
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.virtualChannelCapability.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_SC)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_SC)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
@@ -858,7 +886,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_IGNORE_SEQNO, Rdp.Security.SEC_ENCRYPT})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("59 ff cb 2f 73 57 2b 42"))
@@ -892,7 +923,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_IGNORE_SEQNO})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("59 ff cb 2f 73 57 2b 42"))
@@ -937,7 +971,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, {Rdp.Security.SEC_ENCRYPT})
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("04 03 de f7 91 a3 7c af"))
@@ -971,7 +1008,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.x224.type, X224.TPDU_DATA)
 
         self.assertEqual(pdu.tpkt.mcs.type, Mcs.SEND_DATA_FROM_CLIENT)
-        self.assertEqual(bytes(pdu.tpkt.mcs.mcs_user_data.mcs_data_parameters), bytes.fromhex("00 06 03 eb 70"))
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.initiator, 1007)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.channelId, 1003)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.dataPriority_TODO, 0x70)
+        self.assertEqual(pdu.tpkt.mcs.mcs_user_data.segmentation_TODO, 0x70)
 
         self.assertEqual(pdu.tpkt.mcs.rdp.sec_header.flags, set())
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.sec_header1.dataSignature), bytes.fromhex("04 03 de f7 91 a3 7c af"))

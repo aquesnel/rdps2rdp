@@ -9,9 +9,6 @@ from data_model_v2 import (
     OptionalField,
     ConditionallyPresentField,
     
-    ArrayAutoReinterpret,
-    AutoReinterpretItem,
-    
     add_constants_names_mapping,
     lookup_name_in,
 )
@@ -59,6 +56,17 @@ class Rdp_TS_FP_INPUT_HEADER(BaseDataUnit):
                 PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.FastPath.FASTPATH_INPUT_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_INPUT_FLAG_NAMES)),
             ]),
         ])
+
+    def get_pdu_types(self, rdp_context):
+        packet_type = 'Unknown'
+        if self.action == Rdp.FastPath.FASTPATH_INPUT_ACTION_X224:
+            packet_type = 'TPKT'
+        elif self.action == Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH:
+            packet_type = 'FastPath'
+        retval = []
+        retval.append(packet_type)
+        retval.extend(super(Rdp_TS_FP_INPUT_HEADER, self).get_pdu_types(rdp_context))
+        return retval
 
 class TS_FP_LengthSerializer(BaseSerializer[int]):
     # TS_FP_INPUT_PDU.length1 and TS_FP_INPUT_PDU.length2 fields

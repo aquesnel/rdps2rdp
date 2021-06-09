@@ -10,7 +10,7 @@ from data_model_v2 import (
     ConditionallyPresentField,
     
     ArrayAutoReinterpret,
-    AutoReinterpretItem,
+    AutoReinterpretConfig,
     
     add_constants_names_mapping,
     lookup_name_in,
@@ -104,6 +104,7 @@ class Rdp(object):
         SC_CORE = 0x0C01
         SC_SECURITY = 0x0C02
         SC_NET = 0x0C03
+        SC_MCS_MSGCHANNEL = 0x0C04
         
         USER_DATA_NAMES = {
             CS_CORE: 'CS_CORE',
@@ -113,6 +114,7 @@ class Rdp(object):
             SC_CORE: 'SC_CORE',
             SC_SECURITY: 'SC_SECURITY',
             SC_NET: 'SC_NET',
+            SC_MCS_MSGCHANNEL: 'SC_MCS_MSGCHANNEL'
         }
 
     @add_constants_names_mapping('PROTOCOL_', 'PROTOCOL_NAMES')
@@ -513,7 +515,13 @@ class Rdp_TS_UD_SC_NET(BaseDataUnit):
             OptionalField(
                 PrimitiveField('Pad', StructEncodedSerializer(PAD*2))),
         ])
-        
+
+class Rdp_TS_UD_SC_MCS_MSGCHANNEL(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_UD_SC_MCS_MSGCHANNEL, self).__init__(fields = [
+            PrimitiveField('MCSChannelId', StructEncodedSerializer(UINT_16_LE)),
+        ])
+
 class Rdp_TS_UD_SC_SEC1(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_UD_SC_SEC1, self).__init__(fields = [
@@ -638,11 +646,11 @@ class Rdp_TS_SHARECONTROLHEADER(BaseDataUnit):
             PrimitiveField('pduSource', StructEncodedSerializer(UINT_16_LE)),
         ])
     
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         retval = []
         retval.append('RDP')
         retval.append(str(self._fields_by_name['pduType'].get_human_readable_value()))
-        retval.extend(super(Rdp_TS_SHARECONTROLHEADER, self).get_pdu_types())
+        retval.extend(super(Rdp_TS_SHARECONTROLHEADER, self).get_pdu_types(rdp_context))
         return retval
 
 class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
@@ -660,10 +668,10 @@ class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
             PrimitiveField('compressedLength', StructEncodedSerializer(UINT_16_LE)),
         ])
     
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         retval = []
         retval.append(str(self._fields_by_name['pduType2'].get_human_readable_value()))
-        retval.extend(super(Rdp_TS_SHAREDATAHEADER, self).get_pdu_types())
+        retval.extend(super(Rdp_TS_SHAREDATAHEADER, self).get_pdu_types(rdp_context))
         return retval
 
 class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
@@ -687,9 +695,9 @@ class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
                 item_field_to_reinterpret_name = 'capabilityData',
                 type_getter = ValueDependency(lambda capability_item: capability_item.capabilitySetType),
                 type_mapping = {
-                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretItem('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretItem('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretItem('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
                 })
         ],
         use_class_as_pdu_name = True)
@@ -715,9 +723,9 @@ class Rdp_TS_CONFIRM_ACTIVE_PDU(BaseDataUnit):
                 item_field_to_reinterpret_name = 'capabilityData',
                 type_getter = ValueDependency(lambda capability_item: capability_item.capabilitySetType),
                 type_mapping = {
-                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretItem('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretItem('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretItem('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
                 })
         ],
         use_class_as_pdu_name = True)

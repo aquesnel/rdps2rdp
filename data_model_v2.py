@@ -105,7 +105,7 @@ class BaseField(object):
     def get_human_readable_value(self):
         return self.get_value()
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         return []
 
     def get_value(self) -> Any:
@@ -199,8 +199,8 @@ class DataUnitField(BaseField):
         return '<DataUnitField(name=%s, data_unit class=%s)>' % (
             self.name, self.data_unit.__class__)
 
-    def get_pdu_types(self):
-        return self.data_unit.get_pdu_types()
+    def get_pdu_types(self, rdp_context):
+        return self.data_unit.get_pdu_types(rdp_context)
 
     def get_value(self) -> Any:
         return self.data_unit
@@ -298,9 +298,9 @@ class OptionalField(BaseField):
         else:
             return None
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         if self._value_is_present:
-            return self._optional_field.get_pdu_types()
+            return self._optional_field.get_pdu_types(rdp_context)
         else:
             return []
 
@@ -354,9 +354,9 @@ class ConditionallyPresentField(BaseField):
         else:
             return None
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         if self._is_present_condition():
-            return self._optional_field.get_pdu_types()
+            return self._optional_field.get_pdu_types(rdp_context)
         else:
             return []
             
@@ -399,10 +399,10 @@ class UnionField(BaseField):
     def get_human_readable_value(self):
         return str(self)
 
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         retval = []
         for f in self._fields:
-            retval.extend(f.get_pdu_types())
+            retval.extend(f.get_pdu_types(rdp_context))
         return retval
 
     def get_length(self):
@@ -444,8 +444,8 @@ class UnionWrapperField(BaseField):
     def get_human_readable_value(self):
         return self._field.get_human_readable_value()
 
-    def get_pdu_types(self):
-        return self._field.get_pdu_types()
+    def get_pdu_types(self, rdp_context):
+        return self._field.get_pdu_types(rdp_context)
         
     def get_length(self):
         return 0
@@ -462,26 +462,46 @@ class UnionWrapperField(BaseField):
     def _serialize_value(self, buffer: bytes, offset: int) -> int:
         return 0
 
-AutoReinterpretItem = collections.namedtuple('AutoReinterpretItem', ['name', 'factory'])
+AutoReinterpretConfig = collections.namedtuple('AutoReinterpretConfig', ['name', 'factory'])
 AUTO_REINTERPRET_TYPE_ID = TypeVar('AUTO_REINTERPRET_TYPE_ID')
 
 class AutoReinterpretBase(object):
     def auto_reinterpret(self, data_unit):
         raise NotImplementedError()
 
+class AutoReinterpret(AutoReinterpretBase):
+    def __init__(self, 
+            field_to_reinterpret_name: str,
+            type_getter: ValueDependency[AUTO_REINTERPRET_TYPE_ID], 
+            type_mapping: Dict[AUTO_REINTERPRET_TYPE_ID, AutoReinterpretConfig]):
+        self.field_to_reinterpret_name = field_to_reinterpret_name
+        self.type_getter = type_getter
+        self.type_mapping = type_mapping
+
+    def auto_reinterpret(self, data_unit):
+        type = self.type_getter.get_value(data_unit)
+        if type in self.type_mapping:
+            reinterpret_config = self.type_mapping[type]
+            data_unit.reinterpret_field(
+                    self.field_to_reinterpret_name, 
+                    DataUnitField(
+                        reinterpret_config.name, 
+                        reinterpret_config.factory()), 
+                    allow_overwrite = True)
+
 class ArrayAutoReinterpret(AutoReinterpretBase):
     def __init__(self, 
             array_field_to_reinterpret_name: str,
             item_field_to_reinterpret_name: str,
             type_getter: ValueDependency[AUTO_REINTERPRET_TYPE_ID], 
-            type_mapping: Dict[AUTO_REINTERPRET_TYPE_ID, AutoReinterpretItem]):
+            type_mapping: Dict[AUTO_REINTERPRET_TYPE_ID, AutoReinterpretConfig]):
         self.array_field_to_reinterpret_name = array_field_to_reinterpret_name
         self.item_field_to_reinterpret_name = item_field_to_reinterpret_name
         self.type_getter = type_getter
         self.type_mapping = type_mapping
 
     def auto_reinterpret(self, data_unit):
-        array_value = getattr(data_unit, self.array_field_to_reinterpret_name)
+        array_value = traverse_object_graph(data_unit, self.array_field_to_reinterpret_name)
         
         if not isinstance(array_value, list):
             raise ValueError('array field must be a list')
@@ -496,7 +516,8 @@ class ArrayAutoReinterpret(AutoReinterpretBase):
                             self.item_field_to_reinterpret_name, 
                             item_reinterpret_config.factory()), 
                         allow_overwrite = True)
-                data_unit.alias_field(item_reinterpret_config.name, '%s.%d.%s' % (self.array_field_to_reinterpret_name, i, self.item_field_to_reinterpret_name))
+                # data_unit.alias_field(item_reinterpret_config.name, '%s.%d.%s' % (self.array_field_to_reinterpret_name, i, self.item_field_to_reinterpret_name))
+                data_unit.alias_field(item_reinterpret_config.name, '%s.%d' % (self.array_field_to_reinterpret_name, i))
 
 class BaseDataUnit(object):
     def __init__(self, fields, auto_reinterpret_configs = None, use_class_as_pdu_name = False):
@@ -546,19 +567,19 @@ class BaseDataUnit(object):
     def __str__(self):
         return pprint.pformat(self._as_dict_for_pprint(), width=160)
 
-    def get_pdu_name(self):
-        types = self.get_pdu_types()
+    def get_pdu_name(self, rdp_context):
+        types = self.get_pdu_types(rdp_context)
         if types:
             return ' '.join(types)
         else:
             return 'Unknown'
         
-    def get_pdu_types(self):
+    def get_pdu_types(self, rdp_context):
         retval = []
         if self.use_class_as_pdu_name:
             retval.append(str(self.__class__))
         for f in self._fields:
-            retval.extend(f.get_pdu_types())
+            retval.extend(f.get_pdu_types(rdp_context))
         return retval
         
     def _as_dict_for_pprint(self):

@@ -37,6 +37,7 @@ from data_model_v2_mcs import (
     McsConnectResponseDataUnit,
     McsGccConnectionDataUnit,
     McsSendDataUnit,
+    McsChannelJoinRequestDataUnit,
 )
 from data_model_v2_rdp import (
     Rdp,
@@ -220,7 +221,10 @@ def parse(data, rdp_context = None):
             # print('pdu.tpkt.x224 = ', pdu.tpkt.x224)
             pdu.tpkt.reinterpret_field('tpktUserData.remaining', DataUnitField('mcs', McsHeaderDataUnit()))
             
-            if pdu.tpkt.mcs.type == Mcs.CONNECT:
+            if pdu.tpkt.mcs.type == Mcs.CHANNEL_JOIN_REQUEST:
+                pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('channel_join_request', McsChannelJoinRequestDataUnit()))
+                
+            elif pdu.tpkt.mcs.type == Mcs.CONNECT:
                 rdp_context.is_gcc_confrence = True
                 # print('pdu.tpkt.mcs = ', pdu.tpkt.mcs)
                 pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('mcs_connect_header', McsConnectHeaderDataUnit()))
@@ -234,31 +238,18 @@ def parse(data, rdp_context = None):
                 else:
                     raise ValueError('not supported')
                 
-                pdu.tpkt.mcs.alias_field('rdp', 'connect_payload.userData.payload.gcc_userData')
-                pdu.tpkt.mcs.rdp.alias_field('user_data_array', 'payload')
-
-                USER_DATA_TYPES = {
-                    Rdp.UserData.CS_CORE: ('clientCoreData', Rdp_TS_UD_CS_CORE),
-                    Rdp.UserData.CS_SECURITY: ('clientSecurityData', Rdp_TS_UD_CS_SEC),
-                    Rdp.UserData.CS_NET: ('clientNetworkData', Rdp_TS_UD_CS_NET),
-                    
-                    Rdp.UserData.SC_CORE: ('serverCoreData', Rdp_TS_UD_SC_CORE),
-                    Rdp.UserData.SC_NET: ('serverNetworkData', Rdp_TS_UD_SC_NET),
-                    Rdp.UserData.SC_SECURITY: ('serverSecurityData', Rdp_TS_UD_SC_SEC1),
-                }
-                for i, user_data_item in enumerate(pdu.tpkt.mcs.rdp.user_data_array):
-                    if user_data_item.header.type in USER_DATA_TYPES:
-                        field_name, factory  = USER_DATA_TYPES[user_data_item.header.type]
-                        user_data_item.reinterpret_field('payload', DataUnitField('payload', factory()), allow_overwrite = True)
-                        pdu.tpkt.mcs.rdp.alias_field(field_name, 'user_data_array.%d' % i)
-                
+                pdu.tpkt.mcs.alias_field('rdp', 'connect_payload.userData.payload')
                 if hasattr(pdu.tpkt.mcs.rdp, 'clientNetworkData'):
                     for channel_def in pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray:
                         rdp_context.channel_defs.append(ChannelDef(channel_def.name, channel_def.options))
                 if hasattr(pdu.tpkt.mcs.rdp, 'serverNetworkData'):
                     for channel_def, id in zip(rdp_context.channel_defs, pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray):
                         rdp_context.channels[id] = channel_def
-                        
+                if hasattr(pdu.tpkt.mcs.rdp, 'serverMessageChannelData'):
+                    channel_id = pdu.tpkt.mcs.rdp.serverMessageChannelData.payload.MCSChannelId
+                    channel_def = ChannelDef('McsChannel', 0)
+                    rdp_context.channels[channel_id] = channel_def
+                    rdp_context.channel_defs.append(channel_def)
                 
                 if hasattr(pdu.tpkt.mcs.rdp, 'serverSecurityData'):
                     rdp_context.encryption_level = pdu.tpkt.mcs.rdp.serverSecurityData.payload.encryptionLevel
@@ -277,12 +268,14 @@ def parse(data, rdp_context = None):
                     if rdp_context.pre_capability_exchange:
                         first_two_bytes = pdu.tpkt.mcs.rdp.payload[0:2]
                         first_two_bytes_int = struct.unpack(UINT_16_LE, first_two_bytes)[0]
-                        if bin(first_two_bytes_int).count("1") == 1:
+                        if bin(first_two_bytes_int & Rdp.Security.PACKET_MASK).count("1") in {0, 1}:
                             pdu_header_type_hint = 'TS_SECURITY_HEADER'
                         if len(pdu.tpkt.mcs.rdp.payload) == first_two_bytes_int:
                             if pdu_header_type_hint is not None:
                                 raise ValueError('Ambiguous RDP header. The header could be either TS_SECURITY_HEADER or TS_SHARECONTROLHEADER')
                             pdu_header_type_hint = 'TS_SHARECONTROLHEADER'
+                        if pdu_header_type_hint is None:
+                            raise ValueError('Uknown RDP header. The header is neither TS_SECURITY_HEADER nor TS_SHARECONTROLHEADER')
     
                     is_payload_encrypted = False
                     is_payload_handeled = False

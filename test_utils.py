@@ -1,5 +1,5 @@
 
-from parser_v2 import RdpContext
+from parser_v2 import RdpContext, ChannelDef
 
 def extract_as_bytes(data):
     result = ''
@@ -10,7 +10,4 @@ def extract_as_bytes(data):
     return bytes.fromhex(result)
 
 def extract_as_context(values):
-    rdp_context = RdpContext()
-    for k,v in values.items():
-        setattr(rdp_context, k, v)
-    return rdp_context
+    return RdpContext.from_repr(values)

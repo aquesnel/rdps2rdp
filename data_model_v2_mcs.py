@@ -193,8 +193,8 @@ class McsSendDataUnit(BaseDataUnit):
 
     def get_pdu_types(self, rdp_context):
         channel_id = self._fields_by_name['channelId'].get_human_readable_value()
-        if channel_id in rdp_context.channels:
-            channel_name = "%s (%d)" % (rdp_context.channels[channel_id].name, channel_id)
+        if channel_id in rdp_context.get_channel_ids():
+            channel_name = "%s (%d)" % (rdp_context.get_channel_by_id(channel_id).name, channel_id)
         else:
             channel_name = str(channel_id)
         retval = []

@@ -7,6 +7,7 @@ import re
 from scapy.all import *
 
 import parser_v2
+from parser_v2_context import RdpContext
 from data_model_v2 import RawDataUnit
 
 @contextlib.contextmanager
@@ -59,16 +60,16 @@ class TcpStream_v2(object):
         self.replace_sockets(server, client)
         
     def replace_sockets(self, server, client):
-        self.server = self._wrap_socket(self.server, server, "server")
-        self.client = self._wrap_socket(self.client, client, "client")
+        self.server = self._wrap_socket(self.server, server, RdpContext.PduSource.SERVER)
+        self.client = self._wrap_socket(self.client, client, RdpContext.PduSource.CLIENT)
       
-    def _wrap_socket(self, current_socket, new_socket, socket_name):
+    def _wrap_socket(self, current_socket, new_socket, pdu_source):
         if current_socket is not None:
             new_socket = current_socket.clone_wrapper_onto(new_socket)
         else:
             new_socket = CountingSocketWrapper(new_socket)
         new_socket = StreamDisconnectingSocketWrapper(new_socket, self.stream_context)
-        return PduSocketWrapper(new_socket, socket_name, self.stream_context)
+        return PduSocketWrapper(new_socket, pdu_source, self.stream_context)
         
     def close(self):
         print('Shutting down stream')
@@ -213,10 +214,14 @@ class CountingSocketWrapper(DelegatingMixin):
         raise NotImplementedError()
     
 class PduSocketWrapper(DelegatingMixin):
-    def __init__(self, sock, socket_name, stream_context):
+    def __init__(self, sock, pdu_source, stream_context, socket_name = None):
         super(PduSocketWrapper, self).__init__(sock)
         self.socket = sock
-        self.socket_name = socket_name
+        self.pdu_source = pdu_source
+        if socket_name is None:
+            self.socket_name = pdu_source.name
+        else:
+            self.socket_name = socket_name
         self.stream_context = stream_context
         self._receive_buffer = b''
 
@@ -296,7 +301,7 @@ class PduSocketWrapper(DelegatingMixin):
                             # s = hexdump(pkt, dump=True)
                             wrpcap(self.stream_context.pcap_file_name, pkt, append=True)
                         if self.stream_context.full_pdu_parsing:
-                            pdu = parser_v2.parse(msg, self.stream_context.rdp_context)
+                            pdu = parser_v2.parse(self.pdu_source, msg, self.stream_context.rdp_context)
                         else:
                             pdu = RawDataUnit().with_value(msg)
                         dbg_msg = ("%s receive pdu: %s" % (self.socket_name, pdu))

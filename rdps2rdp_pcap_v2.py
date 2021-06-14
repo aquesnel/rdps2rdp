@@ -26,6 +26,7 @@ import mccp
 import stream
 from data_model_v2_rdp import Rdp
 import parser_v2
+import parser_v2_context
 import utils
 
 # import sslkeylog
@@ -198,11 +199,11 @@ if __name__ == '__main__':
             #     break
 
     if True: # read/print pcap file
-        rdp_context = parser_v2.RdpContext()
+        rdp_context = parser_v2_context.RdpContext()
         OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
         pkt_list = rdpcap(OUTPUTPCAP)
         offset = 0
-        limit = 99
+        limit = 9999
         
         # offset = 15 # connect initial
         # limit = 1
@@ -211,22 +212,43 @@ if __name__ == '__main__':
         # limit = 1
         
         # offset = 55 # post-setup
-        # limit = 10
+        # limit = 1
+        
+        # offset = 370 # dyvc data compressed
+        # limit = 1
+        
+        def no_throw(f):
+            def wrap_no_throw(*argv, **kwargs):
+                try:
+                    return bool(f(*argv, **kwargs))
+                except Exception:
+                    return False
+            return wrap_no_throw
+        
+        filters = [
+            # no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_create_request), # existance check only
+            # no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_create_response), # existance check only
+            # no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_close), # existance check only 
+            no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_data.ChannelId == 14),
+        ]
+        
         i = 0
         for pkt in pkt_list:
-            pdu = parser_v2.parse(pkt[Raw].load, rdp_context)
+            if pkt[TCP].sport == SERVER_PORT:
+                pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
+            else:
+                pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
+            pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)
             if offset <= i and i < offset + limit:
-                if pkt[TCP].sport == SERVER_PORT:
-                    source = 'Server'
-                else:
-                    source = 'Client'
-                print('%d %s - %s' % (i, source, pdu.get_pdu_name(rdp_context)))
-                if limit <= 10:
-                    # print(repr(pkt))
-                    print(utils.as_hex_str(pkt[Raw].load))
-                    print(rdp_context)
-                    print(pdu)
-                    pdu.as_wire_bytes()
+
+                if len(filters) == 0 or any([f(pdu) for f in filters]):
+                    print('%d %s - %s' % (i, pdu_source.name, pdu.get_pdu_name(rdp_context)))
+                    if limit <= 10:
+                        # print(repr(pkt))
+                        print(utils.as_hex_str(pkt[Raw].load))
+                        print(rdp_context)
+                        print(pdu)
+                        pdu.as_wire_bytes()
             if offset  + limit + 1 < i: 
                 break
             i += 1

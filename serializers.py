@@ -93,11 +93,53 @@ class StructEncodedSerializer(BaseSerializer[int]):
         if value is not None:
             self._struct.pack_into(buffer, offset, value)
         return self.get_serialized_length(value)
+
+class VariableLengthIntSerializer(BaseSerializer[int]):
+    FORMAT_BY_LENGTH = {
+        1: struct.Struct(UINT_8),
+        2: struct.Struct(UINT_16_LE),
+        4: struct.Struct(UINT_32_LE),
+    }
+    
+    def __init__(self, int_length_dependency: LengthDependency):
+        self._int_length_dependency = int_length_dependency
+    
+    def _get_struct_format(self):
+        length = self._int_length_dependency.get_length(None)
+        if length not in self.FORMAT_BY_LENGTH:
+            raise ValueError('Invalid length value. Expected one of %s, received %d' % (self.FORMAT_BY_LENGTH.keys(), length))
+        return self.FORMAT_BY_LENGTH[length]
+    
+    def get_serialized_length(self, value: int) -> int:
+        return self._get_struct_format().size
+        
+    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+        struct_format = self._get_struct_format()
+        length = struct_format.size
+        value = struct_format.unpack_from(raw_data, offset)
+        if len(value) == 0:
+            return None, length
+        elif len(value) == 1:
+            return value[0], length
+        else:
+            raise ValueError('unexpected number of values unpacked')
+    
+    def pack_into(self, buffer: bytes, offset: int, value: int) -> int:
+        struct_format = self._get_struct_format()
+        length = struct_format.size
+        max_value = 256 ** length
+        if value >= max_value:
+            raise ValueError('Value is too big for this field. Field length %d (max value: %d), received value %d' % (length, max_value, value))
+        if value is not None:
+            struct_format.pack_into(buffer, offset, value)
+        return length
     
 class EncodedStringSerializer(BaseSerializer[str]):
     UTF_16_LE = 'utf-16-le'
     ASCII = 'ascii'
-    SUPPORTED_ENCODINGS = {ASCII, UTF_16_LE}
+    WINDOWS_1252 = 'cp1252'
+    LATIN_1 = 'iso-8859-1'
+    SUPPORTED_ENCODINGS = {ASCII, UTF_16_LE, WINDOWS_1252, LATIN_1}
     def __init__(self, encoding, 
             length_dependency = None,
             delimiter_dependency = None,
@@ -125,7 +167,7 @@ class EncodedStringSerializer(BaseSerializer[str]):
         
     def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[str, int]:
         max_length = self._length_dependency.get_length(raw_data[offset:])
-        s = bytes(raw_data[offset : offset+max_length]).decode(self._encoding)
+        s = bytes(raw_data[offset : offset+max_length]).decode(self._encoding, errors = 'replace')
         if self._delimiter_dependency:
             delimiter = self._delimiter_dependency.get_value(None)
             end_of_string_index = s.find(delimiter)

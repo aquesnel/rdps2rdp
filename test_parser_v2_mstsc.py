@@ -50,7 +50,7 @@ class TestParsing(unittest.TestCase):
           00 00 00 00 # -> TS_UD_SC_SEC1::encryptionMethod = ENCRYPTION_LEVEL_NONE
           """)
         rdp_context = RdpContext()
-        pdu = parse(data, rdp_context)
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
         
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 109)
@@ -126,7 +126,7 @@ class TestParsing(unittest.TestCase):
             """)
         
         rdp_context = RdpContext()
-        pdu = parse(data, rdp_context)
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
         
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 134)
@@ -191,7 +191,7 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_NONE
         rdp_context.pre_capability_exchange = False
         rdp_context.is_gcc_confrence = True
-        pdu = parse(data, rdp_context)
+        pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
     
     def test_parse_from_server_request_udp_fec(self):
         # data captured from an MSTSC rail session with a Win10 datacenter RDP 10? server
@@ -208,7 +208,7 @@ class TestParsing(unittest.TestCase):
             """)
         rdp_context = extract_as_context({'password': 'P@ssw0rd!', 'encryption_level': 0, 'is_gcc_confrence': True, 'encrypted_client_random': None, 'encryption_method': 0, 'alternate_shell': 'rdpinit.exe', 'pre_capability_exchange': True, 'auto_logon': True, 'rail_enabled': True, 'compression_type': 1536, 'user_name': 'runneradmin', 'domain': '', 'working_dir': ''})
 
-        pdu = parse(data, rdp_context)
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
     
     def test_parse_from_server_channel_unknown_1(self):
         # data captured from an MSTSC rail session with a Win10 datacenter RDP 10? server
@@ -222,7 +222,7 @@ class TestParsing(unittest.TestCase):
             """)
         rdp_context = extract_as_context({'encryption_method': 0, 'encryption_level': 0, 'encrypted_client_random': None, 'alternate_shell': 'rdpinit.exe', 'rail_enabled': True, 'compression_type': 1536, 'domain': '', 'password': 'P@ssw0rd!', 'pre_capability_exchange': False, 'auto_logon': True, 'is_gcc_confrence': True, 'working_dir': '', 'user_name': 'runneradmin'})
 
-        pdu = parse(data, rdp_context)
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
         
        
     

@@ -1,4 +1,5 @@
 import functools
+from enum import Enum, unique
 
 from data_model_v2 import (
     BaseDataUnit,
@@ -68,6 +69,14 @@ class Rdp(object):
         FASTPATH_INPUT_FLAG_SECURE_CHECKSUM = (0x1 << 6)
         FASTPATH_INPUT_FLAG_ENCRYPTED = (0x2 << 6)
         
+    @add_constants_names_mapping('HRESULT_', 'HRESULT_NAMES')
+    class HResult(object):
+        # From
+        # HRESULT struct: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/0642cb2f-2075-4469-918c-4441e69c548a
+        # Win32 error codes: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d
+        
+        HRESULT_ERROR_SUCCESS = 0x00000000
+    
     @add_constants_names_mapping('RDP_NEG_', 'RDP_NEG_NAMES')
     class Negotiate(object):
         RDP_NEG_REQ = 0x01
@@ -251,6 +260,11 @@ class Rdp(object):
     @add_constants_names_mapping('CHANNEL_OPTION_', 'CHANNEL_OPTION_NAMES')
     @add_constants_names_mapping('CHANNEL_FLAG_', 'CHANNEL_FLAG_NAMES')
     class Channel(object):
+        @unique
+        class ChannelType(Enum):
+            STATIC = 'static'
+            DYNAMIC = 'dynamic'
+        
         CHANNEL_OPTION_INITIALIZED = 0x80000000
         CHANNEL_OPTION_ENCRYPT_RDP = 0x40000000
         CHANNEL_OPTION_ENCRYPT_SC = 0x20000000
@@ -278,6 +292,11 @@ class Rdp(object):
         PACKET_COMPR_TYPE_64K = (0x1 << 16)
         PACKET_COMPR_TYPE_RDP6 = (0x2 << 16)
         PACKET_COMPR_TYPE_RDP61 = (0x3 << 16)
+        
+        MCS_GLOBAL_CHANNEL_ID = 1003
+        DRDYNVC_CHANNEL_NAME = 'drdynvc'
+        MESSAGE_CHANNEL_NAME = 'McsMessageChannel'
+        IO_CHANNEL_NAME = 'I/O Channel'
         
     class License(object):
         ERROR_ALERT = 0xff
@@ -352,6 +371,24 @@ class Rdp(object):
             VCCAPS_NO_COMPR = 0x00000000
             VCCAPS_COMPR_SC = 0x00000001
             VCCAPS_COMPR_CS_8K = 0x00000002
+
+    @add_constants_names_mapping('COMMAND_', 'COMMAND_NAMES')
+    class DynamicVirtualChannels(object): # from [MS-RDPEDYC]
+        HEADER_MASK_CBID = 0x03
+        HEADER_MASK_PRI  = 0x0C
+        HEADER_MASK_CMD  = 0xF0
+        
+        DYNAMIC_VIRTUAL_CHANNEL_OPTIONS = 0
+        
+        COMMAND_CREATE = 0x01
+        COMMAND_DATA_FIRST = 0x02
+        COMMAND_DATA = 0x03
+        COMMAND_CLOSE = 0x04
+        COMMAND_CAPABILITIES = 0x05
+        COMMAND_COMPRESSED_DATA_FIRST = 0x06 
+        COMMAND_COMPRESSED_DATA = 0x07
+        COMMAND_SOFT_SYNC_REQUEST = 0x08
+        COMMAND_SOFT_SYNC_RESPONSE = 0x09
 
 class DataUnitTypes(object):
     X224 = Rdp.FastPath.FASTPATH_INPUT_ACTION_X224
@@ -550,6 +587,18 @@ class Rdp_TS_SECURITY_HEADER(BaseDataUnit):
             PrimitiveField('flags', BitFieldEncodedSerializer(UINT_16_LE, Rdp.Security.SEC_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Security.SEC_FLAG_NAMES)),
             PrimitiveField('flagsHi', StructEncodedSerializer(UINT_16_LE)),
         ])
+
+    def get_pdu_types(self, rdp_context):
+        packet_name = 'unknown'
+        for f in self.flags:
+            if f & Rdp.Security.PACKET_MASK:
+                packet_name = Rdp.Security.SEC_FLAG_NAMES[f]
+                break
+        
+        retval = []
+        retval.append(packet_name)
+        retval.extend(super(Rdp_TS_SECURITY_HEADER, self).get_pdu_types(rdp_context))
+        return retval
 
 class Rdp_TS_SECURITY_HEADER1(BaseDataUnit):
     def __init__(self):

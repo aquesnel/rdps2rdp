@@ -13,7 +13,7 @@ from test_utils import extract_as_bytes, extract_as_context
 
 class TestParsing(unittest.TestCase):
 
-    def test_parse_unknown_1(self):
+    def test_parse_capability_request(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/d23f7725-876c-48d4-9e41-8288896a19d3
         # data captured from an MSTSC session with a Win10 datacenter RDP 10? server
         # pdu from server
@@ -53,11 +53,11 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_header.Pri, 0)
         self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_header.Cmd, Rdp.DynamicVirtualChannels.COMMAND_CAPABILITIES)
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_body.Version, 3)
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_body.PriorityCharge0, 0x3333)
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_body.PriorityCharge1, 0x1111)
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_body.PriorityCharge2, 0x0a3d)
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_body.PriorityCharge3, 0x04a7)
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_capabilities.Version, 3)
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_capabilities.PriorityCharge0, 0x3333)
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_capabilities.PriorityCharge1, 0x1111)
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_capabilities.PriorityCharge2, 0x0a3d)
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_capabilities.PriorityCharge3, 0x04a7)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         

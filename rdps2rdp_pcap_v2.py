@@ -199,38 +199,53 @@ if __name__ == '__main__':
             #     break
 
     if True: # read/print pcap file
-        rdp_context = parser_v2_context.RdpContext()
-        OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
-        pkt_list = rdpcap(OUTPUTPCAP)
-        offset = 0
-        limit = 9999
-        
-        # offset = 15 # connect initial
-        # limit = 1
-        
-        # offset = 42 # first mcs channel msg
-        # limit = 1
-        
-        # offset = 55 # post-setup
-        # limit = 1
-        
-        # offset = 370 # dyvc data compressed
-        # limit = 1
-        
         def no_throw(f):
             def wrap_no_throw(*argv, **kwargs):
                 try:
                     return bool(f(*argv, **kwargs))
-                except Exception:
+                except Exception as e:
+                    # print(e)
                     return False
             return wrap_no_throw
+            
+        rdp_context = parser_v2_context.RdpContext()
+        OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
+        pkt_list = rdpcap(OUTPUTPCAP)
         
-        filters = [
-            # no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_create_request), # existance check only
-            # no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_create_response), # existance check only
-            # no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_close), # existance check only 
-            no_throw(lambda pdu: pdu.tpkt.mcs.rdp.dyvc_data.ChannelId == 14),
-        ]
+        filters = []
+        offset = 0
+        limit = 99
+        # limit = 9999
+        # limit = 1
+        
+        # offset = 15 # connect initial
+        # offset = 42 # first mcs channel msg
+        # offset = 43 ; limit = 3 # demand active + confirm active
+        # offset = 55 # post-setup
+        # filters.extend([
+            # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_request), # existance check only
+            # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_response), # existance check only
+            # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_close), # existance check only 
+        # ])
+        # offset = 62 # first compressed
+        # offset = 328 # first RAIL
+        offset = 340 # TS_RAIL_ORDER_EXEC
+        # filters.extend([
+        #     no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
+        #     no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
+        #     no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
+        # ])
+        # offset = 340 # dyvc data compressed
+
+        # search for calc.exe
+        # filters.extend([
+        #     no_throw(lambda pkt,pdu,rdp_context: 0 <= pkt[Raw].load.find(b'c\x00a\x00l\x00c\x00.\x00e\x00x\x00e\x00')),
+        # ])
+        # search for compressed packets
+        # filters.extend([
+        #     no_throw(lambda pkt,pdu,rdp_context: Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in pdu.tpkt.mcs.rdp.TS_SHAREDATAHEADER.compressionArgs), 
+        #     no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
+        # ])
         
         i = 0
         for pkt in pkt_list:
@@ -241,8 +256,8 @@ if __name__ == '__main__':
             pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)
             if offset <= i and i < offset + limit:
 
-                if len(filters) == 0 or any([f(pdu) for f in filters]):
-                    print('%d %s - %s' % (i, pdu_source.name, pdu.get_pdu_name(rdp_context)))
+                if len(filters) == 0 or any([f(pkt,pdu,rdp_context) for f in filters]):
+                    print('%d %s - len %d - %s' % (i, pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
                     if limit <= 10:
                         # print(repr(pkt))
                         print(utils.as_hex_str(pkt[Raw].load))
@@ -253,6 +268,7 @@ if __name__ == '__main__':
                 break
             i += 1
 
+    
     if False: # connect as client
         serversock = socket.socket(AF_INET, SOCK_STREAM)
         serversock.connect(REMOTECON)

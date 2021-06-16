@@ -518,6 +518,10 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(rdp_context.working_dir, '')
 
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+        
+        # pdu.tpkt.mcs.rdp.TS_INFO_PACKET.compressionType = Rdp.Info.PACKET_COMPR_TYPE_8K
+        # self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+        
 
     @unittest.skip("encrypted license not supported")
     def test_parse_license_valid_encrypted(self):
@@ -720,6 +724,14 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(rdp_context.pre_capability_exchange, False)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+        
+        pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
+        print(pdu)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData._fields_by_name['flags'].is_value_dirty, True)
+        self.assertNotEqual(bytes(pdu.as_wire_bytes()), data) 
+        # TODO: create the PDU bytes with the modified flag value
+        
 
     def test_parse_confirm_active_encrypted(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/54765b0a-39d4-4746-92c6-8914934023da

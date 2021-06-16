@@ -18,6 +18,7 @@ from serializers import (
     ArraySerializer,
     EncodedStringSerializer,
     DelimitedEncodedStringSerializer,
+    RawLengthSerializer,
 )
 
 from data_model_v2_tpkt import (
@@ -88,11 +89,16 @@ from data_model_v2_rdp_edyc import (
     Rdp_DYNVC_DATA,
     Rdp_DYNVC_CLOSE,
 )
+from data_model_v2_rdp_erp import (
+    Rdp_TS_RAIL_PDU_HEADER,
+    Rdp_TS_RAIL_ORDER_EXEC,
+)
 
 from parser_v2_context import (
     RdpContext,
     ChannelDef,
 )
+import mccp
 
 IS_DECRYPTION_SUPPORTED = False
 NULL_CHANNEL = ChannelDef('null', 0, Rdp.Channel.ChannelType.STATIC)
@@ -382,6 +388,8 @@ def parse(pdu_source, data, rdp_context = None):
                             if pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DEMANDACTIVEPDU:
                                 pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_DEMAND_ACTIVE_PDU', Rdp_TS_DEMAND_ACTIVE_PDU()))
                                 rdp_context.pre_capability_exchange = False
+                                if pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags == Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K:
+                                    rdp_context.compression_virtual_chan_cs_encoder = mccp.MCCP()
                                 
                             elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU:
                                 pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_CONFIRM_ACTIVE_PDU', Rdp_TS_CONFIRM_ACTIVE_PDU()))
@@ -394,9 +402,16 @@ def parse(pdu_source, data, rdp_context = None):
                         
                     else: # all other channels
                         pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('CHANNEL_PDU_HEADER', Rdp_CHANNEL_PDU_HEADER()))
-                        if Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags:
-                            pass
-                        else:
+                        is_payload_compressed = Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags
+                        if is_payload_compressed and rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
+                            # TODO: reset compression history if the flag is set in the PDU or maybe if the data to decompress is too big
+                            decompressed_payload = rdp_context.compression_virtual_chan_cs_encoder.decompress(pdu.tpkt.mcs.rdp.payload)
+                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload_compressed', RawLengthSerializer()))
+                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload', RawLengthSerializer()), allow_overwrite = True)
+                            pdu.tpkt.mcs.rdp.payload = decompressed_payload
+                            is_payload_compressed = False
+                            
+                        if not is_payload_compressed:
                             channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId, NULL_CHANNEL).name
                             if channel_name == Rdp.Channel.DRDYNVC_CHANNEL_NAME:
                                 pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_header', Rdp_DYNVC_Header()))
@@ -441,6 +456,14 @@ def parse(pdu_source, data, rdp_context = None):
                                     if pdu.tpkt.mcs.rdp.dyvc_header.Cmd in DYVC_FACTORY_BY_TYPE:
                                         dyvc_pdu_factory = functools.partial(DYVC_FACTORY_BY_TYPE[pdu.tpkt.mcs.rdp.dyvc_header.Cmd], pdu.tpkt.mcs.rdp.dyvc_header)
                                         pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_data', dyvc_pdu_factory()))
+                                        
+                                        channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId, NULL_CHANNEL).name
+                                        if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
+                                            pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU_HEADER', Rdp_TS_RAIL_PDU_HEADER()))
+                                            if pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU_HEADER.orderType == Rdp.Rail.TS_RAIL_ORDER_EXEC:
+                                                pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_ORDER_EXEC', Rdp_TS_RAIL_ORDER_EXEC()))
+
+                                            
                                 
         elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
             pdu.reinterpret_field('payload.remaining', 

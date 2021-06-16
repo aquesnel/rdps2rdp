@@ -295,6 +295,7 @@ class Rdp(object):
         
         MCS_GLOBAL_CHANNEL_ID = 1003
         DRDYNVC_CHANNEL_NAME = 'drdynvc'
+        RAIL_CHANNEL_NAME = 'rail'
         MESSAGE_CHANNEL_NAME = 'McsMessageChannel'
         IO_CHANNEL_NAME = 'I/O Channel'
         
@@ -371,6 +372,42 @@ class Rdp(object):
             VCCAPS_NO_COMPR = 0x00000000
             VCCAPS_COMPR_SC = 0x00000001
             VCCAPS_COMPR_CS_8K = 0x00000002
+
+    @add_constants_names_mapping('TS_RAIL_ORDER_', 'TS_RAIL_ORDER_NAMES')
+    @add_constants_names_mapping('TS_RAIL_EXEC_FLAG_', 'TS_RAIL_EXEC_FLAG_NAMES')
+    class Rail(object):
+        TS_RAIL_ORDER_EXEC = 0x0001
+        TS_RAIL_ORDER_ACTIVATE = 0x0002
+        TS_RAIL_ORDER_SYSPARAM = 0x0003
+        TS_RAIL_ORDER_SYSCOMMAND = 0x0004
+        TS_RAIL_ORDER_HANDSHAKE = 0x0005
+        TS_RAIL_ORDER_NOTIFY_EVENT = 0x0006
+        TS_RAIL_ORDER_WINDOWMOVE = 0x0008
+        TS_RAIL_ORDER_LOCALMOVESIZE = 0x0009
+        TS_RAIL_ORDER_MINMAXINFO = 0x000a
+        TS_RAIL_ORDER_CLIENTSTATUS = 0x000b
+        TS_RAIL_ORDER_SYSMENU = 0x000c
+        TS_RAIL_ORDER_LANGBARINFO = 0x000d
+        TS_RAIL_ORDER_EXEC_RESULT = 0x0080
+        TS_RAIL_ORDER_GET_APPID_REQ = 0x000E
+        TS_RAIL_ORDER_GET_APPID_RESP = 0x000F
+        TS_RAIL_ORDER_TASKBARINFO = 0x0010
+        TS_RAIL_ORDER_LANGUAGEIMEINFO = 0x0011
+        TS_RAIL_ORDER_COMPARTMENTINFO = 0x0012
+        TS_RAIL_ORDER_HANDSHAKE_EX = 0x0013
+        TS_RAIL_ORDER_ZORDER_SYNC = 0x0014
+        TS_RAIL_ORDER_CLOAK = 0x0015
+        TS_RAIL_ORDER_POWER_DISPLAY_REQUEST = 0x0016
+        TS_RAIL_ORDER_SNAP_ARRANGE = 0x0017
+        TS_RAIL_ORDER_GET_APPID_RESP_EX = 0x0018
+        TS_RAIL_ORDER_TEXTSCALEINFO = 0x0019
+        TS_RAIL_ORDER_CARETBLINKINFO = 0x001A
+        
+        TS_RAIL_EXEC_FLAG_EXPAND_WORKINGDIRECTORY = 0x0001
+        TS_RAIL_EXEC_FLAG_TRANSLATE_FILES = 0x0002
+        TS_RAIL_EXEC_FLAG_FILE = 0x0004
+        TS_RAIL_EXEC_FLAG_EXPAND_ARGUMENTS = 0x0008
+        TS_RAIL_EXEC_FLAG_APP_USER_MODEL_ID = 0x0010
 
     @add_constants_names_mapping('COMMAND_', 'COMMAND_NAMES')
     class DynamicVirtualChannels(object): # from [MS-RDPEDYC]
@@ -719,6 +756,8 @@ class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
     
     def get_pdu_types(self, rdp_context):
         retval = []
+        if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in self.compressionArgs:
+            retval.append('(compressed)')
         retval.append(str(self._fields_by_name['pduType2'].get_human_readable_value()))
         retval.extend(super(Rdp_TS_SHAREDATAHEADER, self).get_pdu_types(rdp_context))
         return retval
@@ -774,7 +813,7 @@ class Rdp_TS_CONFIRM_ACTIVE_PDU(BaseDataUnit):
                 type_mapping = {
                     Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
                     Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('windowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
                 })
         ],
         use_class_as_pdu_name = True)
@@ -814,3 +853,10 @@ class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
             PrimitiveField('length', StructEncodedSerializer(UINT_32_LE)),
             PrimitiveField('flags', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Channel.CHANNEL_FLAG_NAMES)),
         ])
+
+    def get_pdu_types(self, rdp_context):
+        retval = []
+        if Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in self.flags:
+            retval.append('(compressed)')
+        retval.extend(super(Rdp_CHANNEL_PDU_HEADER, self).get_pdu_types(rdp_context))
+        return retval

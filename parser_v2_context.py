@@ -36,6 +36,7 @@ class RdpContext(object):
         self.auto_logon = False
         self.rail_enabled = False
         self.compression_type = None
+        self.compression_virtual_chan_cs_encoder = None
         self.domain = None
         self.user_name = None
         self.password = None

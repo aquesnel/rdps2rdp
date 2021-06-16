@@ -82,6 +82,8 @@ import binascii
 import struct
 import sys
 
+DEBUG = False
+
 class MCCP(object):
     # Used as bit patterns in Offset Encoding (RFC Sec 4.2.1)
     __offset_pattern_64 = 0b1111
@@ -152,7 +154,7 @@ class MCCP(object):
                 break
 
         if longestLen > 0:
-            print("Found longest match (off = {}, len = {})".format(longestOffset, longestLen))
+            if DEBUG: print("Found longest match (off = {}, len = {})".format(longestOffset, longestLen))
             return (longestOffset, longestLen)
         else:
             return (None, None)
@@ -185,9 +187,9 @@ class MCCP(object):
         self.__incrementHistoryOffset()
 
     def __pushByteToOutput(self, byte):
-        if byte >= 0xff:
-            raise ValueError("Byte must be less than 0xff, got: ", hex(byte))
-        print("Push byte to output: %s" % hex(byte))
+        if byte > 0xff:
+            raise ValueError("Byte must be less than or equal to 0xff, got: ", hex(byte))
+        if DEBUG: print("Push byte to output: %s" % hex(byte))
         self.__out[self.__getOutputByte()] = byte
         self.__outBitOffset += 8
 
@@ -220,7 +222,7 @@ class MCCP(object):
             lowerbyte = (byte & mask) << shift
             self.__out[byte_offset+1] |= lowerbyte
 
-            #print("wrote {}".format(hex(upperbyte << 8 | lowerbyte)))
+            #if DEBUG: print("wrote {}".format(hex(upperbyte << 8 | lowerbyte)))
 
         self.__outBitOffset += 8
 
@@ -285,7 +287,7 @@ class MCCP(object):
         return retval
         
     def __encodeTupleOffset(self, offset):
-        print("encoding CopyTuple offset: %d" % offset)
+        if DEBUG: print("encoding CopyTuple offset: %d" % offset)
         if offset < 64:
             # Encoded as '1111' plus lower 6 bits
             self.__encodebits(MCCP.__offset_pattern_64, 4)
@@ -302,7 +304,7 @@ class MCCP(object):
             self.__encodebits(offset - 320, 13)
 
     def __encodeTupleLength(self, length):
-        print("encoding CopyTuple length: %d" % length)
+        if DEBUG: print("encoding CopyTuple length: %d" % length)
         if length == 3:
             self.__encodebits(MCCP.__length_pattern_3, 1)
         elif length < 8:
@@ -370,7 +372,7 @@ class MCCP(object):
             for bit_index in reversed(range(0, 8 - bit_offset)):
                 bits.append((byte >> bit_index) & 0x1)
             bit_offset = 0
-        print("Processing input byte %d, bit %d, bits: %s" % (byte_offset, self.__getInputBit(), bits))
+        if DEBUG: print("Processing input byte %d, bit %d, bits: %s" % (byte_offset, self.__getInputBit(), bits))
 
         consumed_bits = None
         literal_byte = None
@@ -442,10 +444,10 @@ class MCCP(object):
             
             self.__decodeCopyTuple(offset, length)
         self.__inBitOffset += consumed_bits
-        print("Consumed input bits: %d" % (consumed_bits))
+        if DEBUG: print("Consumed input bits: %d" % (consumed_bits))
 
     def __decodeCopyTuple(self, offset, length):
-        print("Processing CopyTuple: offset %d, length %d" % (offset, length))
+        if DEBUG: print("Processing CopyTuple: offset %d, length %d" % (offset, length))
         beginOffset = self.__historyOffset - offset
         for i in range(length):
             byte = self.__history[beginOffset + i]
@@ -470,7 +472,7 @@ class MCCP(object):
             # If the last bit offset is 0, we have not written to the last byte
             last_byte -= 1
 
-        print("last_byte = {}.{}, len = {}".format(self.__getOutputByte(), last_bit, len(self.__out)))
+        if DEBUG: print("last_byte = {}.{}, len = {}".format(self.__getOutputByte(), last_bit, len(self.__out)))
         while len(self.__out) > last_byte:
             self.__out.pop()
 

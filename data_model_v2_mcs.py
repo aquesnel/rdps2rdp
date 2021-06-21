@@ -1,5 +1,6 @@
 from data_model_v2 import (
     BaseDataUnit,
+    ArrayDataUnit,
     BerEncodedDataUnit,
     PerEncodedDataUnit,
     
@@ -33,8 +34,6 @@ from serializers import (
     ValueTransformSerializer,
     BerEncodedLengthSerializer,
     PerEncodedLengthSerializer,
-    ArraySerializer,
-    DataUnitSerializer,
     
     StructEncodedSerializer,
     UINT_8, 
@@ -152,25 +151,18 @@ class McsGccConnectionDataUnit(BaseDataUnit):
                 DataUnitField('gcc_userData', 
                     PerEncodedDataUnit(
                         PerEncodedLengthSerializer.RANGE_0_64K,
-                        ArraySerializer(
-                            DataUnitSerializer(RdpUserDataBlock),
-                            length_dependency = LengthDependency()))),
-            ],
-            auto_reinterpret_configs = [
-                ArrayAutoReinterpret(
-                    array_field_to_reinterpret_name = 'gcc_userData.payload',
-                    item_field_to_reinterpret_name = 'payload',
-                    type_getter = ValueDependency(lambda user_data_block: user_data_block.header.type),
-                    type_mapping = {
-                        Rdp.UserData.CS_CORE: AutoReinterpretConfig('clientCoreData', Rdp_TS_UD_CS_CORE),
-                        Rdp.UserData.CS_SECURITY: AutoReinterpretConfig('clientSecurityData', Rdp_TS_UD_CS_SEC),
-                        Rdp.UserData.CS_NET: AutoReinterpretConfig('clientNetworkData', Rdp_TS_UD_CS_NET),
-                        
-                        Rdp.UserData.SC_CORE: AutoReinterpretConfig('serverCoreData', Rdp_TS_UD_SC_CORE),
-                        Rdp.UserData.SC_NET: AutoReinterpretConfig('serverNetworkData', Rdp_TS_UD_SC_NET),
-                        Rdp.UserData.SC_SECURITY: AutoReinterpretConfig('serverSecurityData', Rdp_TS_UD_SC_SEC1),
-                        Rdp.UserData.SC_MCS_MSGCHANNEL: AutoReinterpretConfig('serverMessageChannelData', Rdp_TS_UD_SC_MCS_MSGCHANNEL),
-                    })
+                        ArrayDataUnit(RdpUserDataBlock, 
+                            length_dependency = LengthDependency(),
+                            alias_hinter = ValueDependency(lambda rdp_user_data_block: {
+                                    Rdp.UserData.CS_CORE: 'clientCoreData',
+                                    Rdp.UserData.CS_SECURITY: 'clientSecurityData',
+                                    Rdp.UserData.CS_NET: 'clientNetworkData',
+                                    
+                                    Rdp.UserData.SC_CORE: 'serverCoreData',
+                                    Rdp.UserData.SC_NET: 'serverNetworkData',
+                                    Rdp.UserData.SC_SECURITY: 'serverSecurityData',
+                                    Rdp.UserData.SC_MCS_MSGCHANNEL: 'serverMessageChannelData',
+                                }.get(rdp_user_data_block.header.type, None))))),
             ])
         
 class McsSendDataUnit(BaseDataUnit):

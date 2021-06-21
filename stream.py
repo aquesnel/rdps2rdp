@@ -3,12 +3,16 @@ import functools
 import socket
 import utils
 import re
+from enum import Enum, unique
 
 from scapy.all import *
 
 import parser_v2
 from parser_v2_context import RdpContext
 from data_model_v2 import RawDataUnit
+
+DEFAULT_BUFF_SIZE = 4096
+DEFAULT_FLAGS = 0
 
 @contextlib.contextmanager
 def managed_timeout(sck, timeout = None, blocking = False):
@@ -52,24 +56,27 @@ def managed_timeout(sck, timeout = None, blocking = False):
 # ...     # even if code in the block raises an exception
 
 class TcpStream_v2(object):
-    def __init__(self, server, client):
+    def __init__(self, server, client, interceptors):
         self.stream_context = TcpStreamContext()
         self.stream_context.stream = self
         self.server = None
         self.client = None
-        self.replace_sockets(server, client)
+        self.replace_sockets(server, client, interceptors)
         
-    def replace_sockets(self, server, client):
-        self.server = self._wrap_socket(self.server, server, RdpContext.PduSource.SERVER)
-        self.client = self._wrap_socket(self.client, client, RdpContext.PduSource.CLIENT)
+    def replace_sockets(self, server, client, interceptors = None):
+        self.server = self._wrap_socket(self.server, server, RdpContext.PduSource.SERVER, interceptors)
+        self.client = self._wrap_socket(self.client, client, RdpContext.PduSource.CLIENT, interceptors)
       
-    def _wrap_socket(self, current_socket, new_socket, pdu_source):
+    def _wrap_socket(self, current_socket, new_socket, pdu_source, interceptors = None):
         if current_socket is not None:
             new_socket = current_socket.clone_wrapper_onto(new_socket)
+            interceptors = current_socket.get_interceptors()
         else:
             new_socket = CountingSocketWrapper(new_socket)
         new_socket = StreamDisconnectingSocketWrapper(new_socket, self.stream_context)
-        return PduSocketWrapper(new_socket, pdu_source, self.stream_context)
+        return InterceptingSocketWrapper(
+            PduSocketWrapper(new_socket, pdu_source, self.stream_context),
+            pdu_source, self.stream_context, interceptors)
         
     def close(self):
         print('Shutting down stream')
@@ -167,45 +174,45 @@ class CountingSocketWrapper(DelegatingMixin):
         self.socket = None
         return CountingSocketWrapper(new_socket, bytes_received=self.bytes_received, bytes_sent=self.bytes_sent)
 
-    def recv(self, bufsize, flags=0):
+    def recv(self, bufsize, flags=DEFAULT_FLAGS):
         data = self.socket.recv(bufsize, flags)
         self.bytes_received += len(data)
         return data
 
-    def recvfrom(self, bufsize, flags=0):
+    def recvfrom(self, bufsize, flags=DEFAULT_FLAGS):
         (data, address) = self.socket.recvfrom(bufsize, flags)
         self.bytes_received += len(data)
         return (data, address)
 
-    def recvmsg(self, bufsize, ancbufsize=0, flags=0):
+    def recvmsg(self, bufsize, ancbufsize=0, flags=DEFAULT_FLAGS):
         (data, ancdata, msg_flags, address) = self.socket.recvmsg(bufsize, ancbufsize, flags)
         self.bytes_received += len(data)
         return (data, ancdata, msg_flags, address)
 
-    def recv_into(self, buffer, nbytes=0, flags=0):
+    def recv_into(self, buffer, nbytes=0, flags=DEFAULT_FLAGS):
         return self.recvfrom_into(buffer, nbytes, flags)[0]
     
-    def recvfrom_into(self, buffer, nbytes=0, flags=0):
-        (nbytes, ancdata, msg_flags, address) = self.recvmsg_into([buffer], flags=0)
+    def recvfrom_into(self, buffer, nbytes=0, flags=DEFAULT_FLAGS):
+        (nbytes, ancdata, msg_flags, address) = self.recvmsg_into([buffer], flags)
         return (nbytes, address)
 
-    def recvmsg_into(self, buffers, ancbufsize=0, flags=0):
+    def recvmsg_into(self, buffers, ancbufsize=0, flags=DEFAULT_FLAGS):
         (nbytes, ancdata, msg_flags, address) = self.socket.recvmsg_into(buffers, ancbufsize, flags)
         
         self.bytes_received += nbytes
         return (nbytes, ancdata, msg_flags, address)
     
-    def send(self, bytes, flags=0):
+    def send(self, bytes, flags=DEFAULT_FLAGS):
         bytes_sent = self.socket.send(bytes, flags)
         self.bytes_sent += bytes_sent
         return bytes_sent
     
-    def sendall(self, bytes, flags=0):
+    def sendall(self, bytes, flags=DEFAULT_FLAGS):
         self.socket.sendall(bytes, flags)
         self.bytes_sent += len(bytes)
         return None
         
-    def sendmsg(self, buffers, ancdata=[], flags=0, address=None):
+    def sendmsg(self, buffers, ancdata=[], flags=DEFAULT_FLAGS, address=None):
         bytes_sent = self.socket.sendmsg(buffers, ancdata, flags, address)
         self.bytes_sent += bytes_sent
         return bytes_sent
@@ -261,7 +268,7 @@ class PduSocketWrapper(DelegatingMixin):
         # print('DEBUG: receive_exactly returned nothing')
         return bytes()
         
-    def _receive_next(self, bufsize = 4096, flags=0):
+    def _receive_next(self, bufsize, flags=DEFAULT_FLAGS):
         buffer = self.socket.recv(bufsize, flags)
         if buffer:
             # print('DEBUG: receive_exactly got %d bytes' % len(buffer))
@@ -270,7 +277,7 @@ class PduSocketWrapper(DelegatingMixin):
             self._receive_buffer = b''
         return buffer
         
-    def recv(self, bufsize=4096, flags=0):
+    def recv(self, bufsize=DEFAULT_BUFF_SIZE, flags=DEFAULT_FLAGS):
         data = self._receive_next(bufsize, flags)
         self._log_packet(data)
         return data
@@ -296,10 +303,10 @@ class PduSocketWrapper(DelegatingMixin):
                     msg = self._receive_exactly(pdu_length)
                     dbg_msg = ("%s receive pdu body (len: expected = %s, actual = %d): %s" % (self.socket_name, str(pdu_length), len(msg), utils.as_hex_str(msg)))
                     if msg:
-                        if self.stream_context.pcap_file_name is not None:
-                            pkt = self.stream_context.make_tcp_packet(self, msg)
-                            # s = hexdump(pkt, dump=True)
-                            wrpcap(self.stream_context.pcap_file_name, pkt, append=True)
+                        # if self.stream_context.pcap_file_name is not None:
+                        #     pkt = self.stream_context.make_tcp_packet(self, msg)
+                        #     # s = hexdump(pkt, dump=True)
+                        #     wrpcap(self.stream_context.pcap_file_name, pkt, append=True)
                         if self.stream_context.full_pdu_parsing:
                             pdu = parser_v2.parse(self.pdu_source, msg, self.stream_context.rdp_context)
                         else:
@@ -331,3 +338,60 @@ class PduSocketWrapper(DelegatingMixin):
         print('sending to %s pdu (len = %d)' % (self.socket_name, len(msg)))
         # print("Sending Msg to %s [len(msg) = %s] : '%s'" % (source_name, self.socket_name, len(msg), utils.as_hex_str(msg)))
         self.socket.sendall(msg)
+
+class InterceptingSocketWrapper(DelegatingMixin):
+    @unique
+    class RequestType(Enum):
+        SEND = 'Send'
+        RECEIVE = 'Receive'
+        
+    def __init__(self, sock, pdu_source, stream_context, interceptors = None):
+        super(InterceptingSocketWrapper, self).__init__(sock)
+        self.socket = sock
+        self.pdu_source = pdu_source
+        if interceptors is None:
+            interceptors = []
+        self._interceptors = interceptors
+        self.stream_context = stream_context
+    
+    def get_interceptors(self):
+        return self._interceptors
+    
+    def recv(self, bufsize=DEFAULT_BUFF_SIZE, flags=DEFAULT_FLAGS):
+        data = self.socket.recv(bufsize, flags)
+        if data:
+            for i in self._interceptors:
+                temp = i.intercept_raw(self.RequestType.RECEIVE, self.pdu_source, data, self.stream_context)
+                if temp:
+                    data = temp
+        return data
+
+    def send(self, data, flags=DEFAULT_FLAGS):
+        for i in self._interceptors:
+            temp = i.intercept_raw(self.RequestType.SEND, self.pdu_source, data, self.stream_context)
+            if temp:
+                data = temp
+        return self.socket.send(data, flags)
+        
+    def receive_pdu(self, blocking=False):
+        pdu = self.socket.receive_pdu(blocking)
+        if pdu:
+            for i in self._interceptors:
+                temp = i.intercept_pdu(self.RequestType.RECEIVE, self.pdu_source, pdu, self.stream_context)
+                if temp:
+                    pdu = temp
+        return pdu
+
+    def send_pdu(self, pdu):
+        for i in self._interceptors:
+            temp = i.intercept_pdu(self.RequestType.SEND, self.pdu_source, pdu, self.stream_context)
+            if temp:
+                pdu = temp
+        self.socket.send_pdu(pdu)
+            
+class InterceptorBase(object):
+    RequestType = InterceptingSocketWrapper.RequestType
+    def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
+        pass
+    def intercept_raw(self, request_type, pdu_source, data, stream_context):
+        pass

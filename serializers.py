@@ -214,7 +214,7 @@ class DelimitedEncodedStringSerializer(EncodedStringSerializer):
         return len(value) + len(delimiter)
 
 class Utf16leEncodedStringSerializer(EncodedStringSerializer):
-    def __init__(self, length_dependency):
+    def __init__(self, length_dependency = None):
         super().__init__(EncodedStringSerializer.UTF_16_LE,
                 length_dependency,
                 delimiter_dependency = ValueDependency(lambda x: '\x00'),
@@ -329,22 +329,22 @@ class ValueTransformSerializer(BaseSerializer[DESERIALIZED_TYPE]):
         transformed_value = self._transform.to_serializable_value(value)
         return self._inner_serializer.pack_into(buffer, offset, transformed_value)
 
-BASE_DATA_UNIT = TypeVar('BASE_DATA_UNIT')
-class DataUnitSerializer(BaseSerializer[BASE_DATA_UNIT]):
-    def __init__(self, data_unit_factory):
-        self._data_unit_factory = data_unit_factory
+# BASE_DATA_UNIT = TypeVar('BASE_DATA_UNIT')
+# class DataUnitSerializer(BaseSerializer[BASE_DATA_UNIT]):
+#     def __init__(self, data_unit_factory):
+#         self._data_unit_factory = data_unit_factory
     
-    def get_serialized_length(self, value: BASE_DATA_UNIT) -> int:
-        return len(value)
+#     def get_serialized_length(self, value: BASE_DATA_UNIT) -> int:
+#         return len(value)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[BASE_DATA_UNIT, int]:
-        data_unit = self._data_unit_factory()
-        length = data_unit.deserialize_value(raw_data, offset)
-        utils.assertEqual(length, self.get_serialized_length(data_unit))
-        return data_unit, length
+#     def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[BASE_DATA_UNIT, int]:
+#         data_unit = self._data_unit_factory()
+#         length = data_unit.deserialize_value(raw_data, offset)
+#         utils.assertEqual(length, self.get_serialized_length(data_unit))
+#         return data_unit, length
 
-    def pack_into(self, buffer: bytes, offset: int, value: BASE_DATA_UNIT) -> int:
-        return value.serialize_value(buffer, offset)
+#     def pack_into(self, buffer: bytes, offset: int, value: BASE_DATA_UNIT) -> int:
+#         return value.serialize_value(buffer, offset)
 
 class BerEncodedLengthSerializer(BaseSerializer[int]):
     def __init__(self):

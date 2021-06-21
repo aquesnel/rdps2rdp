@@ -43,7 +43,7 @@ OUTPUTPCAP = "output.pcap"
 LISTENCON = ('0.0.0.0', 3389)
 # REMOTECON = ('127.0.0.1', 3390)
 host_port = '127.0.0.1:3390'
-host_port = '0.tcp.ngrok.io:18745'
+host_port = '2.tcp.ngrok.io:16740'
 REMOTECON = (host_port.split(':')[0], int(host_port.split(':')[1]))
 SERVER_PORT = int(host_port.split(':')[1])
 
@@ -67,12 +67,12 @@ def negotiate_credssp_as_server(sock):
             credssp.print_ts_request(in_token)
             out_token, step_name = credssp_gen.send(in_token)
             print("CredSSP: %s" % step_name)
-            sock.send_pdu(out_token) # MitM
+            sock.send(out_token) # MitM
             credssp.print_ts_request(out_token)
         except StopIteration:
             break
     print("CredSSP: server unkown message")
-    sock.send_pdu(b'\x00\x00\x00\x00') # MitM
+    sock.send(b'\x00\x00\x00\x00') # MitM
 
 def negotiate_credssp_as_client(sock, username=None, password=None):
     context = credssp.CredSSPContext(sock.getpeername()[0], username, password, auth_mechanism='ntlm')
@@ -86,7 +86,7 @@ def negotiate_credssp_as_client(sock, username=None, password=None):
     while True:
         try:
             print("CredSSP: %s" % step_name)
-            sock.send_pdu(out_token) # MitM
+            sock.send(out_token) # MitM
             credssp.print_ts_request(out_token)
             in_token = sock.recv()
             credssp.print_ts_request(in_token)
@@ -165,6 +165,51 @@ if __name__ == '__main__':
         except FileNotFoundError:
             pass
         
+        class LoggingInterceptor(stream.InterceptorBase):
+            def _log_packet(self, buffer, pdu_source, stream_context):
+                if pdu_source == parser_v2_context.RdpContext.PduSource.SERVER:
+                    source_peer = stream_context.stream.server
+                else:
+                    source_peer = stream_context.stream.client
+                pkt = stream_context.make_tcp_packet(source_peer, buffer)
+                # s = hexdump(pkt, dump=True)
+                wrpcap(OUTPUTPCAP, pkt, append=True)
+                
+            def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
+                if request_type == self.RequestType.RECEIVE:
+                    self._log_packet(pdu.as_wire_bytes(), pdu_source, stream_context)
+
+            def intercept_raw(self, request_type, pdu_source, data, stream_context):
+                if request_type == self.RequestType.RECEIVE:
+                    self._log_packet(data, pdu_source, stream_context)
+        
+        class DisableCompressionInterceptor(stream.InterceptorBase):
+            def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
+                if request_type == self.RequestType.RECEIVE:
+                    if pdu.has_path('tpkt.mcs.rdp.clientNetworkData'):
+                        for chan_def in pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray:
+                            chan_def.options.discard(Rdp.Channel.CHANNEL_OPTION_COMPRESS_RDP)
+                            chan_def.options.discard(Rdp.Channel.CHANNEL_OPTION_COMPRESS)
+                    if pdu.has_path('tpkt.mcs.rdp.TS_INFO_PACKET'):
+                        pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags.discard(Rdp.Info.INFO_COMPRESSION)
+                        pdu.tpkt.mcs.rdp.TS_INFO_PACKET.compressionType = Rdp.Info.PACKET_COMPR_TYPE_8K
+                    if pdu.has_path('tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability'):
+                        pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
+                    if pdu.has_path('tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets.virtualChannelCapability'):
+                        pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
+        
+        class DisableGfxInterceptor(stream.InterceptorBase):
+            def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
+                if request_type == self.RequestType.RECEIVE:
+                    if pdu.has_path('tpkt.mcs.rdp.clientCoreData'):
+                        pdu.tpkt.mcs.rdp.clientCoreData.payload.earlyCapabilityFlags.discard(Rdp.UserData.Core.RNS_UD_CS_SUPPORT_DYNVC_GFX_PROTOCOL)
+
+        interceptors = [
+            DisableCompressionInterceptor(),
+            DisableGfxInterceptor(),
+            LoggingInterceptor(),
+        ]
+        
         serversock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         serversock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         serversock.bind(LISTENCON)
@@ -181,8 +226,8 @@ if __name__ == '__main__':
             destsock.settimeout(SOCKET_TIMEOUT_SEC)
             # destsock.setblocking(1)
             print('...connected to:', REMOTECON)
-            rdp_stream = stream.TcpStream_v2(destsock,clientsock)
-            rdp_stream.stream_context.pcap_file_name = OUTPUTPCAP
+            rdp_stream = stream.TcpStream_v2(destsock,clientsock, interceptors)
+            # rdp_stream.stream_context.pcap_file_name = OUTPUTPCAP
             rdp_stream.stream_context.rdp_context = parser_v2.RdpContext()
             
             if True: # intercept and decrypte MITM
@@ -207,47 +252,85 @@ if __name__ == '__main__':
                     # print(e)
                     return False
             return wrap_no_throw
+        def compose(*funcs):
+            def wraper(*argv, **kwargs):
+                retval = funcs[-1](*argv, **kwargs)
+                for f in funcs[:-1][::-1]:
+                     retval = f(retval)
+                return retval
+            return wraper
+        def l(x):
+            print(x)
+            return x
+        LOG = l
+        NOT = lambda x: not x
+        IDENTITY = lambda x: x
             
-        rdp_context = parser_v2_context.RdpContext()
-        OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
-        pkt_list = rdpcap(OUTPUTPCAP)
         
-        filters = []
+        filters_include = []
+        filters_exclude = []
         offset = 0
-        limit = 99
-        # limit = 9999
-        # limit = 1
+        limit = 499
+        limit = 9999
         
+        filters_exclude.extend([
+            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+        ])
+        
+        # OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
         # offset = 15 # connect initial
         # offset = 42 # first mcs channel msg
         # offset = 43 ; limit = 3 # demand active + confirm active
         # offset = 55 # post-setup
-        # filters.extend([
+        # filters_include.extend([
             # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_request), # existance check only
             # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_response), # existance check only
             # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_close), # existance check only 
         # ])
         # offset = 62 # first compressed
-        # offset = 328 # first RAIL
-        offset = 340 # TS_RAIL_ORDER_EXEC
-        # filters.extend([
-        #     no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
-        #     no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
-        #     no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
-        # ])
-        # offset = 340 # dyvc data compressed
+        # offset = 328 # first RAIL = TS_RAIL_ORDER_HANDSHAKE_EX
+        # offset = 340 # TS_RAIL_ORDER_EXEC
+        # offset = 370 # suspected compressed server TS_RAIL_ORDER_EXEC_RESULT
+        filters_include.extend([
+            # no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
+            # no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
+            # no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
+        ])
 
         # search for calc.exe
-        # filters.extend([
+        # filters_include.extend([
         #     no_throw(lambda pkt,pdu,rdp_context: 0 <= pkt[Raw].load.find(b'c\x00a\x00l\x00c\x00.\x00e\x00x\x00e\x00')),
         # ])
         # search for compressed packets
-        # filters.extend([
+        # filters_include.extend([
         #     no_throw(lambda pkt,pdu,rdp_context: Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in pdu.tpkt.mcs.rdp.TS_SHAREDATAHEADER.compressionArgs), 
         #     no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
         # ])
         
+        # OUTPUTPCAP = 'output.win10.rail.no-client-compression.pcap' ; SERVER_PORT = 14259
+        
+        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.pcap' ; SERVER_PORT = 14817
+        # offset = 15 ; limit = 1 ; # McsConnectInitialDataUnit
+        # offset = 43 ; limit = 1 ; # PDUTYPE_DEMANDACTIVEPDU
+        # offset = 442 ; limit = 1 ; # compressed packet suspected compressed server TS_RAIL_ORDER_EXEC_RESULT
+        
+        # OUTPUTPCAP = 'output.win10.rail.post-mod.all-no-compression.pcap' ; SERVER_PORT = 14817
+        # offset = 15 ; limit = 1 ; # McsConnect Initial
+        # offset = 16 ; limit = 1 ; # McsConnect Confirm
+        # offset = 40 ; limit = 1 ; # PDUTYPE_DEMANDACTIVEPDU
+
+        OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
+        # offset = 499 ; limit = 1 ; # TS_RAIL_ORDER_EXEC_RESULT
+        # offset = 730 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
+        # offset = 736 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
+        # offset = 755 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
+        # offset = 774 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
+        # offset = 903 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
+
+        rdp_context = parser_v2_context.RdpContext()
         i = 0
+        pkt_list = rdpcap(OUTPUTPCAP)
         for pkt in pkt_list:
             if pkt[TCP].sport == SERVER_PORT:
                 pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
@@ -256,7 +339,9 @@ if __name__ == '__main__':
             pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)
             if offset <= i and i < offset + limit:
 
-                if len(filters) == 0 or any([f(pkt,pdu,rdp_context) for f in filters]):
+                if (any([f(pkt,pdu,rdp_context) for f in filters_include])
+                        or (not any([f(pkt,pdu,rdp_context) for f in filters_exclude])
+                            and len(filters_include) == 0)):
                     print('%d %s - len %d - %s' % (i, pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
                     if limit <= 10:
                         # print(repr(pkt))

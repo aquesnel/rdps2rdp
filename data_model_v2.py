@@ -6,7 +6,10 @@ http://www.plantuml.com/plantuml/uml/jLF1RXen4BtxAqPxgHILg6al5LAZL4Mzj8SeX5DLhGo
 import struct
 import functools
 import collections
+import collections.abc
 import pprint
+import contextlib
+import copy
 
 import utils
 import serializers
@@ -35,12 +38,11 @@ from serializers import (
     BitMaskSerializer,
     ValueTransformSerializer,
     
-    DataUnitSerializer,
     RawLengthSerializer,
     LengthDependency,
     DependentValueSerializer,
     ValueDependency,
-    )
+)
 
 from typing import Any, Sequence, Callable, TypeVar, Generic, Union, Dict
 
@@ -56,16 +58,20 @@ def is_int(s):
         return False
         
 def traverse_object_graph(value, path):
-    for field_name in path.split("."):
-        if is_int(field_name):
-            try:
-                # print('getting field name with numerical value %s' % field_name)
-                value = value[int(field_name)]
-                continue
-            except IndexError:
-                pass
-        value = getattr(value, field_name)
-    return value
+    # try:
+        for field_name in path.split("."):
+            # if is_int(field_name):
+            #     try:
+            #         # print('getting field name with numerical value %s' % field_name)
+            #         value = value[int(field_name)]
+            #         continue
+            #     except IndexError:
+            #         pass
+            value = getattr(value, field_name)
+        return value
+    # except AttributeError as e:
+    #     raise AttributeError('Getting "%s" from %s' % (path, value), e)
+    #     raise e
 
 
 def lookup_name_in(names_by_value):
@@ -95,15 +101,48 @@ def add_constants_names_mapping(constants_prefix, mapping_name=None):
 class SerializationException(Exception):
     pass
 
+class SerializationContext(object):
+    def __init__(self):
+        self._debug_field_path = []
+        self._force_dirty = False
+        
+    @contextlib.contextmanager
+    def field_context(self, field):
+        self._debug_field_path.append(field)
+        try:
+            yield self
+        finally:
+            self._debug_field_path.pop()
+            
+    def get_debug_field_path(self):
+        return '.'.join([f.name for f in self._debug_field_path])
+
+    @contextlib.contextmanager
+    def dirty_context(self, force_is_dirty):
+        orig_force_is_dirty = self._force_dirty
+        if force_is_dirty is not None:
+            self._force_dirty = force_is_dirty
+        try:
+            yield self
+        finally:
+            self._force_dirty = orig_force_is_dirty
+
+    def get_force_is_dirty(self):
+        return self._force_dirty
+
+
 class BaseField(object):
     """
     Container that associates a serializer with it's value.
     """
     def __init__(self, name):
         self.name = name
-    
+
     def get_human_readable_value(self):
         return self.get_value()
+
+    # def get_alias_hint(self):
+    #     return None
 
     def get_pdu_types(self, rdp_context):
         return []
@@ -117,36 +156,42 @@ class BaseField(object):
     def get_length(self):
         raise NotImplementedError()
 
-    def deserialize_value(self, raw_data: bytes, offset: int) -> int:
-        try:
-            return self._deserialize_value(raw_data, offset)
-        except Exception as e:
-            raise SerializationException(
-                'Error deserializing "%s" from raw_data length %d, offset %d' % (
-                    self.name, len(raw_data), offset)) from e
-    
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
         raise NotImplementedError()
     
-    def serialize_value(self, buffer: bytes, offset: int) -> int:
-        try:
-            return self._serialize_value(buffer, offset)
-        except Exception as e:
-            raise SerializationException(
-                'Error serializing "%s" into buffer length %d, offset %d' % (
-                    self.name, len(buffer), offset)) from e
+    def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        with serde_context.field_context(self) as _:
+            try:
+                return self._deserialize_value(raw_data, offset, serde_context)
+            except Exception as e:
+                raise SerializationException(
+                    'Error deserializing "%s" from raw_data length %d, offset %d' % (
+                        self.name, len(raw_data), offset)) from e
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        raise NotImplementedError()
+    
+    def serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        with serde_context.field_context(self) as _:
+            try:
+                return self._serialize_value(buffer, offset, serde_context)
+            except Exception as e:
+                raise SerializationException(
+                    'Error serializing "%s" into buffer length %d, offset %d' % (
+                        self.name, len(buffer), offset)) from e
 
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         raise NotImplementedError()
         
 class PrimitiveField(BaseField):
     def __init__(self, name, serializer, to_human_readable = lambda x: x):
-        self.name = name
+        super().__init__(name)
         self.serializer = serializer
         self._to_human_readable = to_human_readable
         self.value = None
         self.raw_value = None
         self.is_value_dirty = False
+        self._deserialize_value_snapshot = None
 
     def __str__(self):
         return '<PrimitiveField(name=%s, serializer=%s)>' % (
@@ -156,7 +201,7 @@ class PrimitiveField(BaseField):
         return self._to_human_readable(self.get_value())
 
     def get_value(self) -> Any:
-        if self.is_value_dirty:
+        if self.is_dirty():
             return self.value
         if self.raw_value is None:
             raise ValueError('Field has not been deserialized yet')
@@ -167,22 +212,32 @@ class PrimitiveField(BaseField):
         self.value = value
 
     def get_length(self):
-        if self.is_value_dirty:
+        if self.is_dirty():
             return self.serializer.get_serialized_length(self.get_value())
         else:
             return len(self.raw_value)
         
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
+        # if self._deserialize_value_snapshot:
+        #     print('is_dirty by snapshot (%s): %s vs %s' % (self.value != self._deserialize_value_snapshot, self.value, self._deserialize_value_snapshot))
+        return (self.is_value_dirty 
+                or (self._deserialize_value_snapshot is not None
+                    and self.value != self._deserialize_value_snapshot))
+
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         value, length = self.serializer.unpack_from(raw_data, offset)
         self.value = value
+        if isinstance(value, collections.abc.Iterable) and not isinstance(value, memoryview):
+            self._deserialize_value_snapshot = copy.copy(value)
         self.is_value_dirty = False
         # utils.assertEqual(length, self.serializer.get_serialized_length(value))
         # length = self.serializer.get_serialized_length(value)
         self.raw_value = memoryview(raw_data)[offset : offset+length]
         return length
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
-        if self.is_value_dirty:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        # print('Serializing: is_dirty? %s for %s' % (self.is_dirty(), serde_context.get_debug_field_path()))
+        if self.is_dirty() or serde_context.get_force_is_dirty():
             length = self.serializer.pack_into(buffer, offset, self.value)
         else:
             length = len(self.raw_value)
@@ -211,11 +266,14 @@ class DataUnitField(BaseField):
     def get_length(self):
         return self.data_unit.get_length()
         
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
-        return self.data_unit.deserialize_value(raw_data, offset)
+    def is_dirty(self) -> bool:
+        return self.data_unit.is_dirty()
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
-        return self.data_unit.serialize_value(buffer, offset)
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self.data_unit.deserialize_value(raw_data, offset, serde_context)
+    
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self.data_unit.serialize_value(buffer, offset, serde_context)
 
 class RemainingRawField(BaseField):
     def __init__(self, name, orig_raw_value, offset):
@@ -237,10 +295,13 @@ class RemainingRawField(BaseField):
     def get_length(self):
         return len(self.remaining)
 
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
+        return False
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         raise NotImplementedError('RemainingRawField does not support being deserialized')
     
-    def serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         length = self.get_length()
         buffer[offset: offset+length] = self.remaining
         return length
@@ -273,10 +334,13 @@ class ReferenceField(BaseField):
     def get_length(self):
         return 0
 
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
+        return False
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
 
 class OptionalField(BaseField):
@@ -320,18 +384,24 @@ class OptionalField(BaseField):
         else:
             return 0
 
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
+        if self._value_is_present:
+            return self._optional_field.is_dirty()
+        else:
+            return False
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         length = 0
         try:
-            length = self._optional_field._deserialize_value(raw_data, offset)
+            length = self._optional_field._deserialize_value(raw_data, offset, serde_context)
             self._value_is_present = True
         except struct.error:
             pass    
         return length
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         if self._value_is_present:
-            return self._optional_field.serialize_value(buffer, offset)
+            return self._optional_field.serialize_value(buffer, offset, serde_context)
         else:
             return 0
 
@@ -375,15 +445,21 @@ class ConditionallyPresentField(BaseField):
         else:
             return 0
 
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
         if self._is_present_condition():
-            return self._optional_field._deserialize_value(raw_data, offset)
+            return self._optional_field.is_dirty()
+        else:
+            return False
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        if self._is_present_condition():
+            return self._optional_field._deserialize_value(raw_data, offset, serde_context)
         else:
             return 0
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         if self._is_present_condition():
-            return self._optional_field.serialize_value(buffer, offset)
+            return self._optional_field.serialize_value(buffer, offset, serde_context)
         else:
             return 0
 
@@ -415,19 +491,33 @@ class UnionField(BaseField):
                     raise ValueError('The length of all fields in the UnionField is not all the same')
         return length
     
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
         for f in self._fields:
-            length = f.deserialize_value(raw_data, offset)
+            if f.is_dirty():
+                return True
+        return False
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        for f in self._fields:
+            length = f.deserialize_value(raw_data, offset, serde_context)
         return length
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         length = 0
+        force_is_dirty = None
         for f in self._fields:
-            length = f.get_length()
-            shared_data = memoryview(bytearray(length))
-            f.serialize_value(shared_data, 0)
-            for i in range(length):
-                buffer[offset+i] |= shared_data[i]
+            if f.is_dirty():
+                force_is_dirty = True
+                break
+
+        with serde_context.dirty_context(force_is_dirty):
+            for f in self._fields:
+                length = f.get_length()
+                shared_data = memoryview(bytearray(length))
+                f.serialize_value(shared_data, 0, serde_context)
+                # import utils ; print('field %s serialized to %s' % (f.name, utils.as_hex_str(bytes(shared_data))))
+                for i in range(length):
+                    buffer[offset+i] |= shared_data[i]
         return length
         
     def get_union_fields(self):
@@ -456,13 +546,16 @@ class UnionWrapperField(BaseField):
     def set_value(self, value: Any):
         self._field.set_value(value)
         
-    def _deserialize_value(self, raw_data: bytes, offset: int) -> int:
+    def is_dirty(self) -> bool:
+        return self._field.is_dirty()
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
     
-    def _serialize_value(self, buffer: bytes, offset: int) -> int:
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
 
-AutoReinterpretConfig = collections.namedtuple('AutoReinterpretConfig', ['name', 'factory'])
+AutoReinterpretConfig = collections.namedtuple('AutoReinterpretConfig', ['alias_hint', 'factory'])
 AUTO_REINTERPRET_TYPE_ID = TypeVar('AUTO_REINTERPRET_TYPE_ID')
 
 class AutoReinterpretBase(object):
@@ -473,19 +566,26 @@ class AutoReinterpret(AutoReinterpretBase):
     def __init__(self, 
             field_to_reinterpret_name: str,
             type_getter: ValueDependency[AUTO_REINTERPRET_TYPE_ID], 
-            type_mapping: Dict[AUTO_REINTERPRET_TYPE_ID, AutoReinterpretConfig]):
+            config_by_type: Dict[AUTO_REINTERPRET_TYPE_ID, AutoReinterpretConfig]):
         self.field_to_reinterpret_name = field_to_reinterpret_name
         self.type_getter = type_getter
-        self.type_mapping = type_mapping
+        self.config_by_type = config_by_type
+
+    # def get_alias_hint(self, data_unit):
+    #     type = self.type_getter.get_value(data_unit)
+    #     if type in self.config_by_type:
+    #         reinterpret_config = self.config_by_type[type]
+    #         return reinterpret_config.alias_hint
+    #     return None
 
     def auto_reinterpret(self, data_unit):
         type = self.type_getter.get_value(data_unit)
-        if type in self.type_mapping:
-            reinterpret_config = self.type_mapping[type]
+        if type in self.config_by_type:
+            reinterpret_config = self.config_by_type[type]
             data_unit.reinterpret_field(
                     self.field_to_reinterpret_name, 
                     DataUnitField(
-                        reinterpret_config.name, 
+                        self.field_to_reinterpret_name, 
                         reinterpret_config.factory()), 
                     allow_overwrite = True)
 
@@ -503,6 +603,8 @@ class ArrayAutoReinterpret(AutoReinterpretBase):
     def auto_reinterpret(self, data_unit):
         array_value = traverse_object_graph(data_unit, self.array_field_to_reinterpret_name)
         
+        if isinstance(array_value, ArrayDataUnit):
+            array_value = array_value.fields_as_array()
         if not isinstance(array_value, list):
             raise ValueError('array field must be a list')
             
@@ -525,7 +627,7 @@ class BaseDataUnit(object):
         if auto_reinterpret_configs is None:
             auto_reinterpret_configs = []
         self._auto_reinterpret_configs = auto_reinterpret_configs
-        self.use_class_as_pdu_name = use_class_as_pdu_name
+        self._use_class_as_pdu_name = use_class_as_pdu_name
         self._fields = []
         for f in fields:
             self._fields.append(f)
@@ -535,6 +637,7 @@ class BaseDataUnit(object):
         for f in self._fields:
             if not isinstance(f, UnionField):
                 self._fields_by_name[f.name] = f
+        self._raw_value = None
         
 
     def __getattr__(self, name: str) -> Any:
@@ -553,9 +656,13 @@ class BaseDataUnit(object):
             f = self._fields_by_name[name]
             f.set_value(value)
 
-    def __len__(self):
-        return self.get_length()
-        
+    def has_path(self, path):
+        try:
+            traverse_object_graph(self, path)
+            return True
+        except Exception:
+            return False
+
     def get_length(self):
         total_length = 0
         for f in self._fields:
@@ -564,6 +671,12 @@ class BaseDataUnit(object):
             # print('field %s has length %d' % (f.name, length))
         return total_length
 
+    def is_dirty(self) -> bool:
+        for f in self._fields:
+            if f.is_dirty():
+                return True
+        return False
+    
     def __str__(self):
         return pprint.pformat(self._as_dict_for_pprint(), width=160)
 
@@ -576,7 +689,7 @@ class BaseDataUnit(object):
         
     def get_pdu_types(self, rdp_context):
         retval = []
-        if self.use_class_as_pdu_name:
+        if self._use_class_as_pdu_name:
             retval.append(str(self.__class__))
         for f in self._fields:
             retval.extend(f.get_pdu_types(rdp_context))
@@ -617,32 +730,41 @@ class BaseDataUnit(object):
         return result
         
     def with_value(self, raw_data: bytes):
-        self.deserialize_value(memoryview(raw_data))
+        self.deserialize_value(memoryview(raw_data), 0, SerializationContext())
         return self
 
-    def deserialize_value(self, raw_data: bytes, orig_offset: int = 0) -> int:
+    def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
         offset = orig_offset
         for f in self._fields:
-            length = f.deserialize_value(raw_data, offset)
+            length = f.deserialize_value(raw_data, offset, serde_context)
             offset += length
+        self._raw_value = memoryview(raw_data[orig_offset:offset])
         for config in self._auto_reinterpret_configs:
             config.auto_reinterpret(self)
         return offset - orig_offset
 
-    def serialize_value(self, buffer: bytes, orig_offset: int = 0) -> int:
+    def serialize_value(self, buffer: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
+        if not self.is_dirty():
+            length = len(self._raw_value)
+            buffer[orig_offset : orig_offset+length] = self._raw_value
+            return length
+        # print('Serializing: DataUnit is reserializing fields for %s' % serde_context.get_debug_field_path())
         offset = orig_offset
         for f in self._fields:
-            length = f.serialize_value(buffer, offset)
+            length = f.serialize_value(buffer, offset, serde_context)
             offset += length
         return offset - orig_offset
 
     def as_wire_bytes(self):
         buffer = bytearray(self.get_length())
-        length = self.serialize_value(memoryview(buffer))
+        length = self.serialize_value(memoryview(buffer), 0, SerializationContext())
         if length != len(buffer):
             raise ValueError('Unexpected serialized length: expected %d, got %d' % (len(buffer), length))
         return buffer
 
+    # def get_alias_hint(self):
+    #     return None
+        
     def alias_field(self, new_name, path):
         if new_name in self._fields_by_name:
             raise ValueError('the field "%s" already exists and therefor cannot be an alias' % (new_name))
@@ -662,7 +784,7 @@ class BaseDataUnit(object):
             raise AttributeError('field "%s" does not exist' % (name_to_reinterpret))
         if not allow_overwrite and new_field.name in self._fields_by_name:
             raise AttributeError('field "%s" already exist' % (new_field.name))
-        
+        serde_context = SerializationContext()
         for i, f in enumerate(self._fields):
             if f.name == name_to_reinterpret:
                 if isinstance(f, ReferenceField):
@@ -670,14 +792,14 @@ class BaseDataUnit(object):
                 if use_remainder and isinstance(f, RemainingRawField):
                     orig_raw_value = f.orig_raw_value
                     orig_remaining = f.get_value()
-                    length = new_field.deserialize_value(orig_remaining, 0)
+                    length = new_field.deserialize_value(orig_remaining, 0, serde_context)
                     remaining_field = RemainingRawField(f.name, orig_raw_value, f.offset + length)
                 else:
                     orig_raw_value = bytearray(f.get_length())
-                    length = f.serialize_value(orig_raw_value, 0)
+                    length = f.serialize_value(orig_raw_value, 0, serde_context)
                     orig_raw_value = orig_raw_value[:length]
                     
-                    length = new_field.deserialize_value(orig_raw_value, 0)
+                    length = new_field.deserialize_value(orig_raw_value, 0, serde_context)
                     remaining_field = RemainingRawField(f.name, orig_raw_value, length)
                 
                 if new_field.name == remaining_field.name:
@@ -714,6 +836,75 @@ class RawDataUnit(BaseDataUnit):
         pdu.deserialize_value(memoryview(data))
         return pdu
 
+class ArrayDataUnit(BaseDataUnit):
+    def __init__(self, 
+            data_unit_factory,
+            alias_hinter = None,
+            length_dependency = None,
+            item_count_dependency = None):
+        super().__init__(fields = [])
+        self._data_unit_factory = data_unit_factory
+        self._length_dependency = length_dependency
+        self._item_count_dependency = item_count_dependency
+        self._alias_hinter = alias_hinter
+
+        if ((length_dependency is None and item_count_dependency is None)
+                or (length_dependency is not None and item_count_dependency is not None)):
+            raise ValueError('Only one of length_dependency or item_count_dependency must be specified. length_dependency = %s, item_count_dependency = %s' % (
+                length_dependency, item_count_dependency))
+
+    def __len__(self):
+        return len(self.fields_as_array())
+    
+    def __iter__(self):
+        return iter(self.fields_as_array())
+
+    def __getitem__(self, subscript):
+        if isinstance(subscript, slice):
+            # do your handling for a slice object:
+            return self.fields_as_array()[subscript.start : subscript.stop : subscript.step]
+        else:
+            # Do your handling for a plain index
+            return self.fields_as_array()[subscript]
+
+    def fields_as_array(self):
+        return [f.get_value() for f in self._fields if isinstance(f, DataUnitField)]
+
+    def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
+        consumed = 0
+        items_parsed = 0
+        
+        if len(self._fields) > 0:
+            raise ValueError('Unsupported: ArrayDataUnit is being deserialized twice')
+        
+        if self._length_dependency:
+            length = self._length_dependency.get_length(raw_data)
+            has_more_items = lambda: consumed < length
+        elif self._item_count_dependency:
+            max_items = self._item_count_dependency.get_value(None)
+            has_more_items = lambda: items_parsed < max_items
+            
+        i = 0
+        while has_more_items():
+            item = self._data_unit_factory()
+            item_length = item.deserialize_value(raw_data, orig_offset + consumed, serde_context)
+            utils.assertEqual(item_length, item.get_length())
+            field_name = '%d' % i
+            field_item = DataUnitField(field_name, item)
+            self._fields_by_name[field_name] = field_item
+            self._fields.append(field_item)
+            if self._alias_hinter:
+                alias = self._alias_hinter.get_value(item)
+                if alias:
+                    self.alias_field(alias, field_name)
+            consumed += item_length
+            items_parsed += 1
+            i += 1
+
+        self._raw_value = memoryview(raw_data[orig_offset: orig_offset+consumed])
+        return consumed
+
+
 class Ber(object):
     # ITU-T X.690
     BOOLEAN = 'boolean' # bool 0 = False, ff = True
@@ -742,8 +933,8 @@ class BerEncodedDataUnit(BaseDataUnit):
         self._interpret_payload_as = interpret_payload_as
         # print('auto re-interprert forced %s in __init__' % (self._interpret_payload_as is not None) )
         
-    def deserialize_value(self, raw_data: bytes, offset: int = 0) -> int:
-        result = super(BerEncodedDataUnit, self).deserialize_value(raw_data, offset)
+    def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        result = super(BerEncodedDataUnit, self).deserialize_value(raw_data, offset, serde_context)
         # auto re-interprert the payload based on the embedded type
         reinterpert_as = None
         ber_type = Ber.TYPES.get(self.type, 'Unknown')
@@ -781,8 +972,8 @@ class PerEncodedDataUnit(BaseDataUnit):
         ])
         self._interpret_payload_as = interpret_payload_as
     
-    def deserialize_value(self, raw_data: bytes, offset: int = 0) -> int:
-        result = super(PerEncodedDataUnit, self).deserialize_value(raw_data, offset)
+    def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        result = super(PerEncodedDataUnit, self).deserialize_value(raw_data, offset, serde_context)
         # auto re-interprert the payload based on the given DataUnit
         if self._interpret_payload_as is not None:
             if isinstance(self._interpret_payload_as, BaseDataUnit):

@@ -519,8 +519,17 @@ class TestParsing(unittest.TestCase):
 
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
-        # pdu.tpkt.mcs.rdp.TS_INFO_PACKET.compressionType = Rdp.Info.PACKET_COMPR_TYPE_8K
-        # self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+        # print('pdu modified')
+        info_packet_data = bytes(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.as_wire_bytes())
+        pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags.discard(Rdp.Info.INFO_COMPRESSION)
+        pdu.tpkt.mcs.rdp.TS_INFO_PACKET.compressionType = Rdp.Info.PACKET_COMPR_TYPE_8K
+        
+        self.assertEqual(True, Rdp.Info.INFO_COMPRESSION not in pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags)
+        self.assertEqual(True, pdu.tpkt.mcs.rdp.TS_INFO_PACKET._fields_by_name['flags'].is_dirty())
+        self.assertEqual(True, pdu.tpkt.mcs.rdp.TS_INFO_PACKET._fields_by_name['compressionType'].is_dirty())
+        self.assertEqual(True, pdu.is_dirty())
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.TS_INFO_PACKET.as_wire_bytes())[4:8], b'\x33\x41\x00\x00')
+        self.assertNotEqual(bytes(pdu.as_wire_bytes()), data)
         
 
     @unittest.skip("encrypted license not supported")
@@ -719,16 +728,16 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.numberCapabilities, 13)
         self.assertEqual(len(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets), 13)
 
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K)
         
         self.assertEqual(rdp_context.pre_capability_exchange, False)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
-        pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
-        print(pdu)
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR)
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData._fields_by_name['flags'].is_value_dirty, True)
+        pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
+        
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR)
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData._fields_by_name['flags'].is_dirty(), True)
         self.assertNotEqual(bytes(pdu.as_wire_bytes()), data) 
         # TODO: create the PDU bytes with the modified flag value
         
@@ -872,8 +881,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(bytes(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.sourceDescriptor), bytes.fromhex("4d 53 54 53 43 00"))
         self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.numberCapabilities, 18)
         self.assertEqual(len(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets), 18)
-
-        self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_SC)
+        
+        self.assertEqual(pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags, Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_SC)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         

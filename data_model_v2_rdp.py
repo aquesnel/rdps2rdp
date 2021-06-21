@@ -3,6 +3,7 @@ from enum import Enum, unique
 
 from data_model_v2 import (
     BaseDataUnit,
+    ArrayDataUnit,
     
     PrimitiveField,
     DataUnitField,
@@ -10,6 +11,7 @@ from data_model_v2 import (
     OptionalField,
     ConditionallyPresentField,
     
+    AutoReinterpret,
     ArrayAutoReinterpret,
     AutoReinterpretConfig,
     
@@ -20,7 +22,6 @@ from serializers import (
     RawLengthSerializer,
     DependentValueSerializer,
     ArraySerializer,
-    DataUnitSerializer,
     BitFieldEncodedSerializer,
     BitMaskSerializer,
     
@@ -125,6 +126,20 @@ class Rdp(object):
             SC_NET: 'SC_NET',
             SC_MCS_MSGCHANNEL: 'SC_MCS_MSGCHANNEL'
         }
+        
+        @add_constants_names_mapping('RNS_UD_CS_', 'RNS_UD_CS_NAMES')
+        class Core(object):
+            RNS_UD_CS_SUPPORT_ERRINFO_PDU = 0x0001
+            RNS_UD_CS_WANT_32BPP_SESSION = 0x0002
+            RNS_UD_CS_SUPPORT_STATUSINFO_PDU = 0x0004
+            RNS_UD_CS_STRONG_ASYMMETRIC_KEYS = 0x0008
+            RNS_UD_CS_UNUSED = 0x0010
+            RNS_UD_CS_VALID_CONNECTION_TYPE = 0x0020
+            RNS_UD_CS_SUPPORT_MONITOR_LAYOUT_PDU = 0x0040
+            RNS_UD_CS_SUPPORT_NETCHAR_AUTODETECT = 0x0080
+            RNS_UD_CS_SUPPORT_DYNVC_GFX_PROTOCOL = 0x0100
+            RNS_UD_CS_SUPPORT_DYNAMIC_TIME_ZONE = 0x0200
+            RNS_UD_CS_SUPPORT_HEARTBEAT_PDU = 0x0400
 
     @add_constants_names_mapping('PROTOCOL_', 'PROTOCOL_NAMES')
     class Protocols(object):
@@ -375,6 +390,9 @@ class Rdp(object):
 
     @add_constants_names_mapping('TS_RAIL_ORDER_', 'TS_RAIL_ORDER_NAMES')
     @add_constants_names_mapping('TS_RAIL_EXEC_FLAG_', 'TS_RAIL_EXEC_FLAG_NAMES')
+    @add_constants_names_mapping('TS_RAIL_HANDSHAKE_EX_FLAGS_', 'TS_RAIL_HANDSHAKE_EX_FLAGS_NAMES')
+    @add_constants_names_mapping('TS_RAIL_CLIENTSTATUS_', 'TS_RAIL_CLIENTSTATUS_NAMES')
+    @add_constants_names_mapping('TS_RAIL_CLOAKED_', 'TS_RAIL_CLOAKED_NAMES')
     class Rail(object):
         TS_RAIL_ORDER_EXEC = 0x0001
         TS_RAIL_ORDER_ACTIVATE = 0x0002
@@ -408,6 +426,27 @@ class Rdp(object):
         TS_RAIL_EXEC_FLAG_FILE = 0x0004
         TS_RAIL_EXEC_FLAG_EXPAND_ARGUMENTS = 0x0008
         TS_RAIL_EXEC_FLAG_APP_USER_MODEL_ID = 0x0010
+        
+        # note the following in the spec are actually TS_RAIL_ORDER_HANDSHAKE_EX_FLAGS_...
+        TS_RAIL_HANDSHAKE_EX_FLAGS_HIDEF = 0x00000001
+        TS_RAIL_HANDSHAKE_EX_FLAGS_EXTENDED_SPI_SUPPORTED = 0x00000002
+        TS_RAIL_HANDSHAKE_EX_FLAGS_SNAP_ARRANGE_SUPPORTED = 0x00000004
+        TS_RAIL_HANDSHAKE_EX_FLAGS_TEXT_SCALE_SUPPORTED = 0x00000008
+        TS_RAIL_HANDSHAKE_EX_FLAGS_CARET_BLINK_SUPPORTED = 0x00000010
+        TS_RAIL_HANDSHAKE_EX_FLAGS_EXTENDED_SPI_2_SUPPORTED = 0x00000020
+        
+        TS_RAIL_CLIENTSTATUS_ALLOWLOCALMOVESIZE = 0x00000001
+        TS_RAIL_CLIENTSTATUS_AUTORECONNECT = 0x00000002
+        TS_RAIL_CLIENTSTATUS_ZORDER_SYNC = 0x00000004
+        TS_RAIL_CLIENTSTATUS_WINDOW_RESIZE_MARGIN_SUPPORTED = 0x00000010
+        TS_RAIL_CLIENTSTATUS_HIGH_DPI_ICONS_SUPPORTED = 0x00000020
+        TS_RAIL_CLIENTSTATUS_APPBAR_REMOTING_SUPPORTED = 0x00000040
+        TS_RAIL_CLIENTSTATUS_POWER_DISPLAY_REQUEST_SUPPORTED = 0x00000080
+        TS_RAIL_CLIENTSTATUS_BIDIRECTIONAL_CLOAK_SUPPORTED = 0x00000200
+        TS_RAIL_CLIENTSTATUS_SUPPRESS_ICON_ORDERS = 0x00000400
+        
+        TS_RAIL_CLOAKED_FALSE = 0x00
+        TS_RAIL_CLOAKED_TRUE = 0x01
 
     @add_constants_names_mapping('COMMAND_', 'COMMAND_NAMES')
     class DynamicVirtualChannels(object): # from [MS-RDPEDYC]
@@ -477,7 +516,21 @@ class RdpUserDataBlock(BaseDataUnit):
             DataUnitField('header', 
                 Rdp_TS_UD_HEADER(ValueDependency(lambda x: len(self)))),
             PrimitiveField('payload', 
-                RawLengthSerializer(LengthDependency(lambda x: self.header.length - len(self.header)))),
+                RawLengthSerializer(LengthDependency(lambda x: self.header.length - self.header.get_length()))),
+        ],
+        auto_reinterpret_configs = [
+            AutoReinterpret('payload',
+                type_getter = ValueDependency(lambda x: self.header.type), 
+                config_by_type = {
+                    Rdp.UserData.CS_CORE: AutoReinterpretConfig('', Rdp_TS_UD_CS_CORE),
+                    Rdp.UserData.CS_SECURITY: AutoReinterpretConfig('', Rdp_TS_UD_CS_SEC),
+                    Rdp.UserData.CS_NET: AutoReinterpretConfig('', Rdp_TS_UD_CS_NET),
+                    
+                    Rdp.UserData.SC_CORE: AutoReinterpretConfig('', Rdp_TS_UD_SC_CORE),
+                    Rdp.UserData.SC_NET: AutoReinterpretConfig('', Rdp_TS_UD_SC_NET),
+                    Rdp.UserData.SC_SECURITY: AutoReinterpretConfig('', Rdp_TS_UD_SC_SEC1),
+                    Rdp.UserData.SC_MCS_MSGCHANNEL: AutoReinterpretConfig('', Rdp_TS_UD_SC_MCS_MSGCHANNEL),
+                }),
         ])
     
 class Rdp_TS_UD_HEADER(BaseDataUnit):
@@ -516,7 +569,7 @@ class Rdp_TS_UD_CS_CORE(BaseDataUnit):
             OptionalField(
                 PrimitiveField('supportedColorDepths', StructEncodedSerializer(UINT_16_LE))),
             OptionalField(
-                PrimitiveField('earlyCapabilityFlags', StructEncodedSerializer(UINT_16_LE))),
+                PrimitiveField('earlyCapabilityFlags', BitFieldEncodedSerializer(UINT_16_LE, Rdp.UserData.Core.RNS_UD_CS_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.UserData.Core.RNS_UD_CS_NAMES))),
             OptionalField(
                 PrimitiveField('clientDigProductId', FixedLengthUtf16leEncodedStringSerializer(64))),
             OptionalField(
@@ -551,9 +604,8 @@ class Rdp_TS_UD_CS_NET(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_UD_CS_NET, self).__init__(fields = [
             PrimitiveField('channelCount', StructEncodedSerializer(UINT_32_LE)),
-            PrimitiveField('channelDefArray',
-                ArraySerializer(
-                    DataUnitSerializer(Rdp_CHANNEL_DEF),
+            DataUnitField('channelDefArray',
+                ArrayDataUnit(Rdp_CHANNEL_DEF,
                     item_count_dependency = ValueDependency(lambda x: self.channelCount))),
         ])
 
@@ -706,7 +758,7 @@ class Rdp_LICENSE_VALID_CLIENT_DATA(BaseDataUnit):
         super(Rdp_LICENSE_VALID_CLIENT_DATA, self).__init__(fields = [
             DataUnitField('preamble', Rdp_LICENSE_PREAMBLE()),
             PrimitiveField('validClientMessage', 
-                RawLengthSerializer(LengthDependency(lambda x: self.preamble.wMsgSize - len(self.preamble)))),
+                RawLengthSerializer(LengthDependency(lambda x: self.preamble.wMsgSize - self.preamble.get_length()))),
         ],
         use_class_as_pdu_name = True)
         
@@ -771,22 +823,11 @@ class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
             PrimitiveField('sourceDescriptor', RawLengthSerializer(LengthDependency(lambda x: self.lengthSourceDescriptor))),
             PrimitiveField('numberCapabilities', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('pad2Octets', StructEncodedSerializer(PAD * 2)),
-            PrimitiveField('capabilitySets', 
-                ArraySerializer(
-                    DataUnitSerializer(Rdp_TS_CAPS_SET),
-                    item_count_dependency = ValueDependency(lambda x: self.numberCapabilities))),
+            DataUnitField('capabilitySets', 
+                ArrayDataUnit(Rdp_TS_CAPS_SET,
+                    item_count_dependency = ValueDependency(lambda x: self.numberCapabilities),
+                    alias_hinter = Rdp_TS_CAPS_SET.ALIAS_HINTER)),
             PrimitiveField('sessionId', StructEncodedSerializer(UINT_32_LE)),
-        ],
-        auto_reinterpret_configs = [
-            ArrayAutoReinterpret(
-                array_field_to_reinterpret_name = 'capabilitySets',
-                item_field_to_reinterpret_name = 'capabilityData',
-                type_getter = ValueDependency(lambda capability_item: capability_item.capabilitySetType),
-                type_mapping = {
-                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('waindowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
-                })
         ],
         use_class_as_pdu_name = True)
 
@@ -800,21 +841,10 @@ class Rdp_TS_CONFIRM_ACTIVE_PDU(BaseDataUnit):
             PrimitiveField('sourceDescriptor', RawLengthSerializer(LengthDependency(lambda x: self.lengthSourceDescriptor))),
             PrimitiveField('numberCapabilities', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('pad2Octets', StructEncodedSerializer(PAD * 2)),
-            PrimitiveField('capabilitySets', 
-                ArraySerializer(
-                    DataUnitSerializer(Rdp_TS_CAPS_SET),
-                    item_count_dependency = ValueDependency(lambda x: self.numberCapabilities))),
-        ],
-        auto_reinterpret_configs = [
-            ArrayAutoReinterpret(
-                array_field_to_reinterpret_name = 'capabilitySets',
-                item_field_to_reinterpret_name = 'capabilityData',
-                type_getter = ValueDependency(lambda capability_item: capability_item.capabilitySetType),
-                type_mapping = {
-                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('virtualChannelCapability', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('railCapability', Rdp_TS_RAIL_CAPABILITYSET),
-                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('windowCapability', Rdp_TS_WINDOW_CAPABILITYSET),
-                })
+            DataUnitField('capabilitySets', 
+                ArrayDataUnit(Rdp_TS_CAPS_SET,
+                    item_count_dependency = ValueDependency(lambda x: self.numberCapabilities),
+                    alias_hinter = Rdp_TS_CAPS_SET.ALIAS_HINTER)),
         ],
         use_class_as_pdu_name = True)
 
@@ -824,7 +854,23 @@ class Rdp_TS_CAPS_SET(BaseDataUnit):
             PrimitiveField('capabilitySetType', StructEncodedSerializer(UINT_16_LE), to_human_readable = lookup_name_in(Rdp.Capabilities.CAPSTYPE_NAMES)),
             PrimitiveField('lengthCapability', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('capabilityData', RawLengthSerializer(LengthDependency(lambda x: self.lengthCapability - self._fields_by_name['capabilitySetType'].get_length() - self._fields_by_name['lengthCapability'].get_length()))),
+        ],
+        auto_reinterpret_configs = [
+            AutoReinterpret(
+                field_to_reinterpret_name = 'capabilityData',
+                type_getter = ValueDependency(lambda x: self.capabilitySetType),
+                config_by_type = {
+                    Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('', Rdp_TS_RAIL_CAPABILITYSET),
+                    Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('', Rdp_TS_WINDOW_CAPABILITYSET),
+                }),
         ])
+        
+    ALIAS_HINTER = ValueDependency(lambda self: {
+                Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: 'virtualChannelCapability',
+                Rdp.Capabilities.CAPSTYPE_RAIL: 'railCapability',
+                Rdp.Capabilities.CAPSTYPE_WINDOW: 'waindowCapability',
+            }.get(self.capabilitySetType, None))
 
 class Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET(BaseDataUnit):
     def __init__(self):

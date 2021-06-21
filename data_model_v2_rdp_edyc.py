@@ -18,8 +18,6 @@ from data_model_v2 import (
 from serializers import (
     RawLengthSerializer,
     DependentValueSerializer,
-    ArraySerializer,
-    DataUnitSerializer,
     BitFieldEncodedSerializer,
     BitMaskSerializer,
     

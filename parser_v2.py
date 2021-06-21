@@ -90,8 +90,7 @@ from data_model_v2_rdp_edyc import (
     Rdp_DYNVC_CLOSE,
 )
 from data_model_v2_rdp_erp import (
-    Rdp_TS_RAIL_PDU_HEADER,
-    Rdp_TS_RAIL_ORDER_EXEC,
+    Rdp_TS_RAIL_PDU,
 )
 
 from parser_v2_context import (
@@ -159,7 +158,7 @@ def parse_pdu_length(data, rdp_context = None):
         pdu = RawDataUnit().with_value(data)
         pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()))
         
-        return len(pdu.credssp)
+        return pdu.credssp.get_length()
     
     else:
         raise ValueError('Unsupported packet type')
@@ -232,7 +231,7 @@ def parse(pdu_source, data, rdp_context = None):
                     else:
                         raise ValueError('not supported')
                     
-                    pdu.tpkt.mcs.alias_field('rdp', 'connect_payload.userData.payload')
+                    pdu.tpkt.mcs.alias_field('rdp', 'connect_payload.userData.payload.gcc_userData.payload')
                     if hasattr(pdu.tpkt.mcs.rdp, 'clientNetworkData'):
                         for channel_def in pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray:
                             rdp_context.channel_defs.append(ChannelDef(channel_def.name, channel_def.options, Rdp.Channel.ChannelType.STATIC))
@@ -388,7 +387,7 @@ def parse(pdu_source, data, rdp_context = None):
                             if pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DEMANDACTIVEPDU:
                                 pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_DEMAND_ACTIVE_PDU', Rdp_TS_DEMAND_ACTIVE_PDU()))
                                 rdp_context.pre_capability_exchange = False
-                                if pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.virtualChannelCapability.capabilityData.flags == Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K:
+                                if pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags == Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K:
                                     rdp_context.compression_virtual_chan_cs_encoder = mccp.MCCP()
                                 
                             elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU:
@@ -459,11 +458,8 @@ def parse(pdu_source, data, rdp_context = None):
                                         
                                         channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId, NULL_CHANNEL).name
                                         if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
-                                            pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU_HEADER', Rdp_TS_RAIL_PDU_HEADER()))
-                                            if pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU_HEADER.orderType == Rdp.Rail.TS_RAIL_ORDER_EXEC:
-                                                pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_ORDER_EXEC', Rdp_TS_RAIL_ORDER_EXEC()))
+                                            pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()))
 
-                                            
                                 
         elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
             pdu.reinterpret_field('payload.remaining', 

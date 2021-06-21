@@ -50,9 +50,9 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_header.Pri, 1)
         self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_header.Cmd, Rdp.DynamicVirtualChannels.COMMAND_DATA)
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU_HEADER.orderType, Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE_EX)
-        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU_HEADER.orderLength, 12)
-        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.dyvc_data.Data), b'\x00\x00\x00\x00\x07\x00\x00\x00')
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU.header.orderType, Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE_EX)
+        self.assertEqual(pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU.header.orderLength, 12)
+        self.assertEqual(bytes(pdu.tpkt.mcs.rdp.dyvc_data.TS_RAIL_PDU.payload), b'\x00\x00\x00\x00\x07\x00\x00\x00')
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         

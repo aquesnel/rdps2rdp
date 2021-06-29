@@ -58,17 +58,44 @@ class Rdp(object):
             'RDP - remote control',
         ]
     
-    @add_constants_names_mapping('FASTPATH_INPUT_FLAG_', 'FASTPATH_INPUT_FLAG_NAMES')
-    @add_constants_names_mapping('FASTPATH_INPUT_ACTION_', 'FASTPATH_INPUT_ACTION_NAMES')
+    @add_constants_names_mapping('FASTPATH_FLAG_', 'FASTPATH_FLAG_NAMES')
+    @add_constants_names_mapping('FASTPATH_ACTION_', 'FASTPATH_ACTION_NAMES')
+    @add_constants_names_mapping('FASTPATH_UPDATETYPE_', 'FASTPATH_UPDATETYPE_NAMES')
+    @add_constants_names_mapping('FASTPATH_FRAGMENT_', 'FASTPATH_FRAGMENT_NAMES')
+    @add_constants_names_mapping('FASTPATH_OUTPUT_COMPRESSION_', 'FASTPATH_OUTPUT_COMPRESSION_NAMES')
     class FastPath(object):
-        FASTPATH_INPUT_ACTIONS_MASK = 0x03
-        FASTPATH_INPUT_NUM_EVENTS_MASK = 0x3c
+        FASTPATH_ACTIONS_MASK = 0x03
+        FASTPATH_NUM_EVENTS_MASK = 0x3c
         
-        FASTPATH_INPUT_ACTION_FASTPATH = 0x00
-        FASTPATH_INPUT_ACTION_X224 = 0x03
+        FASTPATH_UPDATE_CODE_MASK = 0x0f
+        FASTPATH_FRAGMENTATION_MASK = 0x30
+        FASTPATH_COMPRESSION_MASK = 0xc0
         
-        FASTPATH_INPUT_FLAG_SECURE_CHECKSUM = (0x1 << 6)
-        FASTPATH_INPUT_FLAG_ENCRYPTED = (0x2 << 6)
+        FASTPATH_ACTION_FASTPATH = 0x00
+        FASTPATH_ACTION_X224 = 0x03
+        
+        FASTPATH_FLAG_SECURE_CHECKSUM = (0x1 << 6)
+        FASTPATH_FLAG_ENCRYPTED = (0x2 << 6)
+        
+        FASTPATH_UPDATETYPE_ORDERS = 0x0
+        FASTPATH_UPDATETYPE_BITMAP = 0x1
+        FASTPATH_UPDATETYPE_PALETTE = 0x2
+        FASTPATH_UPDATETYPE_SYNCHRONIZE = 0x3
+        FASTPATH_UPDATETYPE_SURFCMDS = 0x4
+        FASTPATH_UPDATETYPE_PTR_NULL = 0x5
+        FASTPATH_UPDATETYPE_PTR_DEFAULT = 0x6
+        FASTPATH_UPDATETYPE_PTR_POSITION = 0x8
+        FASTPATH_UPDATETYPE_COLOR = 0x9
+        FASTPATH_UPDATETYPE_CACHED = 0xA
+        FASTPATH_UPDATETYPE_POINTER = 0xB
+        FASTPATH_UPDATETYPE_LARGE_POINTER = 0xC
+        
+        FASTPATH_FRAGMENT_SINGLE = 0x0
+        FASTPATH_FRAGMENT_LAST = 0x1
+        FASTPATH_FRAGMENT_FIRST = 0x2
+        FASTPATH_FRAGMENT_NEXT = 0x3
+        
+        FASTPATH_OUTPUT_COMPRESSION_USED = 0x2
         
     @add_constants_names_mapping('HRESULT_', 'HRESULT_NAMES')
     class HResult(object):
@@ -465,10 +492,16 @@ class Rdp(object):
         COMMAND_COMPRESSED_DATA = 0x07
         COMMAND_SOFT_SYNC_REQUEST = 0x08
         COMMAND_SOFT_SYNC_RESPONSE = 0x09
+        
+    @add_constants_names_mapping('CMDTYPE_', 'CMDTYPE_NAMES')
+    class Surface(object):
+        CMDTYPE_SET_SURFACE_BITS = 0x0001
+        CMDTYPE_FRAME_MARKER = 0x0004
+        CMDTYPE_STREAM_SURFACE_BITS = 0x0006
 
 class DataUnitTypes(object):
-    X224 = Rdp.FastPath.FASTPATH_INPUT_ACTION_X224
-    FAST_PATH = Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH
+    X224 = Rdp.FastPath.FASTPATH_ACTION_X224
+    FAST_PATH = Rdp.FastPath.FASTPATH_ACTION_FASTPATH
     CREDSSP = 0x30 # 0x30 is the DER identifier for SEQUNCE which is the top level type of the [MS-CSSP] TSRequest struct.
 
 Rdp.DataUnitTypes = DataUnitTypes  

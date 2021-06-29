@@ -74,9 +74,10 @@ from data_model_v2_rdp import (
 )
 
 from data_model_v2_rdp_fast_path import (
-    Rdp_TS_FP_INPUT_HEADER,
+    Rdp_TS_FP_HEADER,
+    Rdp_TS_FP_length_only,
     Rdp_TS_FP_INPUT_PDU,
-    Rdp_TS_FP_INPUT_PDU_length_only,
+    Rdp_TS_FP_UPDATE_PDU,
 )
 
 from data_model_v2_rdp_edyc import (
@@ -118,7 +119,7 @@ def _get_pdu_type(data, rdp_context):
     if first_byte == Rdp.DataUnitTypes.X224:
         return Rdp.DataUnitTypes.X224
     
-    elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_INPUT_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
+    elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
         return Rdp.DataUnitTypes.FAST_PATH
     
     elif rdp_context.pre_capability_exchange and first_byte == Rdp.DataUnitTypes.CREDSSP:
@@ -138,15 +139,15 @@ def parse_pdu_length(data, rdp_context = None):
     
     if pdu_type == Rdp.DataUnitTypes.X224:
         pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()))
         pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
         
         return pdu.tpkt.length
     
     elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
         pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
-        pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_INPUT_PDU_length_only()))
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()))
+        pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_length_only()))
         
         return pdu.rdp_fp.length
     
@@ -173,10 +174,8 @@ def parse(pdu_source, data, rdp_context = None):
         
         pdu = RawDataUnit().with_value(data)
         
-        if pdu_type in { Rdp.DataUnitTypes.X224, Rdp.DataUnitTypes.FAST_PATH }:
-            pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_INPUT_HEADER()))
-        
         if pdu_type == Rdp.DataUnitTypes.X224:
+            pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()))
             pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
             pdu.tpkt.reinterpret_field('tpktUserData', DataUnitField('x224', X224HeaderDataUnit()))
             if pdu.tpkt.x224.type == X224.TPDU_CONNECTION_REQUEST:
@@ -462,12 +461,18 @@ def parse(pdu_source, data, rdp_context = None):
 
                                 
         elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
-            pdu.reinterpret_field('payload.remaining', 
+            if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
+                pdu.reinterpret_field('payload', 
+                        DataUnitField('rdp_fp', 
+                            Rdp_TS_FP_INPUT_PDU(
+                                is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))))
+            elif rdp_context.pdu_source == RdpContext.PduSource.SERVER:
+                pdu.reinterpret_field('payload', 
                     DataUnitField('rdp_fp', 
-                        Rdp_TS_FP_INPUT_PDU(
-                            is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS), 
-                            is_data_signature_present = Rdp.FastPath.FASTPATH_INPUT_FLAG_SECURE_CHECKSUM in pdu.rdp_fp_header.flags, 
-                            is_num_events_present = pdu.rdp_fp_header.numEvents == 0)))
+                        Rdp_TS_FP_UPDATE_PDU(
+                            is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))))
+            else:
+                raise ValueError("Unknown PduSource when processing FAST_PATH PDU")
             
             
         elif pdu_type == Rdp.DataUnitTypes.CREDSSP:

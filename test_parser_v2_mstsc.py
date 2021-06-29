@@ -52,7 +52,7 @@ class TestParsing(unittest.TestCase):
         rdp_context = RdpContext()
         pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
         
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 109)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -128,7 +128,7 @@ class TestParsing(unittest.TestCase):
         rdp_context = RdpContext()
         pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
         
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 134)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)

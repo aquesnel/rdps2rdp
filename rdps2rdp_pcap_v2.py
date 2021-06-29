@@ -43,7 +43,7 @@ OUTPUTPCAP = "output.pcap"
 LISTENCON = ('0.0.0.0', 3389)
 # REMOTECON = ('127.0.0.1', 3390)
 host_port = '127.0.0.1:3390'
-host_port = '2.tcp.ngrok.io:16740'
+host_port = '8.tcp.ngrok.io:19119'
 REMOTECON = (host_port.split(':')[0], int(host_port.split(':')[1]))
 SERVER_PORT = int(host_port.split(':')[1])
 
@@ -203,7 +203,9 @@ if __name__ == '__main__':
                 if request_type == self.RequestType.RECEIVE:
                     if pdu.has_path('tpkt.mcs.rdp.clientCoreData'):
                         pdu.tpkt.mcs.rdp.clientCoreData.payload.earlyCapabilityFlags.discard(Rdp.UserData.Core.RNS_UD_CS_SUPPORT_DYNVC_GFX_PROTOCOL)
-
+                    if pdu.has_path('tpkt.x224.x224_connect.rdpNegRsp'):
+                        pdu.tpkt.x224.x224_connect.rdpNegRsp.flags.discard(Rdp.Negotiate.DYNVC_GFX_PROTOCOL_SUPPORTED)
+                    
         interceptors = [
             DisableCompressionInterceptor(),
             DisableGfxInterceptor(),
@@ -320,7 +322,7 @@ if __name__ == '__main__':
         # offset = 16 ; limit = 1 ; # McsConnect Confirm
         # offset = 40 ; limit = 1 ; # PDUTYPE_DEMANDACTIVEPDU
 
-        OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
+        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
         # offset = 499 ; limit = 1 ; # TS_RAIL_ORDER_EXEC_RESULT
         # offset = 730 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 736 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
@@ -328,6 +330,8 @@ if __name__ == '__main__':
         # offset = 774 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 903 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
 
+        OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
+        
         rdp_context = parser_v2_context.RdpContext()
         i = 0
         pkt_list = rdpcap(OUTPUTPCAP)

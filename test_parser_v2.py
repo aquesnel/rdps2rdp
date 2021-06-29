@@ -27,7 +27,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 44)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 44)
         
         self.assertEqual(pdu.tpkt.x224.length, 39)
@@ -49,7 +49,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 19)
         
         pdu = parse(RdpContext.PduSource.SERVER, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 19)
         
         self.assertEqual(pdu.tpkt.x224.length, 14)
@@ -97,7 +97,7 @@ class TestParsing(unittest.TestCase):
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
 
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 416)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -134,7 +134,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.serialNumber, 0)
         self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.highColorDepth, 24)
         self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.supportedColorDepths, 7)
-        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.earlyCapabilityFlags, 1)
+        self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.earlyCapabilityFlags, {1})
         self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.clientDigProductId, "69712-783-0357974-42714")
         self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.serverSelectedProtocol, 0)
         self.assertEqual(pdu.tpkt.mcs.rdp.clientCoreData.payload.desktopPhysicalWidth, None)
@@ -195,7 +195,7 @@ class TestParsing(unittest.TestCase):
         
         pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
         
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 337)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -248,7 +248,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 12)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 12)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -267,7 +267,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 8)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 8)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -285,7 +285,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 11)
         
         pdu = parse(RdpContext.PduSource.SERVER, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 11)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -304,7 +304,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 12)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 12)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -324,7 +324,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data), 15)
         
         pdu = parse(RdpContext.PduSource.SERVER, data)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 15)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -351,7 +351,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 94)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 94)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -410,7 +410,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 427)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 427)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -469,7 +469,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 427)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 427)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -547,7 +547,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 42)
         
         pdu = parse(RdpContext.PduSource.SERSVER, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 42)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -583,7 +583,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 42)
         
         pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 42)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -644,7 +644,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 386)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 386)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -701,7 +701,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 386)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 386)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -787,7 +787,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 519)
         
         pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 519)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -854,7 +854,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 519)
         
         pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 519)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -901,7 +901,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 48)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 48)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -938,7 +938,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 48)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 48)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -986,7 +986,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 52)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 52)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -1023,7 +1023,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(parse_pdu_length(data, rdp_context), 52)
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_X224)
+        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 52)
         
         self.assertEqual(pdu.tpkt.x224.length, 2)
@@ -1070,9 +1070,9 @@ class TestParsing(unittest.TestCase):
         
         pdu = parse(RdpContext.PduSource.CLIENT, data, rdp_context)
         # print(pdu)
-        self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_INPUT_ACTION_FASTPATH)
-        self.assertEqual(pdu.rdp_fp_header.numEvents, 1)
-        self.assertEqual(pdu.rdp_fp_header.flags, {Rdp.FastPath.FASTPATH_INPUT_FLAG_SECURE_CHECKSUM, Rdp.FastPath.FASTPATH_INPUT_FLAG_ENCRYPTED})
+        self.assertEqual(pdu.rdp_fp.header.action, Rdp.FastPath.FASTPATH_ACTION_FASTPATH)
+        self.assertEqual(pdu.rdp_fp.header.numEvents, 1)
+        self.assertEqual(pdu.rdp_fp.header.flags, {Rdp.FastPath.FASTPATH_FLAG_SECURE_CHECKSUM, Rdp.FastPath.FASTPATH_FLAG_ENCRYPTED})
         self.assertEqual(pdu.rdp_fp.length, 17)
         self.assertEqual(bytes(pdu.rdp_fp.dataSignature), bytes.fromhex("30 35 6b 5b b5 34 c8 47"))
         

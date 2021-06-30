@@ -904,6 +904,18 @@ class ArrayDataUnit(BaseDataUnit):
         self._raw_value = memoryview(raw_data[orig_offset: orig_offset+consumed])
         return consumed
 
+    def get_pdu_types(self, rdp_context):
+        retval = ["["]
+        for f in self.self._fields:
+            field_pdu_types = f.get_pdu_types(rdp_context)
+            if len(field_pdu_types) > 0:
+                retval.extend(field_pdu_types)
+                retval.append(",")
+        if len(retval) == 1:
+            return []
+        retval = retval[:-2]
+        retval.append("]")
+        return retval
 
 class Ber(object):
     # ITU-T X.690

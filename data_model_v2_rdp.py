@@ -499,6 +499,60 @@ class Rdp(object):
         CMDTYPE_FRAME_MARKER = 0x0004
         CMDTYPE_STREAM_SURFACE_BITS = 0x0006
 
+    class DrawingOrders(object):
+        class OrderFlags(object):
+            TS_STANDARD = 0x01
+            TS_SECONDARY = 0x02
+            
+            # Primary drawing orders
+            TS_BOUNDS = 0x04
+            TS_TYPE_CHANGE = 0x08
+            TS_DELTA_COORDINATES = 0x10
+            TS_ZERO_BOUNDS_DELTAS = 0x20
+            TS_ZERO_FIELD_BYTE_BIT0 = 0x40
+            TS_ZERO_FIELD_BYTE_BIT1 = 0x80
+        
+        ORDERS_MASK = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
+        ORDERS_PRIMARY = OrderFlags.TS_STANDARD
+        ORDERS_SECONDARY = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
+        ORDERS_SECONDARY_ALTERNATE = OrderFlags.TS_SECONDARY
+        
+        @add_constants_names_mapping('TS_ENC_', 'TS_ENC_NAMES')
+        class PrimaryOrderTypes(object):
+            TS_ENC_DSTBLT_ORDER = 0x00
+            TS_ENC_PATBLT_ORDER = 0x01
+            TS_ENC_SCRBLT_ORDER = 0x02
+            TS_ENC_DRAWNINEGRID_ORDER = 0x07
+            TS_ENC_MULTI_DRAWNINEGRID_ORDER = 0x08
+            TS_ENC_LINETO_ORDER = 0x09
+            TS_ENC_OPAQUERECT_ORDER = 0x0A
+            TS_ENC_SAVEBITMAP_ORDER = 0x0B
+            TS_ENC_MEMBLT_ORDER = 0x0D
+            TS_ENC_MEM3BLT_ORDER = 0x0E
+            TS_ENC_MULTIDSTBLT_ORDER = 0x0F
+            TS_ENC_MULTIPATBLT_ORDER = 0x10
+            TS_ENC_MULTISCRBLT_ORDER = 0x11
+            TS_ENC_MULTIOPAQUERECT_ORDER = 0x12
+            TS_ENC_FAST_INDEX_ORDER = 0x13
+            TS_ENC_POLYGON_SC_ORDER = 0x14
+            TS_ENC_POLYGON_CB_ORDER = 0x15
+            TS_ENC_POLYLINE_ORDER = 0x16
+            TS_ENC_FAST_GLYPH_ORDER = 0x18
+            TS_ENC_ELLIPSE_SC_ORDER = 0x19
+            TS_ENC_ELLIPSE_CB_ORDER = 0x1A
+            TS_ENC_INDEX_ORDER = 0x1B
+            
+        @add_constants_names_mapping('TS_BOUND_', 'TS_BOUND_NAMES')
+        class Bounds(object):
+            TS_BOUND_LEFT = 0x01
+            TS_BOUND_TOP = 0x02
+            TS_BOUND_RIGHT = 0x04
+            TS_BOUND_BOTTOM = 0x08
+            TS_BOUND_DELTA_LEFT = 0x10
+            TS_BOUND_DELTA_TOP = 0x20
+            TS_BOUND_DELTA_RIGHT = 0x40
+            TS_BOUND_DELTA_BOTTOM = 0x80
+
 class DataUnitTypes(object):
     X224 = Rdp.FastPath.FASTPATH_ACTION_X224
     FAST_PATH = Rdp.FastPath.FASTPATH_ACTION_FASTPATH

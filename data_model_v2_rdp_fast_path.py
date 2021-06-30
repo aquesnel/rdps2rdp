@@ -176,7 +176,8 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
             AutoReinterpret('updateData',
                 type_getter = ValueDependency(lambda x: self.updateCode), 
                 config_by_type = {
-                    Rdp.FastPath.FASTPATH_UPDATETYPE_SURFCMDS: AutoReinterpretConfig('', functools.partial(ArrayDataUnit, Rdp_TS_SURFCMD, length_dependency = LengthDependency(lambda x: self.size))),
+                    # Rdp.FastPath.FASTPATH_UPDATETYPE_SURFCMDS: AutoReinterpretConfig('', functools.partial(ArrayDataUnit, Rdp_TS_SURFCMD, length_dependency = LengthDependency(lambda x: self.size))),
+                    # Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS: AutoReinterpretConfig('', Rdp_FASTPATH_UPDATETYPE_ORDERS),
                 }),
         ])
         
@@ -186,22 +187,98 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
         retval.extend(super(Rdp_TS_FP_UPDATE, self).get_pdu_types(rdp_context))
         return retval
 
-class Rdp_TS_SURFCMD(BaseDataUnit):
-    def __init__(self):
-        super(Rdp_TS_FP_UPDATE, self).__init__(fields = [
-            PrimitiveField('cmdType', StructEncodedSerializer(UINT_16_LE), to_human_readable = lookup_name_in(Rdp.Surface.CMDTYPE_NAMES)),
-            PrimitiveField('cmdData ', RawLengthSerializer()), 
-        ],
-        auto_reinterpret_configs = [
-            AutoReinterpret('cmdData',
-                type_getter = ValueDependency(lambda x: self.cmdType), 
-                config_by_type = {
-                    # Rdp.Surface.CMDTYPE_SET_SURFACE_BITS: AutoReinterpretConfig('', Rdp_TS_SURFCMD_SET_SURF_BITS),
-                }),
-        ])
+# class Rdp_TS_SURFCMD(BaseDataUnit):
+#     def __init__(self):
+#         super(Rdp_TS_FP_UPDATE, self).__init__(fields = [
+#             PrimitiveField('cmdType', StructEncodedSerializer(UINT_16_LE), to_human_readable = lookup_name_in(Rdp.Surface.CMDTYPE_NAMES)),
+#             PrimitiveField('cmdData ', RawLengthSerializer()), TODO: the raw length is determined by the cmdType
+#         ],
+#         auto_reinterpret_configs = [
+#             AutoReinterpret('cmdData',
+#                 type_getter = ValueDependency(lambda x: self.cmdType), 
+#                 config_by_type = {
+#                     # Rdp.Surface.CMDTYPE_SET_SURFACE_BITS: AutoReinterpretConfig('', Rdp_TS_SURFCMD_SET_SURF_BITS),
+#                 }),
+#         ])
     
-    def get_pdu_types(self, rdp_context):
-        retval = []
-        retval.append(str(self._fields_by_name['cmdType'].get_human_readable_value()))
-        retval.extend(super(Rdp_TS_SURFCMD, self).get_pdu_types(rdp_context))
-        return retval
+#     def get_pdu_types(self, rdp_context):
+#         retval = []
+#         retval.append(str(self._fields_by_name['cmdType'].get_human_readable_value()))
+#         retval.extend(super(Rdp_TS_SURFCMD, self).get_pdu_types(rdp_context))
+#         return retval
+
+# class Rdp_FASTPATH_UPDATETYPE_ORDERS(BaseDataUnit):
+#     def __init__(self):
+#         super(Rdp_FASTPATH_UPDATETYPE_ORDERS, self).__init__(fields = [
+#             PrimitiveField('numberOrders', StructEncodedSerializer(UINT_16_LE)),
+#             DataUnitField('orderData',
+#                 ArrayDataUnit(Rdp_DRAWING_ORDER,
+#                     item_count_dependency = ValueDependency(lambda x: self.numberOrders))),
+#         ])
+
+# class Rdp_DRAWING_ORDER(BaseDataUnit):
+#     def __init__(self):
+#         super(Rdp_DRAWING_ORDER, self).__init__(fields = [
+#             PrimitiveField('controlFlags', StructEncodedSerializer(UINT_8)),
+#             PrimitiveField('orderSpecificData', RawLengthSerializer()), TODO this raw length is of undetermined length, and is only known by parsing the order
+#         ],
+#         auto_reinterpret_configs = [
+#             AutoReinterpret('orderSpecificData',
+#                 type_getter = ValueDependency(lambda x: (self.controlFlags & Rdp.DrawingOrders.ORDERS_MASK)), 
+#                 config_by_type = {
+#                     # Rdp.DrawingOrders.ORDERS_PRIMARY: AutoReinterpretConfig('', functools.partial(Rdp_PRIMARY_DRAWING_ORDER, self)),
+#                 }),
+#         ])
+        
+# class Rdp_PRIMARY_DRAWING_ORDER(BaseDataUnit): TODO finish this class
+#     def __init__(self, drawing_order):
+#         super(Rdp_PRIMARY_DRAWING_ORDER, self).__init__(fields = [
+#             ConditionallyPresentField( # Note: when the orderType is not present then the orderType value is equal to the previous order type sent
+#                 lambda: Rdp.DrawingOrders.OrderFlags.TS_TYPE_CHANGE in drawing_order.controlFlags,
+#                 PrimitiveField('orderType', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.DrawingOrders.PrimaryOrderTypes.TS_ENC_NAMES))),
+#             ConditionallyPresentField(
+#                 lambda: raise NotImplementedError('The fieldFlags is complicated see https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/23f766d4-8343-4e6b-8281-071ddccc0272'),
+#                 PrimitiveField('fieldFlags', StructEncodedSerializer(UINT_8))),
+#             ConditionallyPresentField(
+#                 lambda: (Rdp.DrawingOrders.OrderFlags.TS_BOUNDS in drawing_order.controlFlags 
+#                         and not Rdp.DrawingOrders.OrderFlags.TS_ZERO_BOUNDS_DELTAS in drawing_order.controlFlags),
+#                 DataUnitField('bounds', Rdp_TS_BOUNDS()),
+#             PrimitiveField('primaryOrderData', RawLengthSerializer()), TODO this raw length is determined by the orderType and fieldFlags value
+#         ])
+
+class Rdp_TS_BOUNDS(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_BOUNDS, self).__init__(fields = [
+            PrimitiveField('boundsDescription', BitFieldEncodedSerializer(UINT_8, Rdp.DrawingOrders.Bounds.TS_BOUND_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.DrawingOrders.Bounds.TS_BOUND_NAMES)),
+            ConditionallyPresentField(
+                lambda: (Rdp.DrawingOrders.Bounds.TS_BOUND_LEFT in self.boundsDescription
+                        and not Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_LEFT in self.boundsDescription),
+                PrimitiveField('left', StructEncodedSerializer(UINT_16_LE))),
+            ConditionallyPresentField(
+                lambda: Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_LEFT in self.boundsDescription,
+                PrimitiveField('left_delta', StructEncodedSerializer(SINT_8))),
+            
+            ConditionallyPresentField(
+                lambda: (Rdp.DrawingOrders.Bounds.TS_BOUND_TOP in self.boundsDescription
+                        and not Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_TOP in self.boundsDescription),
+                PrimitiveField('top', StructEncodedSerializer(UINT_16_LE))),
+            ConditionallyPresentField(
+                lambda: Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_TOP in self.boundsDescription,
+                PrimitiveField('top_delta', StructEncodedSerializer(SINT_8))),
+            
+            ConditionallyPresentField(
+                lambda: (Rdp.DrawingOrders.Bounds.TS_BOUND_RIGHT in self.boundsDescription
+                        and not Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_RIGHT in self.boundsDescription),
+                PrimitiveField('right', StructEncodedSerializer(UINT_16_LE))),
+            ConditionallyPresentField(
+                lambda: Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_RIGHT in self.boundsDescription,
+                PrimitiveField('right_delta', StructEncodedSerializer(SINT_8))),
+            
+            ConditionallyPresentField(
+                lambda: (Rdp.DrawingOrders.Bounds.TS_BOUND_BOTTOM in self.boundsDescription
+                        and not Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_LEFT in self.boundsDescription),
+                PrimitiveField('bottom', StructEncodedSerializer(UINT_16_LE))),
+            ConditionallyPresentField(
+                lambda: Rdp.DrawingOrders.Bounds.TS_BOUND_DELTA_BOTTOM in self.boundsDescription,
+                PrimitiveField('bottom_delta', StructEncodedSerializer(SINT_8))),
+        ])

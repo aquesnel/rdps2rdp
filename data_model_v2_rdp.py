@@ -499,20 +499,57 @@ class Rdp(object):
         CMDTYPE_FRAME_MARKER = 0x0004
         CMDTYPE_STREAM_SURFACE_BITS = 0x0006
 
+    @add_constants_names_mapping('EX_', 'BITMAP_FLAG_NAMES')
+    class Bitmap(object):
+        EX_COMPRESSED_BITMAP_HEADER_PRESENT = 0x01
+
+    @add_constants_names_mapping('SURFACECMD_FRAMEACTION_', 'SURFACECMD_FRAMEACTION_NAMES')
+    class Frame(object):
+        SURFACECMD_FRAMEACTION_BEGIN = 0x0000
+        SURFACECMD_FRAMEACTION_END = 0x0001
+
+    @add_constants_names_mapping('ORDERS_', 'ORDERS_NAMES')
     class DrawingOrders(object):
+        @add_constants_names_mapping('TS_', 'PRIMARY_ORDER_FLAG_NAMES')
+        @add_constants_names_mapping('TS_ALTSEC_', 'TS_ALTSEC_NAMES')
         class OrderFlags(object):
             TS_STANDARD = 0x01
             TS_SECONDARY = 0x02
             
             # Primary drawing orders
-            TS_BOUNDS = 0x04
-            TS_TYPE_CHANGE = 0x08
-            TS_DELTA_COORDINATES = 0x10
-            TS_ZERO_BOUNDS_DELTAS = 0x20
-            TS_ZERO_FIELD_BYTE_BIT0 = 0x40
-            TS_ZERO_FIELD_BYTE_BIT1 = 0x80
-        
-        ORDERS_MASK = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
+            PRIMARY_ORDER_FLAG_MASK = 0xfc
+            
+            # in the spec, these constants are all named without the "PRIMARY_"
+            # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/23f766d4-8343-4e6b-8281-071ddccc0272
+            TS_PRIMARY_BOUNDS = 0x04
+            TS_PRIMARY_TYPE_CHANGE = 0x08
+            TS_PRIMARY_DELTA_COORDINATES = 0x10
+            TS_PRIMARY_ZERO_BOUNDS_DELTAS = 0x20
+            TS_PRIMARY_ZERO_FIELD_BYTE_BIT0 = 0x40
+            TS_PRIMARY_ZERO_FIELD_BYTE_BIT1 = 0x80
+            
+            # Secondary Orders
+            SECONDARY_ORDER_FLAG_MASK = 0x00
+            
+            # Secondary Alternate Orders
+            SECAONDARY_ALT_ORDER_TYPE_MASK = 0xfc
+            
+            TS_ALTSEC_SWITCH_SURFACE = 0x00
+            TS_ALTSEC_CREATE_OFFSCR_BITMAP = 0x01
+            TS_ALTSEC_STREAM_BITMAP_FIRST = 0x02
+            TS_ALTSEC_STREAM_BITMAP_NEXT = 0x03
+            TS_ALTSEC_CREATE_NINEGRID_BITMAP = 0x04
+            TS_ALTSEC_GDIP_FIRST = 0x05
+            TS_ALTSEC_GDIP_NEXT = 0x06
+            TS_ALTSEC_GDIP_END = 0x07
+            TS_ALTSEC_GDIP_CACHE_FIRST = 0x08
+            TS_ALTSEC_GDIP_CACHE_NEXT = 0x09
+            TS_ALTSEC_GDIP_CACHE_END = 0x0A
+            TS_ALTSEC_WINDOW = 0x0B
+            TS_ALTSEC_COMPDESK_FIRST = 0x0C
+            TS_ALTSEC_FRAME_MARKER = 0x0D
+
+        ORDER_TYPE_MASK = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
         ORDERS_PRIMARY = OrderFlags.TS_STANDARD
         ORDERS_SECONDARY = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
         ORDERS_SECONDARY_ALTERNATE = OrderFlags.TS_SECONDARY
@@ -541,6 +578,7 @@ class Rdp(object):
             TS_ENC_ELLIPSE_SC_ORDER = 0x19
             TS_ENC_ELLIPSE_CB_ORDER = 0x1A
             TS_ENC_INDEX_ORDER = 0x1B
+
             
         @add_constants_names_mapping('TS_BOUND_', 'TS_BOUND_NAMES')
         class Bounds(object):

@@ -555,6 +555,46 @@ class UnionWrapperField(BaseField):
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
 
+POLYMORPHIC_TYPE_ID = TypeVar('POLYMORPHIC_TYPE_ID')
+class PolymophicField(BaseField):
+    def __init__(self, name,
+            type_getter: ValueDependency[POLYMORPHIC_TYPE_ID], 
+            fields_by_type: Dict[POLYMORPHIC_TYPE_ID, BaseField]):
+        self.name = name
+        self._type_getter = type_getter
+        self._fields_by_type = fields_by_type
+
+    def __str__(self):
+        return '<PolymophicField(type=%s, fields=%s)>' % (
+            self._type_getter.get_value(), self._fields_by_type)
+
+    def _get_field(self):
+        return self._fields_by_type[self._type_getter.get_value()]
+
+    def get_human_readable_value(self):
+        return self._get_field().get_human_readable_value()
+        
+    def get_pdu_types(self, rdp_context):
+        return self._get_field().get_pdu_types(rdp_context)
+            
+    def get_value(self) -> Any:
+        return self._get_field().get_value()
+
+    def set_value(self, value: Any):
+        self._get_field().set_value(value)
+
+    def get_length(self):
+        return self._get_field().get_length()
+
+    def is_dirty(self) -> bool:
+        return self._get_field().is_dirty()
+
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self._get_field()._deserialize_value(raw_data, offset, serde_context)
+    
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self._get_field().serialize_value(buffer, offset, serde_context)
+
 AutoReinterpretConfig = collections.namedtuple('AutoReinterpretConfig', ['alias_hint', 'factory'])
 AUTO_REINTERPRET_TYPE_ID = TypeVar('AUTO_REINTERPRET_TYPE_ID')
 
@@ -906,14 +946,14 @@ class ArrayDataUnit(BaseDataUnit):
 
     def get_pdu_types(self, rdp_context):
         retval = ["["]
-        for f in self.self._fields:
+        for f in self._fields:
             field_pdu_types = f.get_pdu_types(rdp_context)
             if len(field_pdu_types) > 0:
                 retval.extend(field_pdu_types)
                 retval.append(",")
         if len(retval) == 1:
             return []
-        retval = retval[:-2]
+        retval = retval[:-1]
         retval.append("]")
         return retval
 

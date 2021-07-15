@@ -331,6 +331,8 @@ if __name__ == '__main__':
         # offset = 903 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
 
         OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
+        # offset = 62 ; limit = 1 ; # fast path
+        offset = 64 ; limit = 1 ; # fast path
         
         rdp_context = parser_v2_context.RdpContext()
         i = 0

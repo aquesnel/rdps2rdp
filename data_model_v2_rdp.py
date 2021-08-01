@@ -474,6 +474,62 @@ class Rdp(object):
         
         TS_RAIL_CLOAKED_FALSE = 0x00
         TS_RAIL_CLOAKED_TRUE = 0x01
+        
+        WINDOW_ORDER_TYPE_WINDOW =  0x01000000
+        WINDOW_ORDER_TYPE_NOTIFY =  0x02000000
+        WINDOW_ORDER_TYPE_DESKTOP = 0x04000000
+        
+        WINDOW_ORDER_FLAG_STATE_NEW =     0x10000000
+        WINDOW_ORDER_FLAG_STATE_DELETED = 0x20000000
+        WINDOW_ORDER_FLAG_ICON =          0x40000000
+        WINDOW_ORDER_FLAG_CACHEDICON =    0x80000000
+
+        @add_constants_names_mapping('WINDOW_ORDER_FIELD_', 'FIELD_NAMES')
+        class Window(object):
+            WINDOW_ORDER_FIELD_APPBAR_EDGE =           0x00000001
+            WINDOW_ORDER_FIELD_OWNER =                 0x00000002
+            WINDOW_ORDER_FIELD_TITLE =                 0x00000004
+            WINDOW_ORDER_FIELD_STYLE =                 0x00000008
+            WINDOW_ORDER_FIELD_SHOW =                  0x00000010
+            WINDOW_ORDER_FIELD_APPBAR_STATE =          0x00000040
+            WINDOW_ORDER_FIELD_RESIZE_MARGIN_X =       0x00000080
+            WINDOW_ORDER_FIELD_WNDRECTS =              0x00000100
+            WINDOW_ORDER_FIELD_VISIBILITY =            0x00000200
+            WINDOW_ORDER_FIELD_WNDSIZE =               0x00000400
+            WINDOW_ORDER_FIELD_WNDOFFSET =             0x00000800
+            WINDOW_ORDER_FIELD_VISOFFSET =             0x00001000
+            WINDOW_ORDER_FIELD_CLIENTAREAOFFSET =      0x00004000
+            WINDOW_ORDER_FIELD_CLIENTDELTA =           0x00008000
+            WINDOW_ORDER_FIELD_CLIENTAREASIZE =        0x00010000
+            WINDOW_ORDER_FIELD_RPCONTENT =             0x00020000
+            WINDOW_ORDER_FIELD_ROOTPARENT =            0x00040000
+            WINDOW_ORDER_FIELD_ENFORCE_SERVER_ZORDER = 0x00080000
+            WINDOW_ORDER_FIELD_ICON_OVERLAY_NULL =     0x00200000
+            WINDOW_ORDER_FIELD_OVERLAY_DESCRIPTION =   0x00400000
+            WINDOW_ORDER_FIELD_TASKBAR_BUTTON =        0x00800000
+            WINDOW_ORDER_FIELD_RESIZE_MARGIN_Y =       0x08000000
+
+        @add_constants_names_mapping('WINDOW_ORDER_FIELD_', 'FIELD_NAMES')
+        class Icon(object):
+            WINDOW_ORDER_FIELD_ICON_BIG =              0x00002000
+            WINDOW_ORDER_FIELD_ICON_OVERLAY =          0x00100000
+        
+        @add_constants_names_mapping('WINDOW_ORDER_FIELD_', 'FIELD_NAMES')
+        class Notification(object):
+            WINDOW_ORDER_FIELD_NOTIFY_TIP =      0x00000001
+            WINDOW_ORDER_FIELD_NOTIFY_INFO_TIP = 0x00000002
+            WINDOW_ORDER_FIELD_NOTIFY_STATE =    0x00000004
+            WINDOW_ORDER_FIELD_NOTIFY_VERSION =  0x00000008
+            
+        @add_constants_names_mapping('WINDOW_ORDER_FIELD_', 'FIELD_NAMES')
+        class Desktop(object):
+            WINDOW_ORDER_FIELD_DESKTOP_NONE =          0x00000001
+            WINDOW_ORDER_FIELD_DESKTOP_HOOKED =        0x00000002
+            WINDOW_ORDER_FIELD_DESKTOP_ARC_COMPLETED = 0x00000004
+            WINDOW_ORDER_FIELD_DESKTOP_ARC_BEGAN =     0x00000008
+            WINDOW_ORDER_FIELD_DESKTOP_ZORDER =        0x00000010
+            WINDOW_ORDER_FIELD_DESKTOP_ACTIVEWND =     0x00000020
+            
 
     @add_constants_names_mapping('COMMAND_', 'COMMAND_NAMES')
     class DynamicVirtualChannels(object): # from [MS-RDPEDYC]
@@ -510,14 +566,17 @@ class Rdp(object):
 
     @add_constants_names_mapping('ORDERS_', 'ORDERS_NAMES')
     class DrawingOrders(object):
+        @add_constants_names_mapping('TS_S', 'ORDER_FLAG_NAMES')
         @add_constants_names_mapping('TS_', 'PRIMARY_ORDER_FLAG_NAMES')
-        @add_constants_names_mapping('TS_ALTSEC_', 'TS_ALTSEC_NAMES')
         class OrderFlags(object):
             TS_STANDARD = 0x01
             TS_SECONDARY = 0x02
             
-            # Primary drawing orders
             PRIMARY_ORDER_FLAG_MASK = 0xfc
+            SECONDARY_ORDER_FLAG_MASK = 0x00
+            ALT_SECAONDARY_ORDER_TYPE_MASK = 0xfc
+            ALT_SECAONDARY_FLAG_MASK_offscreenBitmapId = 0x7fff
+            ALT_SECAONDARY_FLAG_MASK_deleteList = 0x8000
             
             # in the spec, these constants are all named without the "PRIMARY_"
             # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/23f766d4-8343-4e6b-8281-071ddccc0272
@@ -528,33 +587,13 @@ class Rdp(object):
             TS_PRIMARY_ZERO_FIELD_BYTE_BIT0 = 0x40
             TS_PRIMARY_ZERO_FIELD_BYTE_BIT1 = 0x80
             
-            # Secondary Orders
-            SECONDARY_ORDER_FLAG_MASK = 0x00
-            
-            # Secondary Alternate Orders
-            SECAONDARY_ALT_ORDER_TYPE_MASK = 0xfc
-            
-            TS_ALTSEC_SWITCH_SURFACE = 0x00
-            TS_ALTSEC_CREATE_OFFSCR_BITMAP = 0x01
-            TS_ALTSEC_STREAM_BITMAP_FIRST = 0x02
-            TS_ALTSEC_STREAM_BITMAP_NEXT = 0x03
-            TS_ALTSEC_CREATE_NINEGRID_BITMAP = 0x04
-            TS_ALTSEC_GDIP_FIRST = 0x05
-            TS_ALTSEC_GDIP_NEXT = 0x06
-            TS_ALTSEC_GDIP_END = 0x07
-            TS_ALTSEC_GDIP_CACHE_FIRST = 0x08
-            TS_ALTSEC_GDIP_CACHE_NEXT = 0x09
-            TS_ALTSEC_GDIP_CACHE_END = 0x0A
-            TS_ALTSEC_WINDOW = 0x0B
-            TS_ALTSEC_COMPDESK_FIRST = 0x0C
-            TS_ALTSEC_FRAME_MARKER = 0x0D
-
         ORDER_TYPE_MASK = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
         ORDERS_PRIMARY = OrderFlags.TS_STANDARD
         ORDERS_SECONDARY = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
         ORDERS_SECONDARY_ALTERNATE = OrderFlags.TS_SECONDARY
         
-        @add_constants_names_mapping('TS_ENC_', 'TS_ENC_NAMES')
+
+        @add_constants_names_mapping('TS_ENC_', 'PRIMARY_ORDER_NAMES')
         class PrimaryOrderTypes(object):
             TS_ENC_DSTBLT_ORDER = 0x00
             TS_ENC_PATBLT_ORDER = 0x01
@@ -579,7 +618,34 @@ class Rdp(object):
             TS_ENC_ELLIPSE_CB_ORDER = 0x1A
             TS_ENC_INDEX_ORDER = 0x1B
 
+        @add_constants_names_mapping('TS_CACHE_', 'SECONDARY_ORDER_NAMES')
+        class SecondaryOrderTypes(object):
+            TS_CACHE_BITMAP_UNCOMPRESSED = 0x00
+            TS_CACHE_COLOR_TABLE = 0x01
+            TS_CACHE_BITMAP_COMPRESSED = 0x02
+            TS_CACHE_GLYPH = 0x03
+            TS_CACHE_BITMAP_UNCOMPRESSED_REV2 = 0x04
+            TS_CACHE_BITMAP_COMPRESSED_REV2 = 0x05
+            TS_CACHE_BRUSH = 0x07
+            TS_CACHE_BITMAP_COMPRESSED_REV3 = 0x08
             
+        @add_constants_names_mapping('TS_ALTSEC_', 'ALT_SECONDARY_ORDER_NAMES')
+        class AltSecondaryOrderTypes(object):
+            TS_ALTSEC_SWITCH_SURFACE = 0x00
+            TS_ALTSEC_CREATE_OFFSCR_BITMAP = 0x01
+            TS_ALTSEC_STREAM_BITMAP_FIRST = 0x02
+            TS_ALTSEC_STREAM_BITMAP_NEXT = 0x03
+            TS_ALTSEC_CREATE_NINEGRID_BITMAP = 0x04
+            TS_ALTSEC_GDIP_FIRST = 0x05
+            TS_ALTSEC_GDIP_NEXT = 0x06
+            TS_ALTSEC_GDIP_END = 0x07
+            TS_ALTSEC_GDIP_CACHE_FIRST = 0x08
+            TS_ALTSEC_GDIP_CACHE_NEXT = 0x09
+            TS_ALTSEC_GDIP_CACHE_END = 0x0A
+            TS_ALTSEC_WINDOW = 0x0B
+            TS_ALTSEC_COMPDESK_FIRST = 0x0C
+            TS_ALTSEC_FRAME_MARKER = 0x0D
+
         @add_constants_names_mapping('TS_BOUND_', 'TS_BOUND_NAMES')
         class Bounds(object):
             TS_BOUND_LEFT = 0x01
@@ -590,7 +656,45 @@ class Rdp(object):
             TS_BOUND_DELTA_TOP = 0x20
             TS_BOUND_DELTA_RIGHT = 0x40
             TS_BOUND_DELTA_BOTTOM = 0x80
+            
+        @add_constants_names_mapping('BMF_', 'BMF_NAMES')
+        @add_constants_names_mapping('BS_', 'BRUSH_STYLE_NAMES')
+        @add_constants_names_mapping('HS_', 'HATCH_STYLE_NAMES')
+        class BrushStyle(object):
+            TS_CACHED_BRUSH = 0x80
+            TS_CACHED_BRUSH_MASK = 0x80
+            COLOUR_DEPTH_MASK = 0x0f
 
+            BMF_1BPP = 0x01
+            BMF_8BPP = 0x03
+            BMF_16BPP = 0x04
+            BMF_24BPP = 0x05
+            BMF_32BPP = 0x06
+            
+            BS_SOLID = 0x00
+            BS_NULL = 0x01
+            BS_HATCHED = 0x02
+            BS_PATTERN = 0x03
+            
+            HS_HORIZONTAL = 0x00
+            HS_VERTICAL = 0x01
+            HS_FDIAGONAL = 0x02
+            HS_BDIAGONAL = 0x03
+            HS_CROSS = 0x04
+            HS_DIAGCROSS = 0x05
+            
+        @add_constants_names_mapping('SV_', 'OPERATION_NAMES')
+        class Operation(object):
+            SV_SAVEBITS = 0x00
+            SV_RESTOREBITS = 0x01
+            
+        @add_constants_names_mapping('STREAM_BITMAP_', 'BITMAP_FLAG_NAMES')
+        class BitmapFlags(object):
+            STREAM_BITMAP_END = 0x01
+            STREAM_BITMAP_COMPRESSED = 0x02
+            STREAM_BITMAP_REV2 = 0x04
+            
+            
 class DataUnitTypes(object):
     X224 = Rdp.FastPath.FASTPATH_ACTION_X224
     FAST_PATH = Rdp.FastPath.FASTPATH_ACTION_FASTPATH

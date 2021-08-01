@@ -146,6 +146,9 @@ class BaseField(object):
 
     def get_pdu_types(self, rdp_context):
         return []
+        
+    def get_sub_fields(self):
+        return []
 
     def get_value(self) -> Any:
         raise NotImplementedError()
@@ -166,7 +169,7 @@ class BaseField(object):
             except Exception as e:
                 raise SerializationException(
                     'Error deserializing "%s" from raw_data length %d, offset %d' % (
-                        self.name, len(raw_data), offset)) from e
+                        serde_context.get_debug_field_path(), len(raw_data), offset)) from e
     
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         raise NotImplementedError()
@@ -178,7 +181,7 @@ class BaseField(object):
             except Exception as e:
                 raise SerializationException(
                     'Error serializing "%s" into buffer length %d, offset %d' % (
-                        self.name, len(buffer), offset)) from e
+                        serde_context.get_debug_field_path(), len(buffer), offset)) from e
 
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         raise NotImplementedError()
@@ -368,6 +371,9 @@ class OptionalField(BaseField):
         else:
             return []
 
+    def get_sub_fields(self):
+        return self._optional_field.get_sub_fields()
+
     def get_value(self) -> Any:
         if self._value_is_present:
             return self._optional_field.get_value()
@@ -430,6 +436,9 @@ class ConditionallyPresentField(BaseField):
         else:
             return []
             
+    def get_sub_fields(self):
+        return self._optional_field.get_sub_fields()
+
     def get_value(self) -> Any:
         if self._is_present_condition():
             return self._optional_field.get_value()
@@ -465,9 +474,9 @@ class ConditionallyPresentField(BaseField):
 
 class UnionField(BaseField):
     def __init__(self, fields):
-        self.name = 'UnionField'
         self._fields = fields
-    
+        self.name = 'UnionOf%s' % [f.name for f in self._fields]
+        
     def __str__(self):
         return '<UnionField(fields=%s)>' % (
             [f.name for f in self._fields])
@@ -520,7 +529,7 @@ class UnionField(BaseField):
                     buffer[offset+i] |= shared_data[i]
         return length
         
-    def get_union_fields(self):
+    def get_sub_fields(self):
         return (UnionWrapperField(f) for f in self._fields)
 
 class UnionWrapperField(BaseField):
@@ -536,7 +545,10 @@ class UnionWrapperField(BaseField):
 
     def get_pdu_types(self, rdp_context):
         return self._field.get_pdu_types(rdp_context)
-        
+
+    def get_sub_fields(self):
+        return self._field.get_sub_fields()
+
     def get_length(self):
         return 0
 
@@ -569,14 +581,20 @@ class PolymophicField(BaseField):
             self._type_getter.get_value(), self._fields_by_type)
 
     def _get_field(self):
-        return self._fields_by_type[self._type_getter.get_value()]
+        return self._fields_by_type[self._type_getter.get_value(None)]
 
     def get_human_readable_value(self):
         return self._get_field().get_human_readable_value()
         
     def get_pdu_types(self, rdp_context):
         return self._get_field().get_pdu_types(rdp_context)
-            
+
+    def get_sub_fields(self):
+        retval = []
+        for f in self._fields_by_type.values():
+            retval.extend(f.get_sub_fields())
+        return retval
+        
     def get_value(self) -> Any:
         return self._get_field().get_value()
 
@@ -671,12 +689,10 @@ class BaseDataUnit(object):
         self._fields = []
         for f in fields:
             self._fields.append(f)
-            if isinstance(f, UnionField):
-                for uf in f.get_union_fields():
-                    self._fields.append(uf)
+            for uf in f.get_sub_fields():
+                self._fields.append(uf)
         for f in self._fields:
-            if not isinstance(f, UnionField):
-                self._fields_by_name[f.name] = f
+            self._fields_by_name[f.name] = f
         self._raw_value = None
         
 

@@ -47,6 +47,8 @@ class RdpContext(object):
         
         self.pdu_source = None
         
+        # self.previous_primary_drawing_order_type = None
+        
     def get_channel_ids(self):
         return [channel.channel_id for channel in self.channel_defs]
         

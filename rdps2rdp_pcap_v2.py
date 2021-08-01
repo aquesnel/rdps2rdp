@@ -332,7 +332,7 @@ if __name__ == '__main__':
 
         OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
         # offset = 62 ; limit = 1 ; # fast path
-        offset = 64 ; limit = 1 ; # fast path
+        # offset = 64 ; limit = 1 ; # fast path
         
         rdp_context = parser_v2_context.RdpContext()
         i = 0
@@ -355,7 +355,8 @@ if __name__ == '__main__':
                         print(rdp_context)
                         print(pdu)
                         pdu.as_wire_bytes()
-            if offset  + limit + 1 < i: 
+            
+            if offset + limit <= i: 
                 break
             i += 1
 

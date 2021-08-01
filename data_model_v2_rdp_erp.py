@@ -167,3 +167,22 @@ class Rdp_TS_RAIL_ORDER_CLOAK(BaseDataUnit):
             PrimitiveField('WindowId', StructEncodedSerializer(UINT_32_LE)),
             PrimitiveField('Cloaked', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOAKED_NAMES)),
         ])
+        
+class Rdp_TS_WINDOW_ORDER_HEADER(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_WINDOW_ORDER_HEADER, self).__init__(fields = [
+            PrimitiveField('OrderSize', StructEncodedSerializer(UINT_16_LE)),
+            # UnionField([
+            #     PrimitiveField('FieldsPresentFlags_type',
+            #         BitMaskSerializer(Rdp.DrawingOrders.OrderFlags.ALT_SECAONDARY_FLAG_MASK_offscreenBitmapId, StructEncodedSerializer(UINT_8)),
+            #         to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOAKED_NAMES)),
+            #     PolymophicField('FieldsPresentFlags_flags',
+            #         type_getter = ValueDependency(lambda x: self.FieldsPresentFlags_type), 
+            #         fields_by_type = {
+            #             False: PrimitiveField('BitmapSize_2byte', StructEncodedSerializer(UINT_16_LE)),
+            #             True: PrimitiveField('BitmapSize_4byte', StructEncodedSerializer(UINT_32_LE)),
+            #     }),
+            # ])),
+            # PrimitiveField('FieldsPresentFlags', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: self.OrderSize - 3))),
+        ])

@@ -470,6 +470,7 @@ def parse(pdu_source, data, rdp_context = None):
                 pdu.reinterpret_field('payload', 
                     DataUnitField('rdp_fp', 
                         Rdp_TS_FP_UPDATE_PDU(
+                            rdp_context,
                             is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))))
             else:
                 raise ValueError("Unknown PduSource when processing FAST_PATH PDU")

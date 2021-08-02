@@ -420,6 +420,8 @@ class Rdp(object):
     @add_constants_names_mapping('TS_RAIL_HANDSHAKE_EX_FLAGS_', 'TS_RAIL_HANDSHAKE_EX_FLAGS_NAMES')
     @add_constants_names_mapping('TS_RAIL_CLIENTSTATUS_', 'TS_RAIL_CLIENTSTATUS_NAMES')
     @add_constants_names_mapping('TS_RAIL_CLOAKED_', 'TS_RAIL_CLOAKED_NAMES')
+    @add_constants_names_mapping('WINDOW_ORDER_TYPE_', 'WINDOW_ORDER_TYPE_NAMES')
+    @add_constants_names_mapping('WINDOW_ORDER_FLAG_', 'WINDOW_ORDER_FLAG_NAMES')
     class Rail(object):
         TS_RAIL_ORDER_EXEC = 0x0001
         TS_RAIL_ORDER_ACTIVATE = 0x0002
@@ -478,12 +480,13 @@ class Rdp(object):
         WINDOW_ORDER_TYPE_WINDOW =  0x01000000
         WINDOW_ORDER_TYPE_NOTIFY =  0x02000000
         WINDOW_ORDER_TYPE_DESKTOP = 0x04000000
+        WINDOW_ORDER_TYPE_MASK = (WINDOW_ORDER_TYPE_WINDOW | WINDOW_ORDER_TYPE_NOTIFY | WINDOW_ORDER_TYPE_DESKTOP)
         
         WINDOW_ORDER_FLAG_STATE_NEW =     0x10000000
         WINDOW_ORDER_FLAG_STATE_DELETED = 0x20000000
         WINDOW_ORDER_FLAG_ICON =          0x40000000
         WINDOW_ORDER_FLAG_CACHEDICON =    0x80000000
-
+        
         @add_constants_names_mapping('WINDOW_ORDER_FIELD_', 'FIELD_NAMES')
         class Window(object):
             WINDOW_ORDER_FIELD_APPBAR_EDGE =           0x00000001
@@ -591,7 +594,11 @@ class Rdp(object):
         ORDERS_PRIMARY = OrderFlags.TS_STANDARD
         ORDERS_SECONDARY = OrderFlags.TS_STANDARD | OrderFlags.TS_SECONDARY
         ORDERS_SECONDARY_ALTERNATE = OrderFlags.TS_SECONDARY
-        
+        DRAWING_ORDER_TYPE_NAMES = {
+            ORDERS_PRIMARY: 'PRIMARY_DRAWING_ORDER',
+            ORDERS_SECONDARY: 'SECONDARY_DRAWING_ORDER',
+            ORDERS_SECONDARY_ALTERNATE: 'ALTERNATE_SECONDARY_DRAWING_ORDER',
+        }
 
         @add_constants_names_mapping('TS_ENC_', 'PRIMARY_ORDER_NAMES')
         class PrimaryOrderTypes(object):

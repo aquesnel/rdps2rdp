@@ -301,11 +301,10 @@ class Rdp_DRAWING_ORDER(BaseDataUnit):
 class Rdp_DRAWING_ORDER_header(BaseDataUnit):
     def __init__(self):
         super(Rdp_DRAWING_ORDER_header, self).__init__(fields = [
-            # DataUnitField('payload', Rdp_DRAWING_ORDER_header_unknown()),
             UnionField([
                 PrimitiveField('controlFlags_class', # in the spec: this is named "class"
                     BitMaskSerializer(Rdp.DrawingOrders.ORDER_TYPE_MASK, StructEncodedSerializer(UINT_8)),
-                    to_human_readable = lookup_name_in(Rdp.DrawingOrders.OrderFlags.ORDER_FLAG_NAMES)),
+                    to_human_readable = lookup_name_in(Rdp.DrawingOrders.DRAWING_ORDER_TYPE_NAMES)),
                 PolymophicField('controlFlags',
                     type_getter = ValueDependency(lambda x: self.controlFlags_class), 
                     fields_by_type = {
@@ -328,59 +327,10 @@ class Rdp_DRAWING_ORDER_header(BaseDataUnit):
             ])
         ])
 
-# class Rdp_DRAWING_ORDER_header_unknown(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_DRAWING_ORDER, self).__init__(fields = [
-#             PrimitiveField('controlFlags', BitMaskSerializer(Rdp.DrawingOrders.ORDER_TYPE_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.DrawingOrders.ORDERS_NAMES)),
-#         ])
-
-# class Rdp_DRAWING_ORDER_header_primary(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_DRAWING_ORDER, self).__init__(fields = [
-#             PrimitiveField('controlFlags', BitFieldEncodedSerializer(UINT_8, Rdp.DrawingOrders.OrderFlags.PRIMARY_ORDER_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.DrawingOrders.OrderFlags.PRIMARY_ORDER_FLAG_NAMES)),
-#         ])
-
-# class Rdp_DRAWING_ORDER_header_secondary(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_DRAWING_ORDER, self).__init__(fields = [
-#             PrimitiveField('controlFlags', BitFieldEncodedSerializer(UINT_8, Rdp.DrawingOrders.ORDERS_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.DrawingOrders.OrderFlags.ORDER_FLAG_NAMES)),
-#         ])
-
-# class Rdp_DRAWING_ORDER_header_secondary_alternate(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_DRAWING_ORDER, self).__init__(fields = [
-#             UnionField([
-#                 PrimitiveField('controlFlags', # in the spec: this is named "class"
-#                     BitMaskSerializer(Rdp.DrawingOrders.ORDER_TYPE_MASK, 
-#                         BitFieldEncodedSerializer(UINT_8, Rdp.DrawingOrders.OrderFlags.ORDER_FLAG_NAMES.keys()), 
-#                     to_human_readable = lookup_name_in(Rdp.DrawingOrders.OrderFlags.ORDER_FLAG_NAMES)),
-#                 PrimitiveField('orderType', 
-#                     ValueTransformSerializer(
-#                         BitMaskSerializer(Rdp.DrawingOrders.SecondaryAlternateOrderTypes.ORDER_TYPE_MASK, StructEncodedSerializer(UINT_8)),
-#                         ValueTransformer(
-#                             to_serialized = lambda x: x << 2,
-#                             from_serialized = lambda x: x >> 2)),
-#                     to_human_readable = lookup_name_in(Rdp.DrawingOrders.SecondaryAlternateOrderTypes.TS_ALTSEC_NAMES)),
-#             ]),
-#         ])
-
-# class Rdp_DRAWING_ORDER(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_DRAWING_ORDER, self).__init__(fields = [
-#             PrimitiveField('controlFlags', StructEncodedSerializer(UINT_8)),
-#             PrimitiveField('orderSpecificData', RawLengthSerializer()), TODO this raw length is of undetermined length, and is only known by parsing the order
-#             PolymophicField('cmdData',
-#                 type_getter = ValueDependency(lambda x: self.cmdType), 
-#                 field_by_type = {
-#                     Rdp.Surface.CMDTYPE_SET_SURFACE_BITS: DataUnitField('cmdData_setSurfaceBits', Rdp_TS_SURFCMD_SET_SURF_BITS()),
-#                     Rdp.Surface.CMDTYPE_FRAME_MARKER: DataUnitField('cmdData_frameMarker', Rdp_TS_FRAME_MARKER()),
-#                     Rdp.Surface.CMDTYPE_STREAM_SURFACE_BITS: DataUnitField('cmdData_streamSurfaceBits', Rdp_TS_SURFCMD_STREAM_SURF_BITS()),
-#                 }),
-#         ],
-#         auto_reinterpret_configs = [
-#             AutoReinterpret('orderSpecificData',
-#                 type_getter = ValueDependency(lambda x: (self.controlFlags & Rdp.DrawingOrders.ORDERS_MASK)), 
-#                 config_by_type = {
-#                     # Rdp.DrawingOrders.ORDERS_PRIMARY: AutoReinterpretConfig('', functools.partial(Rdp_PRIMARY_DRAWING_ORDER, self)),
-#                 }),
-#         ])
+    def get_pdu_types(self, rdp_context):
+        retval = []
+        retval.append(str(Rdp.DrawingOrders.DRAWING_ORDER_TYPE_NAMES[self.controlFlags_class]))
+        if self.controlFlags_class == Rdp.DrawingOrders.ORDERS_SECONDARY_ALTERNATE:
+            retval.append(str(self._fields_by_name['controlFlags'].get_human_readable_value()))
+        retval.extend(super(Rdp_DRAWING_ORDER_header, self).get_pdu_types(rdp_context))
+        return retval

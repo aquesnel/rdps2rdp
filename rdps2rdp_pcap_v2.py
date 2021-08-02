@@ -274,10 +274,11 @@ if __name__ == '__main__':
         offset = 0
         limit = 499
         limit = 9999
+        ALLOW_PARTIAL_PARSING = False
         
         filters_exclude.extend([
-            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
-            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            # no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            # no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
         ])
         
         # OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
@@ -322,39 +323,53 @@ if __name__ == '__main__':
         # offset = 16 ; limit = 1 ; # McsConnect Confirm
         # offset = 40 ; limit = 1 ; # PDUTYPE_DEMANDACTIVEPDU
 
-        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
+        OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
         # offset = 499 ; limit = 1 ; # TS_RAIL_ORDER_EXEC_RESULT
+        offset = 653 ; limit = 1 ; # DRAW ALT_SEC WINDOW
         # offset = 730 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 736 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 755 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 774 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 903 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
 
-        OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
+        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
+        do_print_detail = (limit <= 10)
         rdp_context = parser_v2_context.RdpContext()
         i = 0
         pkt_list = rdpcap(OUTPUTPCAP)
+        pdu = None
         for pkt in pkt_list:
             if pkt[TCP].sport == SERVER_PORT:
                 pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
             else:
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
-            pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)
+            
+            do_print = False
             if offset <= i and i < offset + limit:
-
-                if (any([f(pkt,pdu,rdp_context) for f in filters_include])
-                        or (not any([f(pkt,pdu,rdp_context) for f in filters_exclude])
-                            and len(filters_include) == 0)):
-                    print('%d %s - len %d - %s' % (i, pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
-                    if limit <= 10:
-                        # print(repr(pkt))
-                        print(utils.as_hex_str(pkt[Raw].load))
-                        print(rdp_context)
-                        print(pdu)
-                        pdu.as_wire_bytes()
+                include = any([f(pkt,pdu,rdp_context) for f in filters_include])
+                exclude = any([f(pkt,pdu,rdp_context) for f in filters_exclude])
+                if include:
+                    do_print = True
+                elif exclude:
+                    do_print = False
+                else:
+                    do_print = True
+            if do_print and do_print_detail:
+                print('%d %s - len %d' % (i, pdu_source.name, len(pkt[Raw].load)))
+                print(repr(pkt))
+                print(utils.as_hex_str(pkt[Raw].load))
+                print(rdp_context)
+                    
+            pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+            
+            if do_print:
+                print('%d %s - len %d - %s' % (i, pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
+                if do_print_detail:
+                    print(pdu)
+                    pdu.as_wire_bytes()
             
             if offset + limit <= i: 
                 break

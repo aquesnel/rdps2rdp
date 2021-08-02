@@ -27,6 +27,8 @@ class RdpContext(object):
         CLIENT = 'Client'
         SERVER = 'Server'
     def __init__(self):
+        self.allow_partial_parsing = False # hack, this should be in SerializationContext
+        
         self.is_gcc_confrence = False
         self.encryption_level = None
         self.encryption_method = None
@@ -47,7 +49,7 @@ class RdpContext(object):
         
         self.pdu_source = None
         
-        # self.previous_primary_drawing_order_type = None
+        self.previous_primary_drawing_orders = {}
         
     def get_channel_ids(self):
         return [channel.channel_id for channel in self.channel_defs]

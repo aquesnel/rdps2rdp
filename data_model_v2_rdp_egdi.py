@@ -48,7 +48,7 @@ from serializers import (
 
 from data_model_v2_rdp import Rdp
 from data_model_v2_rdp_erp import (
-    Rdp_TS_WINDOW_ORDER_HEADER,
+    Rdp_ALTSEC_WINDOW_ORDER_HEADER,
 )
 
 
@@ -69,11 +69,23 @@ class Rdp_SECONDARY_DRAWING_ORDER(BaseDataUnit):
 class Rdp_SECONDARY_DRAWING_ORDER_HEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_SECONDARY_DRAWING_ORDER_HEADER, self).__init__(fields = [
-            PrimitiveField('orderLength', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('orderLength',
+                ValueTransformSerializer(
+                    StructEncodedSerializer(UINT_16_LE), 
+                    ValueTransformer(
+                        # see: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/c54e2667-335d-4a59-a6e2-7dc9744dbe79
+                        to_serialized = lambda x: x - 13 + 6,
+                        from_serialized = lambda x: x + 13 - 6))),
             PrimitiveField('extraFlags', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('orderType', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.DrawingOrders.SecondaryOrderTypes.SECONDARY_ORDER_NAMES)),
         ])
-        
+
+    def get_pdu_types(self, rdp_context):
+        retval = []
+        retval.append(str(self._fields_by_name['orderType'].get_human_readable_value()))
+        retval.extend(super(Rdp_SECONDARY_DRAWING_ORDER_HEADER, self).get_pdu_types(rdp_context))
+        return retval
+
 
 class Rdp_ALT_SECONDARY_DRAWING_ORDER(BaseDataUnit):
     def __init__(self, drawing_order):
@@ -104,7 +116,7 @@ class Rdp_ALT_SECONDARY_DRAWING_ORDER(BaseDataUnit):
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_GDIP_CACHE_END: 
                             DataUnitField('altSecondaryOrderData_GDIP_CACHE_END', Rdp_DRAW_GDIPLUS_CACHE_END_ORDER()),
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_WINDOW: 
-                            DataUnitField('altSecondaryOrderData_WINDOW', Rdp_TS_WINDOW_ORDER_HEADER()),
+                            DataUnitField('altSecondaryOrderData_WINDOW', Rdp_ALTSEC_WINDOW_ORDER_HEADER()),
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_COMPDESK_FIRST: 
                             DataUnitField('altSecondaryOrderData_COMPDESK_FIRST', Rdp_TS_COMPDESK_TOGGLE()),
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_FRAME_MARKER: 

@@ -11,6 +11,7 @@ from data_model_v2 import (
     UnionField,
     OptionalField,
     ConditionallyPresentField,
+    DefaultValueField,
     PolymophicField,
     
     AutoReinterpret,
@@ -18,6 +19,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    SerializationContext,
 )
 from serializers import (
     BaseSerializer,
@@ -101,7 +103,7 @@ class PRIMARY_DRAWING_ORDER_fieldFlagsSerializer(BaseSerializer[Set[int]]):
                     value.add(field_count)
                 field_count += 1
                 b >>= 1
-                if field_count >= max_field_count:
+                if field_count > max_field_count:
                     return value, length
         return value, length
     
@@ -111,13 +113,15 @@ class PRIMARY_DRAWING_ORDER_fieldFlagsSerializer(BaseSerializer[Set[int]]):
 class Rdp_PRIMARY_DRAWING_ORDER(BaseDataUnit):
     def __init__(self, rdp_context, drawing_order):
         super(Rdp_PRIMARY_DRAWING_ORDER, self).__init__(fields = [
-            ConditionallyPresentField( # Note: when the orderType is not present then the orderType value is equal to the previous order type sent
-                lambda: Rdp.DrawingOrders.OrderFlags.TS_PRIMARY_TYPE_CHANGE in drawing_order.header.controlFlags,
-                PrimitiveField('orderType', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.DrawingOrders.PrimaryOrderTypes.PRIMARY_ORDER_NAMES))),
+            DefaultValueField(
+                ValueDependency(lambda x: rdp_context.previous_primary_drawing_orders['order_type']),
+                ConditionallyPresentField( # Note: when the orderType is not present then the orderType value is equal to the previous order type sent
+                    lambda: Rdp.DrawingOrders.OrderFlags.TS_PRIMARY_TYPE_CHANGE in drawing_order.header.controlFlags,
+                    PrimitiveField('orderType', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.DrawingOrders.PrimaryOrderTypes.PRIMARY_ORDER_NAMES)))),
             PrimitiveField('fieldFlags', 
                 PRIMARY_DRAWING_ORDER_fieldFlagsSerializer(
                     zero_field_byte_dependency = ValueDependency(lambda x: self.get_zero_field_bytes(drawing_order)),
-                    orderType_dependency = ValueDependency(lambda x: self.orderType if self.orderType is not None else rdp_context.previous_primary_drawing_order_type))),
+                    orderType_dependency = ValueDependency(lambda x: self.orderType))),
             ConditionallyPresentField(
                 lambda: (Rdp.DrawingOrders.OrderFlags.TS_PRIMARY_BOUNDS in drawing_order.header.controlFlags 
                         and not Rdp.DrawingOrders.OrderFlags.TS_PRIMARY_ZERO_BOUNDS_DELTAS in drawing_order.header.controlFlags),
@@ -171,7 +175,17 @@ class Rdp_PRIMARY_DRAWING_ORDER(BaseDataUnit):
                             DataUnitField('primaryOrderData_GLYPH_INDEX_ORDER', Rdp_GLYPH_INDEX_ORDER(rdp_context, drawing_order)),
                 }),
         ])
-        
+
+    def deserialize_apply_context(self, serde_context: SerializationContext) -> None:
+        previous_primary_drawing_orders = serde_context.get_rdp_context().previous_primary_drawing_orders
+        previous_primary_drawing_orders['order_type'] = self.orderType
+
+    def get_pdu_types(self, rdp_context):
+        retval = []
+        retval.append(str(self._fields_by_name['orderType'].get_human_readable_value()))
+        retval.extend(super(Rdp_PRIMARY_DRAWING_ORDER, self).get_pdu_types(rdp_context))
+        return retval
+
     @staticmethod
     def get_zero_field_bytes(drawing_order):
         retval = 0

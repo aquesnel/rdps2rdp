@@ -10,6 +10,8 @@ import collections.abc
 import pprint
 import contextlib
 import copy
+from enum import Enum, unique
+import traceback
 
 import utils
 import serializers
@@ -102,10 +104,26 @@ class SerializationException(Exception):
     pass
 
 class SerializationContext(object):
-    def __init__(self):
+    @unique
+    class Operation(Enum):
+        SERIALIZE = 'Serialize'
+        DESERIALIZE = 'Deserialize'
+
+    def __init__(self, operation: Operation):
+        self._operation = operation
         self._debug_field_path = []
         self._force_dirty = False
+        self._rdp_context = None
         
+    def get_operation(self):
+        return self._operation
+        
+    def get_allow_partial_parsing(self):
+        if self._rdp_context:
+            return self._rdp_context.allow_partial_parsing
+        else:
+            False
+
     @contextlib.contextmanager
     def field_context(self, field):
         self._debug_field_path.append(field)
@@ -130,6 +148,17 @@ class SerializationContext(object):
     def get_force_is_dirty(self):
         return self._force_dirty
 
+    @contextlib.contextmanager
+    def rdp_context(self, rdp_context):
+        orig_rdp_context = self._rdp_context
+        self._rdp_context = rdp_context
+        try:
+            yield self
+        finally:
+            self._rdp_context = orig_rdp_context
+
+    def get_rdp_context(self):
+        return self._rdp_context
 
 class BaseField(object):
     """
@@ -217,6 +246,8 @@ class PrimitiveField(BaseField):
     def get_length(self):
         if self.is_dirty():
             return self.serializer.get_serialized_length(self.get_value())
+        elif self.raw_value is None:
+            return 0
         else:
             return len(self.raw_value)
         
@@ -472,10 +503,57 @@ class ConditionallyPresentField(BaseField):
         else:
             return 0
 
+class DefaultValueField(BaseField):
+    def __init__(self, default_value_dependency, optional_field):
+        self._optional_field = optional_field
+        self._default_value_dependency = default_value_dependency
+
+    def __str__(self):
+        return '<DefaultValueField(field=%s)>' % (self._optional_field)
+
+    @property
+    def name(self):
+        return self._optional_field.name
+        
+    def get_human_readable_value(self):
+        field_value = self._optional_field.get_human_readable_value()
+        if field_value is None:
+            field_value = self._default_value_dependency.get_value(None)
+        return field_value
+
+    def get_pdu_types(self, rdp_context):
+        return self._optional_field.get_pdu_types(rdp_context)
+
+    def get_sub_fields(self):
+        return self._optional_field.get_sub_fields()
+
+    def get_value(self) -> Any:
+        field_value = self._optional_field.get_value()
+        if field_value is None:
+            field_value = self._default_value_dependency.get_value(None)
+        return field_value
+
+    def set_value(self, value: Any):
+        self._optional_field.set_value(value)
+
+    def get_length(self):
+        return self._optional_field.get_length()
+
+    def is_dirty(self) -> bool:
+        return self._optional_field.is_dirty()
+
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self._optional_field._deserialize_value(raw_data, offset, serde_context)
+
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self._optional_field.serialize_value(buffer, offset, serde_context)
+
 class UnionField(BaseField):
-    def __init__(self, fields):
+    def __init__(self, fields, name = None):
         self._fields = fields
-        self.name = 'UnionOf%s' % [f.name for f in self._fields]
+        if name is None:
+            name = 'UnionOf%s' % [f.name for f in self._fields]
+        self.name = name
         
     def __str__(self):
         return '<UnionField(fields=%s)>' % (
@@ -497,7 +575,7 @@ class UnionField(BaseField):
                 length = f.get_length()
             else:
                 if length != f.get_length():
-                    raise ValueError('The length of all fields in the UnionField is not all the same')
+                    raise ValueError('The length of all fields in the UnionField is not all the same: %s' % {f.name: f.get_length() for f in self._fields})
         return length
     
     def is_dirty(self) -> bool:
@@ -569,6 +647,8 @@ class UnionWrapperField(BaseField):
 
 POLYMORPHIC_TYPE_ID = TypeVar('POLYMORPHIC_TYPE_ID')
 class PolymophicField(BaseField):
+    NULL_FIELD = PrimitiveField('null_field', RawLengthSerializer(LengthDependency(lambda x: 0)))
+    
     def __init__(self, name,
             type_getter: ValueDependency[POLYMORPHIC_TYPE_ID], 
             fields_by_type: Dict[POLYMORPHIC_TYPE_ID, BaseField]):
@@ -582,6 +662,7 @@ class PolymophicField(BaseField):
 
     def _get_field(self):
         return self._fields_by_type[self._type_getter.get_value(None)]
+        # return self._fields_by_type.get(self._type_getter.get_value(None), self.NULL_FIELD)
 
     def get_human_readable_value(self):
         return self._get_field().get_human_readable_value()
@@ -617,7 +698,7 @@ AutoReinterpretConfig = collections.namedtuple('AutoReinterpretConfig', ['alias_
 AUTO_REINTERPRET_TYPE_ID = TypeVar('AUTO_REINTERPRET_TYPE_ID')
 
 class AutoReinterpretBase(object):
-    def auto_reinterpret(self, data_unit):
+    def auto_reinterpret(self, data_unit, serde_context: SerializationContext):
         raise NotImplementedError()
 
 class AutoReinterpret(AutoReinterpretBase):
@@ -636,7 +717,7 @@ class AutoReinterpret(AutoReinterpretBase):
     #         return reinterpret_config.alias_hint
     #     return None
 
-    def auto_reinterpret(self, data_unit):
+    def auto_reinterpret(self, data_unit, serde_context: SerializationContext):
         type = self.type_getter.get_value(data_unit)
         if type in self.config_by_type:
             reinterpret_config = self.config_by_type[type]
@@ -644,7 +725,8 @@ class AutoReinterpret(AutoReinterpretBase):
                     self.field_to_reinterpret_name, 
                     DataUnitField(
                         self.field_to_reinterpret_name, 
-                        reinterpret_config.factory()), 
+                        reinterpret_config.factory()),
+                    serde_context.get_rdp_context(),
                     allow_overwrite = True)
 
 class ArrayAutoReinterpret(AutoReinterpretBase):
@@ -658,7 +740,7 @@ class ArrayAutoReinterpret(AutoReinterpretBase):
         self.type_getter = type_getter
         self.type_mapping = type_mapping
 
-    def auto_reinterpret(self, data_unit):
+    def auto_reinterpret(self, data_unit, serde_context: SerializationContext):
         array_value = traverse_object_graph(data_unit, self.array_field_to_reinterpret_name)
         
         if isinstance(array_value, ArrayDataUnit):
@@ -674,7 +756,8 @@ class ArrayAutoReinterpret(AutoReinterpretBase):
                         self.item_field_to_reinterpret_name, 
                         DataUnitField(
                             self.item_field_to_reinterpret_name, 
-                            item_reinterpret_config.factory()), 
+                            item_reinterpret_config.factory()),
+                        serde_context.get_rdp_context(),
                         allow_overwrite = True)
                 # data_unit.alias_field(item_reinterpret_config.name, '%s.%d.%s' % (self.array_field_to_reinterpret_name, i, self.item_field_to_reinterpret_name))
                 data_unit.alias_field(item_reinterpret_config.name, '%s.%d' % (self.array_field_to_reinterpret_name, i))
@@ -694,7 +777,6 @@ class BaseDataUnit(object):
         for f in self._fields:
             self._fields_by_name[f.name] = f
         self._raw_value = None
-        
 
     def __getattr__(self, name: str) -> Any:
         if name in self._fields_by_name:
@@ -785,8 +867,10 @@ class BaseDataUnit(object):
             result[ItemKey(field_index, f.name)] = v
         return result
         
-    def with_value(self, raw_data: bytes):
-        self.deserialize_value(memoryview(raw_data), 0, SerializationContext())
+    def with_value(self, raw_data: bytes, rdp_context = None):
+        serde_context = SerializationContext(SerializationContext.Operation.DESERIALIZE)
+        with serde_context.rdp_context(rdp_context):
+            self.deserialize_value(memoryview(raw_data), 0, serde_context)
         return self
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
@@ -794,9 +878,10 @@ class BaseDataUnit(object):
         for f in self._fields:
             length = f.deserialize_value(raw_data, offset, serde_context)
             offset += length
-        self._raw_value = memoryview(raw_data[orig_offset:offset])
         for config in self._auto_reinterpret_configs:
-            config.auto_reinterpret(self)
+            config.auto_reinterpret(self, serde_context)
+        self.apply_context(serde_context)
+        self._raw_value = memoryview(raw_data[orig_offset:offset])
         return offset - orig_offset
 
     def serialize_value(self, buffer: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
@@ -809,15 +894,29 @@ class BaseDataUnit(object):
         for f in self._fields:
             length = f.serialize_value(buffer, offset, serde_context)
             offset += length
+        self.apply_context(serde_context)
         return offset - orig_offset
 
-    def as_wire_bytes(self):
+    def as_wire_bytes(self, rdp_context = None):
         buffer = bytearray(self.get_length())
-        length = self.serialize_value(memoryview(buffer), 0, SerializationContext())
+        serde_context = SerializationContext(SerializationContext.Operation.SERIALIZE)
+        with serde_context.rdp_context(rdp_context):
+            length = self.serialize_value(memoryview(buffer), 0, serde_context)
         if length != len(buffer):
             raise ValueError('Unexpected serialized length: expected %d, got %d' % (len(buffer), length))
         return buffer
 
+    def apply_context(self, serde_context: SerializationContext) -> None:
+        if serde_context.get_operation() == SerializationContext.Operation.SERIALIZE:
+            self.serialize_apply_context(serde_context)
+        elif serde_context.get_operation() == SerializationContext.Operation.DESERIALIZE:
+            self.deserialize_apply_context(serde_context)
+
+    def serialize_apply_context(self, serde_context: SerializationContext) -> None:
+        pass
+    def deserialize_apply_context(self, serde_context: SerializationContext) -> None:
+        pass
+        
     # def get_alias_hint(self):
     #     return None
         
@@ -828,7 +927,7 @@ class BaseDataUnit(object):
         self._fields_by_name[new_field.name] = new_field
         self._fields.append(new_field)
 
-    def reinterpret_field(self, name_to_reinterpret, new_field, allow_overwrite = False):
+    def reinterpret_field(self, name_to_reinterpret, new_field, rdp_context, allow_overwrite = False):
         use_remainder = False
         if '.' in name_to_reinterpret and not name_to_reinterpret.endswith('.remaining'):
             raise ValueError('Invalid reinterpert suffix: %s' % (name_to_reinterpret))
@@ -840,44 +939,55 @@ class BaseDataUnit(object):
             raise AttributeError('field "%s" does not exist' % (name_to_reinterpret))
         if not allow_overwrite and new_field.name in self._fields_by_name:
             raise AttributeError('field "%s" already exist' % (new_field.name))
-        serde_context = SerializationContext()
-        for i, f in enumerate(self._fields):
-            if f.name == name_to_reinterpret:
-                if isinstance(f, ReferenceField):
-                    raise ValueError('reinterpreting reference fields is not supported. Reinterpret the field by using the original path: %s' % (f.get_referenced_path()))
-                if use_remainder and isinstance(f, RemainingRawField):
-                    orig_raw_value = f.orig_raw_value
-                    orig_remaining = f.get_value()
-                    length = new_field.deserialize_value(orig_remaining, 0, serde_context)
-                    remaining_field = RemainingRawField(f.name, orig_raw_value, f.offset + length)
-                else:
-                    orig_raw_value = bytearray(f.get_length())
-                    length = f.serialize_value(orig_raw_value, 0, serde_context)
-                    orig_raw_value = orig_raw_value[:length]
-                    
-                    length = new_field.deserialize_value(orig_raw_value, 0, serde_context)
-                    remaining_field = RemainingRawField(f.name, orig_raw_value, length)
-                
-                if new_field.name == remaining_field.name:
-                    if len(remaining_field.get_value()) > 0:
-                        pass
-                        raise ValueError(
-                            ('Cannot overwrite field "%s" because not all of the bytes were consumed during '
-                                + 'the re-interpretation as %s. Existing length %d, consumed length %d. '
-                                + 'Original bytes: %s, reinterprested_field: %s') % (
-                            remaining_field.name, 
-                            new_field, 
-                            len(remaining_field.get_value()) + length, 
-                            length,
-                            utils.as_hex_str(orig_raw_value),
-                            new_field.get_human_readable_value()))
-                else:
-                    self._fields_by_name[remaining_field.name] = remaining_field
-                    self._fields.insert(i+1, remaining_field)
+        serde_context = SerializationContext(SerializationContext.Operation.DESERIALIZE)
+        with serde_context.rdp_context(rdp_context):
+            for i, f in enumerate(self._fields):
+                if f.name == name_to_reinterpret:
+                    if isinstance(f, ReferenceField):
+                        raise ValueError('reinterpreting reference fields is not supported. Reinterpret the field by using the original path: %s' % (f.get_referenced_path()))
+                    try:
+                        if use_remainder and isinstance(f, RemainingRawField):
+                            orig_raw_value = f.orig_raw_value
+                            orig_raw_value_offset = f.offset
+                            orig_remaining = f.get_value()
+                            length = new_field.deserialize_value(orig_remaining, 0, serde_context)
+                        else:
+                            orig_raw_value = bytearray(f.get_length())
+                            orig_raw_value_offset = 0
+                            length = f.serialize_value(orig_raw_value, 0, serde_context)
+                            orig_raw_value = orig_raw_value[:length]
+                            length = new_field.deserialize_value(orig_raw_value, 0, serde_context)
 
-                self._fields_by_name[new_field.name] = new_field
-                self._fields[i] = new_field
-                break
+                    except Exception as e:
+                        if not serde_context.get_allow_partial_parsing():
+                            raise e
+                        else:
+                            length = 0
+                            print('---------- Ignoring following error during reinterpretation ------')
+                            traceback.print_exc()
+                            print('---------- Done ------')
+                    
+                    remaining_field = RemainingRawField(f.name, orig_raw_value, orig_raw_value_offset + length)
+                    if new_field.name == remaining_field.name:
+                        if len(remaining_field.get_value()) > 0:
+                            if not serde_context.get_allow_partial_parsing():
+                                raise ValueError(
+                                    ('Cannot overwrite field "%s" because not all of the bytes were consumed during '
+                                        + 'the re-interpretation as %s. Existing length %d, consumed length %d. '
+                                        + 'Original bytes: %s, reinterprested_field: %s') % (
+                                    remaining_field.name, 
+                                    new_field, 
+                                    len(remaining_field.get_value()) + length, 
+                                    length,
+                                    utils.as_hex_str(orig_raw_value),
+                                    new_field.get_human_readable_value()))
+                    else:
+                        self._fields_by_name[remaining_field.name] = remaining_field
+                        self._fields.insert(i+1, remaining_field)
+    
+                    self._fields_by_name[new_field.name] = new_field
+                    self._fields[i] = new_field
+                    break
 
 
 class RawDataUnit(BaseDataUnit):
@@ -943,16 +1053,26 @@ class ArrayDataUnit(BaseDataUnit):
         i = 0
         while has_more_items():
             item = self._data_unit_factory()
-            item_length = item.deserialize_value(raw_data, orig_offset + consumed, serde_context)
-            utils.assertEqual(item_length, item.get_length())
             field_name = '%d' % i
             field_item = DataUnitField(field_name, item)
+            with serde_context.field_context(field_item) as _:
+                item_length = item.deserialize_value(raw_data, orig_offset + consumed, serde_context)
+            err = None
+            try:
+                utils.assertEqual(item_length, item.get_length())
+            except Exception as e:
+                if not serde_context.get_allow_partial_parsing():
+                    raise e
+                err = e
+                
             self._fields_by_name[field_name] = field_item
             self._fields.append(field_item)
             if self._alias_hinter:
                 alias = self._alias_hinter.get_value(item)
                 if alias:
                     self.alias_field(alias, field_name)
+            if err:
+                raise err
             consumed += item_length
             items_parsed += 1
             i += 1
@@ -1025,7 +1145,7 @@ class BerEncodedDataUnit(BaseDataUnit):
                 new_field = DataUnitField('payload', reinterpert_as)
             else:
                 new_field = PrimitiveField('payload', reinterpert_as)
-            self.reinterpret_field('payload', new_field, allow_overwrite = True)
+            self.reinterpret_field('payload', new_field, serde_context.get_rdp_context(), allow_overwrite = True)
         return result
         
 class PerEncodedDataUnit(BaseDataUnit):
@@ -1048,7 +1168,7 @@ class PerEncodedDataUnit(BaseDataUnit):
                 new_field = DataUnitField('payload', self._interpret_payload_as)
             else:
                 new_field = PrimitiveField('payload', self._interpret_payload_as)
-            self.reinterpret_field('payload', new_field, allow_overwrite = True)
+            self.reinterpret_field('payload', new_field, serde_context.get_rdp_context(), allow_overwrite = True)
         return result
 
 

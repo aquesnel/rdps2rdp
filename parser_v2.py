@@ -139,15 +139,15 @@ def parse_pdu_length(data, rdp_context = None):
     
     if pdu_type == Rdp.DataUnitTypes.X224:
         pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()))
-        pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
+        pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()), rdp_context)
         
         return pdu.tpkt.length
     
     elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
         pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()))
-        pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_length_only()))
+        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
+        pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_length_only()), rdp_context)
         
         return pdu.rdp_fp.length
     
@@ -157,17 +157,19 @@ def parse_pdu_length(data, rdp_context = None):
         # works eventhough we only have the partial pdu because the 
         # RawLengthField size is taken from the value of the length field.
         pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()))
+        pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()), rdp_context)
         
         return pdu.credssp.get_length()
     
     else:
         raise ValueError('Unsupported packet type')
 
-def parse(pdu_source, data, rdp_context = None):
+def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
     if rdp_context is None:
         rdp_context = RdpContext()
-        
+    if allow_partial_parsing:
+        rdp_context.allow_partial_parsing = allow_partial_parsing
+
     with rdp_context.set_pdu_source(pdu_source):
         # rdp_context.is_gcc_confrence = False
         pdu_type = _get_pdu_type(data, rdp_context)
@@ -175,57 +177,61 @@ def parse(pdu_source, data, rdp_context = None):
         pdu = RawDataUnit().with_value(data)
         
         if pdu_type == Rdp.DataUnitTypes.X224:
-            pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()))
-            pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()))
-            pdu.tpkt.reinterpret_field('tpktUserData', DataUnitField('x224', X224HeaderDataUnit()))
+            pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
+            pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()), rdp_context)
+            pdu.tpkt.reinterpret_field('tpktUserData', DataUnitField('x224', X224HeaderDataUnit()), rdp_context)
             if pdu.tpkt.x224.type == X224.TPDU_CONNECTION_REQUEST:
-                pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_connect', X224ConnectionDataUnit()))
+                pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_connect', X224ConnectionDataUnit()), rdp_context)
                 routing_token_or_cookie_field = PrimitiveField('routing_token_or_cookie', DelimitedEncodedStringSerializer(EncodedStringSerializer.ASCII, '\r\n'))
                 if pdu.tpkt.x224.x224_connect.x224UserData[0] != b'C'[0]:
                     routing_token_or_cookie_field = ConditionallyPresentField(lambda: False, routing_token_or_cookie_field)
-                pdu.tpkt.x224.x224_connect.reinterpret_field('x224UserData', routing_token_or_cookie_field)
+                pdu.tpkt.x224.x224_connect.reinterpret_field('x224UserData', routing_token_or_cookie_field, rdp_context)
                 
                 pdu.tpkt.x224.x224_connect.reinterpret_field(
                     'x224UserData.remaining', 
-                    OptionalField(DataUnitField('rdpNegReq_header', Rdp_RDP_NEG_header())))
+                    OptionalField(DataUnitField('rdpNegReq_header', Rdp_RDP_NEG_header())),
+                    rdp_context)
                 if pdu.tpkt.x224.x224_connect.rdpNegReq_header.type != Rdp.Negotiate.RDP_NEG_REQ:
                     raise ValueError('incorrect rdpNegReq.type, expected RDP_NEG_REQ, but got %s'% (
                         pdu.tpkt.x224.x224_connect.rdpNegReq_header.get_type_name()))
                 pdu.tpkt.x224.x224_connect.reinterpret_field(
                     'x224UserData.remaining', 
-                    OptionalField(DataUnitField('rdpNegReq', Rdp_RDP_NEG_REQ())))
+                    OptionalField(DataUnitField('rdpNegReq', Rdp_RDP_NEG_REQ())),
+                    rdp_context)
     
             elif pdu.tpkt.x224.type == X224.TPDU_CONNECTION_CONFIRM:
-                pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_connect', X224ConnectionDataUnit()))
+                pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_connect', X224ConnectionDataUnit()), rdp_context)
                 pdu.tpkt.x224.x224_connect.reinterpret_field(
                     'x224UserData.remaining', 
-                    OptionalField(DataUnitField('rdpNegReq_header', Rdp_RDP_NEG_header())))
+                    OptionalField(DataUnitField('rdpNegReq_header', Rdp_RDP_NEG_header())),
+                    rdp_context)
                 if pdu.tpkt.x224.x224_connect.rdpNegReq_header.type != Rdp.Negotiate.RDP_NEG_RSP:
                     raise ValueError('incorrect rdpNegReq.type, expected RDP_NEG_RSP, but got %s'% (
                         pdu.tpkt.x224.x224_connect.rdpNegReq_header.get_type_name()))
                 pdu.tpkt.x224.x224_connect.reinterpret_field(
                     'x224UserData.remaining', 
-                    OptionalField(DataUnitField('rdpNegRsp', Rdp_RDP_NEG_RSP())))
+                    OptionalField(DataUnitField('rdpNegRsp', Rdp_RDP_NEG_RSP())),
+                    rdp_context)
                 
     
             elif pdu.tpkt.x224.type == X224.TPDU_DATA:
-                pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_data_header', X224DataHeaderDataUnit()))
+                pdu.tpkt.x224.reinterpret_field('payload', DataUnitField('x224_data_header', X224DataHeaderDataUnit()), rdp_context)
                 # print('pdu.tpkt.x224 = ', pdu.tpkt.x224)
-                pdu.tpkt.reinterpret_field('tpktUserData.remaining', DataUnitField('mcs', McsHeaderDataUnit()))
+                pdu.tpkt.reinterpret_field('tpktUserData.remaining', DataUnitField('mcs', McsHeaderDataUnit()), rdp_context)
                 
                 if pdu.tpkt.mcs.type == Mcs.CHANNEL_JOIN_REQUEST:
-                    pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('channel_join_request', McsChannelJoinRequestDataUnit()))
+                    pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('channel_join_request', McsChannelJoinRequestDataUnit()), rdp_context)
                     
                 elif pdu.tpkt.mcs.type == Mcs.CONNECT:
                     rdp_context.is_gcc_confrence = True
                     # print('pdu.tpkt.mcs = ', pdu.tpkt.mcs)
-                    pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('mcs_connect_header', McsConnectHeaderDataUnit()))
+                    pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('mcs_connect_header', McsConnectHeaderDataUnit()), rdp_context)
     
                     if pdu.tpkt.mcs.mcs_connect_header.mcs_connect_type == Mcs.CONNECT_INITIAL:
-                        pdu.tpkt.mcs.reinterpret_field('payload.remaining', DataUnitField('connect_payload', McsConnectInitialDataUnit()))
+                        pdu.tpkt.mcs.reinterpret_field('payload.remaining', DataUnitField('connect_payload', McsConnectInitialDataUnit()), rdp_context)
                     
                     elif pdu.tpkt.mcs.mcs_connect_header.mcs_connect_type == Mcs.CONNECT_RESPONSE:
-                        pdu.tpkt.mcs.reinterpret_field('payload.remaining', DataUnitField('connect_payload', McsConnectResponseDataUnit()))
+                        pdu.tpkt.mcs.reinterpret_field('payload.remaining', DataUnitField('connect_payload', McsConnectResponseDataUnit()), rdp_context)
                     
                     else:
                         raise ValueError('not supported')
@@ -251,7 +257,7 @@ def parse(pdu_source, data, rdp_context = None):
                         
                     
                 if pdu.tpkt.mcs.type in {Mcs.SEND_DATA_FROM_CLIENT, Mcs.SEND_DATA_FROM_SERVER}:
-                    pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('mcs_user_data', McsSendDataUnit()))
+                    pdu.tpkt.mcs.reinterpret_field('payload', DataUnitField('mcs_user_data', McsSendDataUnit()), rdp_context)
                     pdu.tpkt.mcs.alias_field('rdp', 'mcs_user_data.mcs_data')
     
                     if rdp_context.encryption_level is None:
@@ -275,12 +281,12 @@ def parse(pdu_source, data, rdp_context = None):
                         is_payload_handeled = False
                         if (pdu_header_type_hint == 'TS_SECURITY_HEADER' or 
                                 rdp_context.encryption_level != Rdp.Security.ENCRYPTION_LEVEL_NONE):
-                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('sec_header', Rdp_TS_SECURITY_HEADER()))
+                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('sec_header', Rdp_TS_SECURITY_HEADER()), rdp_context)
                             is_payload_encrypted = Rdp.Security.SEC_ENCRYPT in pdu.tpkt.mcs.rdp.sec_header.flags
                             
                         if hasattr(pdu.tpkt.mcs.rdp, 'sec_header'):
                             if Rdp.Security.SEC_EXCHANGE_PKT in pdu.tpkt.mcs.rdp.sec_header.flags:
-                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SECURITY_PACKET', Rdp_TS_SECURITY_PACKET()))
+                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SECURITY_PACKET', Rdp_TS_SECURITY_PACKET()), rdp_context)
                                 rdp_context.encrypted_client_random = pdu.tpkt.mcs.rdp.TS_SECURITY_PACKET.encryptedClientRandom
                                 is_payload_handeled = True
                                 
@@ -292,7 +298,7 @@ def parse(pdu_source, data, rdp_context = None):
                                         Rdp.Security.ENCRYPTION_METHOD_56BIT,
                                         Rdp.Security.ENCRYPTION_METHOD_128BIT,
                                         }:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('sec_header1', Rdp_TS_SECURITY_HEADER1()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('sec_header1', Rdp_TS_SECURITY_HEADER1()), rdp_context)
                                 else:
                                     raise ValueError('FIPS encryption not supported yet')
                                 
@@ -303,7 +309,7 @@ def parse(pdu_source, data, rdp_context = None):
                                 #         raise ValueError('RDP Standard encrypted payloads are not supported')
                                 #     pass
                                 if not is_payload_encrypted:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_INFO_PACKET', Rdp_TS_INFO_PACKET()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_INFO_PACKET', Rdp_TS_INFO_PACKET()), rdp_context)
                                     if Rdp.Info.INFO_UNICODE not in pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags:
                                         raise ValueError('Non-unicode not supported yet')
                                     rdp_context.auto_logon = Rdp.Info.INFO_AUTOLOGON in pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags
@@ -328,7 +334,7 @@ def parse(pdu_source, data, rdp_context = None):
                                         Rdp.Security.ENCRYPTION_METHOD_56BIT,
                                         Rdp.Security.ENCRYPTION_METHOD_128BIT,
                                         }):
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('sec_header1', Rdp_TS_SECURITY_HEADER1()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('sec_header1', Rdp_TS_SECURITY_HEADER1()), rdp_context)
                                 else:
                                     raise ValueError('FIPS encryption not supported yet')
                                 
@@ -338,7 +344,7 @@ def parse(pdu_source, data, rdp_context = None):
                                         is_payload_encrypted = False
                                     raise ValueError('RDP Standard encrypted payloads are not supported')
                                 if not is_payload_encrypted:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('LICENSE_VALID_CLIENT_DATA', Rdp_LICENSE_VALID_CLIENT_DATA()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('LICENSE_VALID_CLIENT_DATA', Rdp_LICENSE_VALID_CLIENT_DATA()), rdp_context)
                                     is_payload_handeled = True
                             
                             elif Rdp.Security.SEC_TRANSPORT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags:
@@ -348,7 +354,7 @@ def parse(pdu_source, data, rdp_context = None):
                                     raise ValueError('encryption not supported yet')
                                 
                                 if not is_payload_encrypted:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('SEC_TRANSPORT_REQ', Rdp_SEC_TRANSPORT_REQ()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('SEC_TRANSPORT_REQ', Rdp_SEC_TRANSPORT_REQ()), rdp_context)
                                     is_payload_handeled = True
                                     # rdp_context.pre_capability_exchange = False
                             
@@ -359,7 +365,7 @@ def parse(pdu_source, data, rdp_context = None):
                                     raise ValueError('encryption not supported yet')
                                 
                                 if not is_payload_encrypted:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('SEC_TRANSPORT_RSP', Rdp_SEC_TRANSPORT_RSP()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('SEC_TRANSPORT_RSP', Rdp_SEC_TRANSPORT_RSP()), rdp_context)
                                     is_payload_handeled = True
                                 
                             else:
@@ -371,7 +377,7 @@ def parse(pdu_source, data, rdp_context = None):
                                         Rdp.Security.ENCRYPTION_METHOD_56BIT,
                                         Rdp.Security.ENCRYPTION_METHOD_128BIT,
                                         }:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('sec_header1', Rdp_TS_SECURITY_HEADER1()))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('sec_header1', Rdp_TS_SECURITY_HEADER1()), rdp_context)
                                 else:
                                     raise ValueError('FIPS encryption not supported yet')
                                 # if is_payload_encrypted:
@@ -381,45 +387,45 @@ def parse(pdu_source, data, rdp_context = None):
                                 #         raise ValueError('RDP Standard encrypted payloads are not supported')
         
                         if not is_payload_encrypted and not is_payload_handeled:
-                            pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SHARECONTROLHEADER', Rdp_TS_SHARECONTROLHEADER()))
+                            pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SHARECONTROLHEADER', Rdp_TS_SHARECONTROLHEADER()), rdp_context)
                             
                             if pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DEMANDACTIVEPDU:
-                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_DEMAND_ACTIVE_PDU', Rdp_TS_DEMAND_ACTIVE_PDU()))
+                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_DEMAND_ACTIVE_PDU', Rdp_TS_DEMAND_ACTIVE_PDU()), rdp_context)
                                 rdp_context.pre_capability_exchange = False
                                 if pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags == Rdp.Capabilities.VirtualChannel.VCCAPS_COMPR_CS_8K:
                                     rdp_context.compression_virtual_chan_cs_encoder = mccp.MCCP()
                                 
                             elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_CONFIRMACTIVEPDU:
-                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_CONFIRM_ACTIVE_PDU', Rdp_TS_CONFIRM_ACTIVE_PDU()))
+                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_CONFIRM_ACTIVE_PDU', Rdp_TS_CONFIRM_ACTIVE_PDU()), rdp_context)
                                 
                             elif pdu.tpkt.mcs.rdp.TS_SHARECONTROLHEADER.pduType == Rdp.ShareControlHeader.PDUTYPE_DATAPDU:
-                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SHAREDATAHEADER', Rdp_TS_SHAREDATAHEADER()))
+                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('TS_SHAREDATAHEADER', Rdp_TS_SHAREDATAHEADER()), rdp_context)
                     
                     elif rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId, NULL_CHANNEL).name == Rdp.Channel.MESSAGE_CHANNEL_NAME:
-                        pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('sec_header', Rdp_TS_SECURITY_HEADER()))
+                        pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('sec_header', Rdp_TS_SECURITY_HEADER()), rdp_context)
                         
                     else: # all other channels
-                        pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('CHANNEL_PDU_HEADER', Rdp_CHANNEL_PDU_HEADER()))
+                        pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('CHANNEL_PDU_HEADER', Rdp_CHANNEL_PDU_HEADER()), rdp_context)
                         is_payload_compressed = Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags
                         if is_payload_compressed and rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
                             # TODO: reset compression history if the flag is set in the PDU or maybe if the data to decompress is too big
                             decompressed_payload = rdp_context.compression_virtual_chan_cs_encoder.decompress(pdu.tpkt.mcs.rdp.payload)
-                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload_compressed', RawLengthSerializer()))
-                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload', RawLengthSerializer()), allow_overwrite = True)
+                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload_compressed', RawLengthSerializer()), rdp_context)
+                            pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload', RawLengthSerializer()), rdp_context, allow_overwrite = True)
                             pdu.tpkt.mcs.rdp.payload = decompressed_payload
                             is_payload_compressed = False
                             
                         if not is_payload_compressed:
                             channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId, NULL_CHANNEL).name
                             if channel_name == Rdp.Channel.DRDYNVC_CHANNEL_NAME:
-                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_header', Rdp_DYNVC_Header()))
+                                pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_header', Rdp_DYNVC_Header()), rdp_context)
                                 if pdu.tpkt.mcs.rdp.dyvc_header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CREATE:
                                     if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
-                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_create_response', Rdp_DYNVC_CREATE_RSP(pdu.tpkt.mcs.rdp.dyvc_header)))
+                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_create_response', Rdp_DYNVC_CREATE_RSP(pdu.tpkt.mcs.rdp.dyvc_header)), rdp_context)
                                         # if pdu.tpkt.mcs.rdp.dyvc_create_response.CreationStatus != Rdp.HResult.HRESULT_ERROR_SUCCESS:
                                         #     raise NotImplementedError("Dynamic virtual channel creation failure not supported (because the channel was commited on creation and we don't support an 'undo' capability). CreateStatus: %d" % (pdu.tpkt.mcs.rdp.dyvc_create_response.CreationStatus))
                                     elif rdp_context.pdu_source == RdpContext.PduSource.SERVER:
-                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_create_request', Rdp_DYNVC_CREATE_REQ(pdu.tpkt.mcs.rdp.dyvc_header)))
+                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_create_request', Rdp_DYNVC_CREATE_REQ(pdu.tpkt.mcs.rdp.dyvc_header)), rdp_context)
                                         channel_name = pdu.tpkt.mcs.rdp.dyvc_create_request.ChannelName
                                         channel_id = pdu.tpkt.mcs.rdp.dyvc_create_request.ChannelId
                                         if channel_name in rdp_context.get_channel_names():
@@ -433,12 +439,12 @@ def parse(pdu_source, data, rdp_context = None):
     
                                 elif pdu.tpkt.mcs.rdp.dyvc_header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CAPABILITIES:
                                     if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
-                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_capabilities_response', Rdp_DYNVC_CAPS_RSP()))
+                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_capabilities_response', Rdp_DYNVC_CAPS_RSP()), rdp_context)
                                     elif rdp_context.pdu_source == RdpContext.PduSource.SERVER:
-                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_capabilities', Rdp_DYNVC_CAPS_VERSION()))
+                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_capabilities', Rdp_DYNVC_CAPS_VERSION()), rdp_context)
     
                                 elif pdu.tpkt.mcs.rdp.dyvc_header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CLOSE:
-                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_close', Rdp_DYNVC_CLOSE(pdu.tpkt.mcs.rdp.dyvc_header)))
+                                    pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_close', Rdp_DYNVC_CLOSE(pdu.tpkt.mcs.rdp.dyvc_header)), rdp_context)
                                     channel_id = pdu.tpkt.mcs.rdp.dyvc_close.ChannelId
                                     rdp_context.remove_channel_by_id(channel_id)
                                     
@@ -453,25 +459,27 @@ def parse(pdu_source, data, rdp_context = None):
                                     }
                                     if pdu.tpkt.mcs.rdp.dyvc_header.Cmd in DYVC_FACTORY_BY_TYPE:
                                         dyvc_pdu_factory = functools.partial(DYVC_FACTORY_BY_TYPE[pdu.tpkt.mcs.rdp.dyvc_header.Cmd], pdu.tpkt.mcs.rdp.dyvc_header)
-                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_data', dyvc_pdu_factory()))
+                                        pdu.tpkt.mcs.rdp.reinterpret_field('payload.remaining', DataUnitField('dyvc_data', dyvc_pdu_factory()), rdp_context)
                                         
                                         channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId, NULL_CHANNEL).name
                                         if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
-                                            pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()))
+                                            pdu.tpkt.mcs.rdp.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
 
                                 
         elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
             if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
                 pdu.reinterpret_field('payload', 
-                        DataUnitField('rdp_fp', 
-                            Rdp_TS_FP_INPUT_PDU(
-                                is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))))
+                    DataUnitField('rdp_fp', 
+                        Rdp_TS_FP_INPUT_PDU(
+                            is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))),
+                    rdp_context)
             elif rdp_context.pdu_source == RdpContext.PduSource.SERVER:
                 pdu.reinterpret_field('payload', 
                     DataUnitField('rdp_fp', 
                         Rdp_TS_FP_UPDATE_PDU(
                             rdp_context,
-                            is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))))
+                            is_fips_present = (rdp_context.encryption_level == Rdp.Security.ENCRYPTION_LEVEL_FIPS))),
+                    rdp_context)
             else:
                 raise ValueError("Unknown PduSource when processing FAST_PATH PDU")
             

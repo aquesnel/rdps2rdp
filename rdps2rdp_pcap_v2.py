@@ -13,6 +13,7 @@ import ssl
 # import thread
 import threading
 import binascii
+import datetime
 import time
 import re
 import queue
@@ -28,6 +29,7 @@ from data_model_v2_rdp import Rdp
 import parser_v2
 import parser_v2_context
 import utils
+import data_model_v2
 
 # import sslkeylog
 # sslkeylog.set_keylog(os.environ.get('SSLKEYLOGFILE'))  # Or directly specify a path
@@ -43,7 +45,7 @@ OUTPUTPCAP = "output.pcap"
 LISTENCON = ('0.0.0.0', 3389)
 # REMOTECON = ('127.0.0.1', 3390)
 host_port = '127.0.0.1:3390'
-host_port = '8.tcp.ngrok.io:19119'
+# host_port = '8.tcp.ngrok.io:19119'
 REMOTECON = (host_port.split(':')[0], int(host_port.split(':')[1]))
 SERVER_PORT = int(host_port.split(':')[1])
 
@@ -155,10 +157,28 @@ def handler_v2(stream):
 
         
 if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description='RDP Protocol util')
+    subparsers = parser.add_subparsers(dest='cmd_name', help='sub-command help')
+
+    parser_capture = subparsers.add_parser('capture-as-mitm', aliases=['c'], 
+                        help='Capture the content of an RDP connection by acting as a man-in-the-middle of a real client and real server')
+    parser_capture.add_argument('-hp', '--host-port', dest='host_port', type=str, action='store', default='127.0.0.1:3390',
+                        help='The host and port of the RDP server to proxy.') 
+    
+    
+    parser_print = subparsers.add_parser('print', aliases=['p'], 
+                        help='Print the content of a captured RDP connection in sequential order.')
+    parser_print.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
+                        help='Skip offset number of packets from the packet capture.') 
+    parser_print.add_argument('-l', '--limit', dest='limit', type=int, action='store', default=9999,
+                        help='Print only limit number of packets from the packet capture.') 
     True
     False
 
-    if False: # MITM
+    args = parser.parse_args()
+    if args.cmd_name == 'capture-as-mitm': # MITM
         print('deleting old pcap file: ', OUTPUTPCAP)
         try:
             os.remove(OUTPUTPCAP)
@@ -212,6 +232,8 @@ if __name__ == '__main__':
             LoggingInterceptor(),
         ]
         
+        host_port = (args.host_port.split(':')[0], int(args.host_port.split(':')[1]))
+
         serversock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         serversock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         serversock.bind(LISTENCON)
@@ -224,15 +246,15 @@ if __name__ == '__main__':
             print('...connected from:', addr)
             
             destsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            destsock.connect(REMOTECON)
+            destsock.connect(host_port)
             destsock.settimeout(SOCKET_TIMEOUT_SEC)
             # destsock.setblocking(1)
-            print('...connected to:', REMOTECON)
+            print('...connected to:', host_port)
             rdp_stream = stream.TcpStream_v2(destsock,clientsock, interceptors)
             # rdp_stream.stream_context.pcap_file_name = OUTPUTPCAP
             rdp_stream.stream_context.rdp_context = parser_v2.RdpContext()
             
-            if True: # intercept and decrypte MITM
+            if True: # intercept and decrypt MITM
                 handler_v2(rdp_stream)
                 
             # if False: # observe only MITM
@@ -245,7 +267,7 @@ if __name__ == '__main__':
             #     threading.Thread(target=trafficloop, args=(from_server,True)).start()
             #     break
 
-    if True: # read/print pcap file
+    if args.cmd_name == 'print': # read/print pcap file
         def no_throw(f):
             def wrap_no_throw(*argv, **kwargs):
                 try:
@@ -271,14 +293,13 @@ if __name__ == '__main__':
         
         filters_include = []
         filters_exclude = []
-        offset = 0
-        limit = 499
-        limit = 9999
+        offset = args.offset
+        limit = args.limit
         ALLOW_PARTIAL_PARSING = False
         
         filters_exclude.extend([
-            # no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
-            # no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
         ])
         
         # OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
@@ -323,16 +344,17 @@ if __name__ == '__main__':
         # offset = 16 ; limit = 1 ; # McsConnect Confirm
         # offset = 40 ; limit = 1 ; # PDUTYPE_DEMANDACTIVEPDU
 
-        OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
+        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.v2.pcap' ; SERVER_PORT = 16740
+        # offset = 69 ; limit = 1 ; # SEC_AUTODETECT_REQ
         # offset = 499 ; limit = 1 ; # TS_RAIL_ORDER_EXEC_RESULT
-        offset = 653 ; limit = 1 ; # DRAW ALT_SEC WINDOW
+        # offset = 653 ; limit = 1 ; # DRAW ALT_SEC WINDOW
         # offset = 730 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 736 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 755 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 774 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 903 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
 
-        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
+        OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
@@ -347,27 +369,27 @@ if __name__ == '__main__':
             else:
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
             
+            pre_parsing_rdp_context = rdp_context.clone()
+            try:
+                pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+            except Exception as e:
+                print(e)
+                pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
+            
             do_print = False
             if offset <= i and i < offset + limit:
                 include = any([f(pkt,pdu,rdp_context) for f in filters_include])
                 exclude = any([f(pkt,pdu,rdp_context) for f in filters_exclude])
-                if include:
-                    do_print = True
-                elif exclude:
+                if (not include) and exclude:
                     do_print = False
                 else:
                     do_print = True
-            if do_print and do_print_detail:
-                print('%d %s - len %d' % (i, pdu_source.name, len(pkt[Raw].load)))
-                print(repr(pkt))
-                print(utils.as_hex_str(pkt[Raw].load))
-                print(rdp_context)
-                    
-            pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
-            
             if do_print:
-                print('%d %s - len %d - %s' % (i, pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
+                print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
                 if do_print_detail:
+                    print(repr(pkt))
+                    print(utils.as_hex_str(pkt[Raw].load))
+                    print(pre_parsing_rdp_context)
                     print(pdu)
                     pdu.as_wire_bytes()
             

@@ -303,10 +303,6 @@ class PduSocketWrapper(DelegatingMixin):
                     msg = self._receive_exactly(pdu_length)
                     dbg_msg = ("%s receive pdu body (len: expected = %s, actual = %d): %s" % (self.socket_name, str(pdu_length), len(msg), utils.as_hex_str(msg)))
                     if msg:
-                        # if self.stream_context.pcap_file_name is not None:
-                        #     pkt = self.stream_context.make_tcp_packet(self, msg)
-                        #     # s = hexdump(pkt, dump=True)
-                        #     wrpcap(self.stream_context.pcap_file_name, pkt, append=True)
                         if self.stream_context.full_pdu_parsing:
                             pdu = parser_v2.parse(self.pdu_source, msg, self.stream_context.rdp_context)
                         else:

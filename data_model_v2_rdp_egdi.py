@@ -18,6 +18,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
 )
 from serializers import (
     BaseSerializer,
@@ -85,6 +86,9 @@ class Rdp_SECONDARY_DRAWING_ORDER_HEADER(BaseDataUnit):
         retval.append(str(self._fields_by_name['orderType'].get_human_readable_value()))
         retval.extend(super(Rdp_SECONDARY_DRAWING_ORDER_HEADER, self).get_pdu_types(rdp_context))
         return retval
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('SECONDARY_DRAWING_ORDER', str(self._fields_by_name['orderType'].get_human_readable_value()))]
 
 
 class Rdp_ALT_SECONDARY_DRAWING_ORDER(BaseDataUnit):

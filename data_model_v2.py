@@ -12,6 +12,7 @@ import contextlib
 import copy
 from enum import Enum, unique
 import traceback
+import datetime
 
 import utils
 import serializers
@@ -100,6 +101,45 @@ def add_constants_names_mapping(constants_prefix, mapping_name=None):
         return cls
     return class_decorator
 
+
+class PduLayerSummary(object):
+    def __init__(self, envelope, command, envelope_extra = None, command_extra = None):
+        self.envelope = envelope
+        self.envelope_extra = envelope_extra
+        self.command = command
+        self.command_extra = command_extra
+
+    def __repr__(self):
+        envelope_extra = ''
+        if self.envelope_extra:
+            envelope_extra = ', envelope_extra=%s' % self.envelope_extra
+        command_extra = ''
+        if self.command_extra:
+            command_extra = ', command_extra=%s' % self.command_extra
+        return 'Layer(envelope=%s%s, command=%s%s)' % (self.envelope, envelope_extra, self.command, command_extra)
+
+class PduSummary(object):
+    def __init__(self):
+        self.length = None
+        self.source = None
+        self.sequence_id = None
+        self.timestamp = None
+        self.layers = []
+    
+    def __str__(self):
+        return '%3d %s %s - len %4d%s%s' % (
+            self.sequence_id, 
+            datetime.datetime.fromtimestamp(self.timestamp).strftime('%H:%M:%S.%f')[:-3], 
+            self.source.name, 
+            self.length,
+            '\n    ' if self.layers else '',
+            '\n    '.join([str(l) for l in self.layers]),
+            )
+                
+    
+    def clone(self):
+        return copy.deepcopy(self)
+
 class SerializationException(Exception):
     pass
 
@@ -174,6 +214,9 @@ class BaseField(object):
     #     return None
 
     def get_pdu_types(self, rdp_context):
+        return []
+        
+    def get_pdu_summary_layers(self, rdp_context):
         return []
         
     def get_sub_fields(self):
@@ -291,6 +334,9 @@ class DataUnitField(BaseField):
     def get_pdu_types(self, rdp_context):
         return self.data_unit.get_pdu_types(rdp_context)
 
+    def get_pdu_summary_layers(self, rdp_context):
+        return self.data_unit.get_pdu_summary_layers(rdp_context)
+
     def get_value(self) -> Any:
         return self.data_unit
 
@@ -402,6 +448,12 @@ class OptionalField(BaseField):
         else:
             return []
 
+    def get_pdu_summary_layers(self, rdp_context):
+        if self._value_is_present:
+            return self._optional_field.get_pdu_summary_layers(rdp_context)
+        else:
+            return []
+
     def get_sub_fields(self):
         return self._optional_field.get_sub_fields()
 
@@ -466,9 +518,15 @@ class ConditionallyPresentField(BaseField):
             return self._optional_field.get_pdu_types(rdp_context)
         else:
             return []
-            
+    
+    def get_pdu_summary_layers(self, rdp_context):
+        if self._is_present_condition():
+            return self._optional_field.get_pdu_summary_layers(rdp_context)
+        else:
+            return []
+
     def get_sub_fields(self):
-        return self._optional_field.get_sub_fields()
+        return [ConditionallyPresentWrapperField(self._is_present_condition, f) for f in self._optional_field.get_sub_fields()]
 
     def get_value(self) -> Any:
         if self._is_present_condition():
@@ -503,6 +561,67 @@ class ConditionallyPresentField(BaseField):
         else:
             return 0
 
+class ConditionallyPresentWrapperField(BaseField):
+    def __init__(self, is_present_condition, field):
+        self._is_present_condition = is_present_condition
+        self._optional_field = field
+
+    def __str__(self):
+        return '<ConditionallyPresentField(is_present=%s, field=%s)>' % (
+            self._is_present_condition(), self._optional_field)
+
+    @property
+    def name(self):
+        return self._optional_field.name
+        
+    def get_human_readable_value(self):
+        if self._is_present_condition():
+            return self._optional_field.get_human_readable_value()
+        else:
+            return None
+
+    def get_pdu_types(self, rdp_context):
+        if self._is_present_condition():
+            return self._optional_field.get_pdu_types(rdp_context)
+        else:
+            return []
+    
+    def get_pdu_summary_layers(self, rdp_context):
+        if self._is_present_condition():
+            return self._optional_field.get_pdu_summary_layers(rdp_context)
+        else:
+            return []
+
+    def get_sub_fields(self):
+        if self._is_present_condition():
+            return self._optional_field.get_sub_fields()
+        else:
+            return []
+
+    def get_value(self) -> Any:
+        if self._is_present_condition():
+            return self._optional_field.get_value()
+        else:
+            return None
+
+    def set_value(self, value: Any):
+        self._optional_field.set_value(value)
+
+    def get_length(self):
+        return 0
+
+    def is_dirty(self) -> bool:
+        if self._is_present_condition():
+            return self._optional_field.is_dirty()
+        else:
+            return False
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return 0
+    
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return 0
+
 class DefaultValueField(BaseField):
     def __init__(self, default_value_dependency, optional_field):
         self._optional_field = optional_field
@@ -523,6 +642,9 @@ class DefaultValueField(BaseField):
 
     def get_pdu_types(self, rdp_context):
         return self._optional_field.get_pdu_types(rdp_context)
+    
+    def get_pdu_summary_layers(self, rdp_context):
+        return self._optional_field.get_pdu_summary_layers(rdp_context)
 
     def get_sub_fields(self):
         return self._optional_field.get_sub_fields()
@@ -566,6 +688,12 @@ class UnionField(BaseField):
         retval = []
         for f in self._fields:
             retval.extend(f.get_pdu_types(rdp_context))
+        return retval
+
+    def get_pdu_summary_layers(self, rdp_context):
+        retval = []
+        for f in self._fields:
+            retval.extend(f.get_pdu_summary_layers(rdp_context))
         return retval
 
     def get_length(self):
@@ -624,6 +752,9 @@ class UnionWrapperField(BaseField):
     def get_pdu_types(self, rdp_context):
         return self._field.get_pdu_types(rdp_context)
 
+    def get_pdu_summary_layers(self, rdp_context):
+        return self._field.get_pdu_summary_layers(rdp_context)
+    
     def get_sub_fields(self):
         return self._field.get_sub_fields()
 
@@ -648,6 +779,7 @@ class UnionWrapperField(BaseField):
 POLYMORPHIC_TYPE_ID = TypeVar('POLYMORPHIC_TYPE_ID')
 class PolymophicField(BaseField):
     NULL_FIELD = PrimitiveField('null_field', RawLengthSerializer(LengthDependency(lambda x: 0)))
+    NULL_FIELD.deserialize_value(b'', 0, SerializationContext(SerializationContext.Operation.DESERIALIZE))
     
     def __init__(self, name,
             type_getter: ValueDependency[POLYMORPHIC_TYPE_ID], 
@@ -660,16 +792,21 @@ class PolymophicField(BaseField):
         return '<PolymophicField(type=%s, fields=%s)>' % (
             self._type_getter.get_value(), self._fields_by_type)
 
-    def _get_field(self):
-        return self._fields_by_type[self._type_getter.get_value(None)]
-        # return self._fields_by_type.get(self._type_getter.get_value(None), self.NULL_FIELD)
-
+    def _get_field(self, allow_unknown = False):
+        if allow_unknown:
+            return self._fields_by_type.get(self._type_getter.get_value(None), self.NULL_FIELD)
+        else:
+            return self._fields_by_type[self._type_getter.get_value(None)]
+        
     def get_human_readable_value(self):
-        return self._get_field().get_human_readable_value()
+        return self._get_field(allow_unknown = True).get_human_readable_value()
         
     def get_pdu_types(self, rdp_context):
-        return self._get_field().get_pdu_types(rdp_context)
+        return self._get_field(allow_unknown = True).get_pdu_types(rdp_context)
 
+    def get_pdu_summary_layers(self, rdp_context):
+        return self._get_field(allow_unknown = True).get_pdu_summary_layers(rdp_context)
+    
     def get_sub_fields(self):
         retval = []
         for f in self._fields_by_type.values():
@@ -683,7 +820,7 @@ class PolymophicField(BaseField):
         self._get_field().set_value(value)
 
     def get_length(self):
-        return self._get_field().get_length()
+        return self._get_field(allow_unknown = True).get_length()
 
     def is_dirty(self) -> bool:
         return self._get_field().is_dirty()
@@ -833,6 +970,22 @@ class BaseDataUnit(object):
             retval.extend(f.get_pdu_types(rdp_context))
         return retval
         
+    def get_pdu_summary(self, rdp_context):
+        pdu_summary = PduSummary()
+        pdu_summary.length = self.get_length()
+        pdu_summary.source = rdp_context.pdu_source
+        pdu_summary.layers.extend(self.get_pdu_summary_layers(rdp_context))
+        return pdu_summary
+        
+    def get_pdu_summary_layers(self, rdp_context):
+        retval = self._get_pdu_summary_layers(rdp_context)
+        for f in self._fields:
+            retval.extend(f.get_pdu_summary_layers(rdp_context))
+        return retval
+           
+    def _get_pdu_summary_layers(self, rdp_context):
+        return []
+
     def _as_dict_for_pprint(self):
         # HACK for pprint sorting dict in custom order
         # https://stackoverflow.com/a/32188121/561476 for custom ordering
@@ -945,19 +1098,20 @@ class BaseDataUnit(object):
                 if f.name == name_to_reinterpret:
                     if isinstance(f, ReferenceField):
                         raise ValueError('reinterpreting reference fields is not supported. Reinterpret the field by using the original path: %s' % (f.get_referenced_path()))
-                    try:
-                        if use_remainder and isinstance(f, RemainingRawField):
-                            orig_raw_value = f.orig_raw_value
-                            orig_raw_value_offset = f.offset
-                            orig_remaining = f.get_value()
-                            length = new_field.deserialize_value(orig_remaining, 0, serde_context)
-                        else:
-                            orig_raw_value = bytearray(f.get_length())
-                            orig_raw_value_offset = 0
-                            length = f.serialize_value(orig_raw_value, 0, serde_context)
-                            orig_raw_value = orig_raw_value[:length]
-                            length = new_field.deserialize_value(orig_raw_value, 0, serde_context)
+                    if use_remainder and isinstance(f, RemainingRawField):
+                        orig_raw_value = f.orig_raw_value
+                        orig_raw_value_offset = f.offset
+                        raw_value_to_deserialize = f.get_value()
+                    else:
+                        orig_raw_value = bytearray(f.get_length())
+                        orig_raw_value_offset = 0
+                        length = f.serialize_value(orig_raw_value, 0, serde_context)
+                        raw_value_to_deserialize = orig_raw_value[:length]
 
+                    self._fields_by_name[new_field.name] = new_field
+                    self._fields[i] = new_field
+                    try:
+                        length = new_field.deserialize_value(raw_value_to_deserialize, 0, serde_context)
                     except Exception as e:
                         if not serde_context.get_allow_partial_parsing():
                             raise e
@@ -970,7 +1124,7 @@ class BaseDataUnit(object):
                     remaining_field = RemainingRawField(f.name, orig_raw_value, orig_raw_value_offset + length)
                     if new_field.name == remaining_field.name:
                         if len(remaining_field.get_value()) > 0:
-                            if not serde_context.get_allow_partial_parsing():
+                            try:
                                 raise ValueError(
                                     ('Cannot overwrite field "%s" because not all of the bytes were consumed during '
                                         + 'the re-interpretation as %s. Existing length %d, consumed length %d. '
@@ -981,12 +1135,19 @@ class BaseDataUnit(object):
                                     length,
                                     utils.as_hex_str(orig_raw_value),
                                     new_field.get_human_readable_value()))
+                            except Exception as e:
+                                if not serde_context.get_allow_partial_parsing():
+                                    raise e
+                                else:
+                                    length = 0
+                                    print('---------- Ignoring following error during reinterpretation ------')
+                                    traceback.print_exc()
+                                    print('---------- Done ------')
+                            
                     else:
                         self._fields_by_name[remaining_field.name] = remaining_field
                         self._fields.insert(i+1, remaining_field)
     
-                    self._fields_by_name[new_field.name] = new_field
-                    self._fields[i] = new_field
                     break
 
 
@@ -1050,32 +1211,29 @@ class ArrayDataUnit(BaseDataUnit):
             max_items = self._item_count_dependency.get_value(None)
             has_more_items = lambda: items_parsed < max_items
             
-        i = 0
-        while has_more_items():
-            item = self._data_unit_factory()
-            field_name = '%d' % i
-            field_item = DataUnitField(field_name, item)
-            with serde_context.field_context(field_item) as _:
-                item_length = item.deserialize_value(raw_data, orig_offset + consumed, serde_context)
-            err = None
-            try:
+        try:
+            i = 0
+            while has_more_items():
+                item = self._data_unit_factory()
+                field_name = '%d' % i
+                field_item = DataUnitField(field_name, item)
+                self._fields_by_name[field_name] = field_item
+                self._fields.append(field_item)
+                with serde_context.field_context(field_item) as _:
+                    item_length = item.deserialize_value(raw_data, orig_offset + consumed, serde_context)
+                if self._alias_hinter:
+                    alias = self._alias_hinter.get_value(item)
+                    if alias:
+                        self.alias_field(alias, field_name)
                 utils.assertEqual(item_length, item.get_length())
-            except Exception as e:
-                if not serde_context.get_allow_partial_parsing():
-                    raise e
-                err = e
-                
-            self._fields_by_name[field_name] = field_item
-            self._fields.append(field_item)
-            if self._alias_hinter:
-                alias = self._alias_hinter.get_value(item)
-                if alias:
-                    self.alias_field(alias, field_name)
-            if err:
-                raise err
-            consumed += item_length
-            items_parsed += 1
-            i += 1
+                consumed += item_length
+                items_parsed += 1
+                i += 1
+        except Exception as e:
+            if serde_context.get_allow_partial_parsing():
+                consumed = len(raw_data) - orig_offset
+            else:
+                raise e
 
         self._raw_value = memoryview(raw_data[orig_offset: orig_offset+consumed])
         return consumed

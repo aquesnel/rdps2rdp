@@ -49,7 +49,10 @@ host_port = '127.0.0.1:3390'
 REMOTECON = (host_port.split(':')[0], int(host_port.split(':')[1]))
 SERVER_PORT = int(host_port.split(':')[1])
 
-SERVER_USER_NAME = "runneradmin"
+SERVER_USER_NAME = (
+        # "runneradmin"
+        "appveyor"
+        )
 SERVER_PASSWORD = "P@ssw0rd!"
 
 
@@ -160,24 +163,38 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser(description='RDP Protocol util')
-    subparsers = parser.add_subparsers(dest='cmd_name', help='sub-command help')
+    subparsers = parser.add_subparsers(help='sub-command help')
 
     parser_capture = subparsers.add_parser('capture-as-mitm', aliases=['c'], 
                         help='Capture the content of an RDP connection by acting as a man-in-the-middle of a real client and real server')
+    parser_capture.set_defaults(cmd_name='capture-as-mitm')
     parser_capture.add_argument('-hp', '--host-port', dest='host_port', type=str, action='store', default='127.0.0.1:3390',
                         help='The host and port of the RDP server to proxy.') 
     
     
     parser_print = subparsers.add_parser('print', aliases=['p'], 
                         help='Print the content of a captured RDP connection in sequential order.')
+    parser_print.set_defaults(cmd_name='print')
     parser_print.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
                         help='Skip offset number of packets from the packet capture.') 
     parser_print.add_argument('-l', '--limit', dest='limit', type=int, action='store', default=9999,
-                        help='Print only limit number of packets from the packet capture.') 
+                        help='Print only limit number of packets from the packet capture.')
+    parser_print.add_argument('-p', '--partial-parsing', dest='partial_parsing', action='store_true',
+                        help='allow partial parsing of packets by ignoring errors')
+    parser_print.add_argument('-v', '--verbose', dest='verbose', action='count', default=0,
+                        help='''Verbosity levels.
+                        0: source + layer summaries (good for diffing)
+                        1: sequence + timestamp + source + length + layer summaries
+                        2: sequence + timestamp + source + length + pdu summary
+                        3: sequence + timestamp + source + length + pdu summary + raw packet dump + rdp context + parsed pdu
+                        4: sequence + timestamp + source + length + pdu summary + raw packet dump + rdp context + parsed pdu + re-serialized pdu
+                        ''')
+    
     True
     False
 
     args = parser.parse_args()
+    print("command = %s" % args.cmd_name)
     if args.cmd_name == 'capture-as-mitm': # MITM
         print('deleting old pcap file: ', OUTPUTPCAP)
         try:
@@ -293,9 +310,20 @@ if __name__ == '__main__':
         
         filters_include = []
         filters_exclude = []
+        layer_filters_include = []
+        layer_filters_exclude = []
         offset = args.offset
         limit = args.limit
-        ALLOW_PARTIAL_PARSING = False
+        ALLOW_PARTIAL_PARSING = args.partial_parsing
+        
+        layer_filters_include = [
+            lambda l: l.envelope in ('RAIL', ),
+        ]
+        layer_filters_exclude = [
+            # lambda l: l.envelope in ('TPKT', 'MCS', 'FastPath', ),
+            # lambda l: l.envelope == 'RDP-DYNVC' and l.envelope_extra is None,
+            # lambda l: l.command in ('SEC_HEARTBEAT', 'PDUTYPE_DATAPDU (7)', ),
+        ]
         
         filters_exclude.extend([
             no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
@@ -354,26 +382,30 @@ if __name__ == '__main__':
         # offset = 774 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
         # offset = 903 ; limit = 1 ; # TS_RAIL_ORDER_GET_APPID_RESP_EX
 
-        OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
+        # OUTPUTPCAP = 'output.win10.rail.no-all-compression.no-gfx.failed.pcap' ; SERVER_PORT = 19119 
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
-        do_print_detail = (limit <= 10)
+        # OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
+        OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930
+        # offset = 180 ; limit = 1 ; # alt-sec err
+        
         rdp_context = parser_v2_context.RdpContext()
         i = 0
         pkt_list = rdpcap(OUTPUTPCAP)
         pdu = None
         for pkt in pkt_list:
+            err = None
             if pkt[TCP].sport == SERVER_PORT:
                 pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
             else:
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
-            
             pre_parsing_rdp_context = rdp_context.clone()
             try:
                 pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
             except Exception as e:
-                print(e)
+                err = e
+                # print(e)
                 pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
             
             do_print = False
@@ -385,13 +417,42 @@ if __name__ == '__main__':
                 else:
                     do_print = True
             if do_print:
-                print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
-                if do_print_detail:
+                if args.verbose in (0, 1):
+                    with rdp_context.set_pdu_source(pdu_source):
+                        pdu_summary = pdu.get_pdu_summary(rdp_context)
+                    pdu_summary.sequence_id = i
+                    pdu_summary.timestamp = pkt.time
+                    if not pdu_summary.layers:
+                        pdu_summary.layers.append(data_model_v2.PduLayerSummary('Unknown', 'Unknown'))
+                    pdu_summary.layers = [l for l in pdu_summary.layers if any([f(l) for f in layer_filters_include]) or not any([f(l) for f in layer_filters_exclude])]
+                    if args.verbose == 0:
+                        print('%s%s%s' % (
+                                pdu_summary.source.name, 
+                                '\n    ' if pdu_summary.layers else '',
+                                '\n    '.join([str(l) for l in pdu_summary.layers]),
+                                ))
+                    else:
+                        print('%3d %s %s - len %4d%s%s' % (
+                                pdu_summary.sequence_id, 
+                                datetime.fromtimestamp(pdu_summary.timestamp).strftime('%H:%M:%S.%f')[:-3], 
+                                pdu_summary.source.name, 
+                                pdu_summary.length,
+                                '\n    ' if pdu_summary.layers else '',
+                                '\n    '.join([str(l) for l in pdu_summary.layers]),
+                                ))
+                if args.verbose >= 2:
+                    print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
+                
+                if args.verbose >= 3:
                     print(repr(pkt))
                     print(utils.as_hex_str(pkt[Raw].load))
                     print(pre_parsing_rdp_context)
                     print(pdu)
-                    pdu.as_wire_bytes()
+                if args.verbose >= 4:
+                    print(utils.as_hex_str(pdu.as_wire_bytes()))
+            
+            if err:
+                raise err
             
             if offset + limit <= i: 
                 break

@@ -14,6 +14,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
 )
 from serializers import (
     RawLengthSerializer,
@@ -74,6 +75,9 @@ class Rdp_DYNVC_Header(BaseDataUnit):
         retval.extend(super(Rdp_DYNVC_Header, self).get_pdu_types(rdp_context))
         return retval
 
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('RDP-DYNVC', self._fields_by_name['Cmd'].get_human_readable_value())]
+
 class Rdp_DYNVC_CAPS_VERSION(BaseDataUnit):
     def __init__(self):
         super(Rdp_DYNVC_CAPS_VERSION, self).__init__(fields = [
@@ -101,17 +105,24 @@ class Rdp_DYNVC_CAPS_RSP(BaseDataUnit):
         ])
 
 
-def _get_pdu_types_with_channel(self, rdp_context):
+def _get_channel_name(self, rdp_context):
     channel_id = self._fields_by_name['ChannelId'].get_human_readable_value()
     if channel_id in rdp_context.get_channel_ids():
         channel_name = "%s (%d)" % (rdp_context.get_channel_by_id(channel_id).name, channel_id)
     else:
         channel_name = str(channel_id)
+    return channel_name
+
+def _get_pdu_types_with_channel(self, rdp_context):
     retval = []
     retval.append('channelId')
-    retval.append(channel_name)
+    retval.append(self._get_channel_name(rdp_context))
     retval.extend(super(self.__class__, self).get_pdu_types(rdp_context))
     return retval
+    
+def _get_pdu_summary_layers_with_channel(rdp_dynvc_data_unit, rdp_context, command):
+    return [PduLayerSummary('RDP-DYNVC', envelope_extra = 'channel %s' % rdp_dynvc_data_unit._get_channel_name(rdp_context), command = command)]
+
 
 class Rdp_DYNVC_CREATE_REQ(BaseDataUnit):
     def __init__(self, dynvc_header):
@@ -120,7 +131,12 @@ class Rdp_DYNVC_CREATE_REQ(BaseDataUnit):
             PrimitiveField('ChannelName', DelimitedEncodedStringSerializer(EncodedStringSerializer.WINDOWS_1252, '\0')),
         ])
     
+    _get_channel_name = _get_channel_name
     get_pdu_types = _get_pdu_types_with_channel
+    
+    def _get_pdu_summary_layers(self, rdp_context):
+        return _get_pdu_summary_layers_with_channel(self, rdp_context, 'CREATE_REQ')
+
 
 class Rdp_DYNVC_CREATE_RSP(BaseDataUnit):
     def __init__(self, dynvc_header):
@@ -129,6 +145,7 @@ class Rdp_DYNVC_CREATE_RSP(BaseDataUnit):
             PrimitiveField('CreationStatus', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.HResult.HRESULT_NAMES)),
         ])
         
+    _get_channel_name = _get_channel_name
     # get_pdu_types = _get_pdu_types_with_channel
     def get_pdu_types(self, rdp_context):
         retval = _get_pdu_types_with_channel(self, rdp_context)
@@ -137,13 +154,20 @@ class Rdp_DYNVC_CREATE_RSP(BaseDataUnit):
         retval.extend(super(Rdp_DYNVC_CREATE_RSP, self).get_pdu_types(rdp_context))
         return retval
 
+    def _get_pdu_summary_layers(self, rdp_context):
+        return _get_pdu_summary_layers_with_channel(self, rdp_context, 'CREATE_RSP')
+
 class Rdp_DYNVC_CLOSE(BaseDataUnit):
     def __init__(self, dynvc_header):
         super(Rdp_DYNVC_CLOSE, self).__init__(fields = [
             PrimitiveField('ChannelId', VariableLengthIntSerializer(LengthDependency(lambda x: CBID_FROM_SERIALIZED_MAPPING[dynvc_header.cbId]))),
         ])
         
+    _get_channel_name = _get_channel_name
     get_pdu_types = _get_pdu_types_with_channel
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return _get_pdu_summary_layers_with_channel(self, rdp_context, 'CLOSE')
 
 class Rdp_DYNVC_DATA_FIRST(BaseDataUnit):
     def __init__(self, dynvc_header):
@@ -154,7 +178,11 @@ class Rdp_DYNVC_DATA_FIRST(BaseDataUnit):
             PrimitiveField('Data', RawLengthSerializer(LengthDependency(lambda x: self.Length))),
         ])
         
+    _get_channel_name = _get_channel_name
     get_pdu_types = _get_pdu_types_with_channel
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return _get_pdu_summary_layers_with_channel(self, rdp_context, 'DATA_FIRST')
 
 class Rdp_DYNVC_DATA(BaseDataUnit):
     def __init__(self, dynvc_header):
@@ -163,5 +191,9 @@ class Rdp_DYNVC_DATA(BaseDataUnit):
             PrimitiveField('Data', RawLengthSerializer()),
         ])
         
+    _get_channel_name = _get_channel_name
     get_pdu_types = _get_pdu_types_with_channel
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return _get_pdu_summary_layers_with_channel(self, rdp_context, 'DATA')
 

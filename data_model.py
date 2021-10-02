@@ -1,6 +1,7 @@
 import struct
 from functools import lru_cache as memoized
 import functools
+import copy
 
 UINT_8  = '<B'
 UINT_16_BE = '>H'

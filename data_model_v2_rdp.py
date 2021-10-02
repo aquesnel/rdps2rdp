@@ -17,6 +17,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
 )
 from serializers import (
     RawLengthSerializer,
@@ -405,6 +406,7 @@ class Rdp(object):
 
     @add_constants_names_mapping('CAPSTYPE_', 'CAPSTYPE_NAMES')
     class Capabilities(object):
+        CAPSTYPE_GENERAL = 0x0001
         CAPSTYPE_VIRTUALCHANNEL = 0x0014
         CAPSTYPE_RAIL = 0x0017
         CAPSTYPE_WINDOW = 0x0018
@@ -716,6 +718,10 @@ class Rdp_RDP_NEG_header(BaseDataUnit):
             PrimitiveField('type', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Negotiate.RDP_NEG_NAMES)),
         ])
         
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('RDP', str(self._fields_by_name['type'].get_human_readable_value()))]
+
+        
 class Rdp_RDP_NEG_REQ(BaseDataUnit):
     def __init__(self):
         super(Rdp_RDP_NEG_REQ, self).__init__(
@@ -913,17 +919,23 @@ class Rdp_TS_SECURITY_HEADER(BaseDataUnit):
             PrimitiveField('flagsHi', StructEncodedSerializer(UINT_16_LE)),
         ])
 
-    def get_pdu_types(self, rdp_context):
+    def _get_packet_name(self):
         packet_name = 'unknown'
         for f in self.flags:
             if f & Rdp.Security.PACKET_MASK:
                 packet_name = Rdp.Security.SEC_FLAG_NAMES[f]
                 break
-        
+        return packet_name
+
+    def get_pdu_types(self, rdp_context):
         retval = []
-        retval.append(packet_name)
+        retval.append(self._get_packet_name())
         retval.extend(super(Rdp_TS_SECURITY_HEADER, self).get_pdu_types(rdp_context))
         return retval
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('RDP', self._get_packet_name())]
+
 
 class Rdp_TS_SECURITY_HEADER1(BaseDataUnit):
     def __init__(self):
@@ -1027,6 +1039,10 @@ class Rdp_TS_SHARECONTROLHEADER(BaseDataUnit):
         retval.extend(super(Rdp_TS_SHARECONTROLHEADER, self).get_pdu_types(rdp_context))
         return retval
 
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('RDP', str(self._fields_by_name['pduType'].get_human_readable_value()))]
+
+
 class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_SHAREDATAHEADER, self).__init__(fields = [
@@ -1049,6 +1065,14 @@ class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
         retval.append(str(self._fields_by_name['pduType2'].get_human_readable_value()))
         retval.extend(super(Rdp_TS_SHAREDATAHEADER, self).get_pdu_types(rdp_context))
         return retval
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        retval = []
+        retval.append(PduLayerSummary('RDP', str(self._fields_by_name['pduType2'].get_human_readable_value())))
+        if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in self.compressionArgs:
+            retval.append(PduLayerSummary('RDP', 'compressed'))
+        return retval
+
 
 class Rdp_TS_DEMAND_ACTIVE_PDU(BaseDataUnit):
     def __init__(self):
@@ -1096,6 +1120,7 @@ class Rdp_TS_CAPS_SET(BaseDataUnit):
                 field_to_reinterpret_name = 'capabilityData',
                 type_getter = ValueDependency(lambda x: self.capabilitySetType),
                 config_by_type = {
+                    Rdp.Capabilities.CAPSTYPE_GENERAL: AutoReinterpretConfig('', Rdp_TS_GENERAL_CAPABILITYSET),
                     Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: AutoReinterpretConfig('', Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET),
                     Rdp.Capabilities.CAPSTYPE_RAIL: AutoReinterpretConfig('', Rdp_TS_RAIL_CAPABILITYSET),
                     Rdp.Capabilities.CAPSTYPE_WINDOW: AutoReinterpretConfig('', Rdp_TS_WINDOW_CAPABILITYSET),
@@ -1103,10 +1128,27 @@ class Rdp_TS_CAPS_SET(BaseDataUnit):
         ])
         
     ALIAS_HINTER = ValueDependency(lambda self: {
+                Rdp.Capabilities.CAPSTYPE_GENERAL: 'generalCapability',
                 Rdp.Capabilities.CAPSTYPE_VIRTUALCHANNEL: 'virtualChannelCapability',
                 Rdp.Capabilities.CAPSTYPE_RAIL: 'railCapability',
                 Rdp.Capabilities.CAPSTYPE_WINDOW: 'waindowCapability',
             }.get(self.capabilitySetType, None))
+
+class Rdp_TS_GENERAL_CAPABILITYSET(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_GENERAL_CAPABILITYSET, self).__init__(fields = [
+            PrimitiveField('osMajorType', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('osMinorType', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('protocolVersion', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('pad2octetsA', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('compressionTypes', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('extraFlags', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('updateCapabilityFlag', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('remoteUnshareFlag', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('compressionLevel', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('refreshRectSupport', StructEncodedSerializer(UINT_8)),
+            PrimitiveField('suppressOutputSupport', StructEncodedSerializer(UINT_8)),
+        ])
 
 class Rdp_TS_VIRTUALCHANNEL_CAPABILITYSET(BaseDataUnit):
     def __init__(self):
@@ -1141,4 +1183,10 @@ class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
         if Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in self.flags:
             retval.append('(compressed)')
         retval.extend(super(Rdp_CHANNEL_PDU_HEADER, self).get_pdu_types(rdp_context))
+        return retval
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        retval = []
+        if Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in self.flags:
+            retval.append(PduLayerSummary('RDP', 'compressed'))
         return retval

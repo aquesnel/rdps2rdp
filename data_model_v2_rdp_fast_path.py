@@ -18,6 +18,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
 )
 from serializers import (
     BaseSerializer,
@@ -71,17 +72,23 @@ class Rdp_TS_FP_HEADER(BaseDataUnit):
             ]),
         ])
 
-    def get_pdu_types(self, rdp_context):
+    def _get_packet_type(self):
         packet_type = 'Unknown'
         if self.action == Rdp.FastPath.FASTPATH_ACTION_X224:
             packet_type = 'TPKT'
         elif self.action == Rdp.FastPath.FASTPATH_ACTION_FASTPATH:
             packet_type = 'FastPath'
+        return packet_type
+    
+    def get_pdu_types(self, rdp_context):
         retval = []
-        retval.append(packet_type)
+        retval.append(self._get_packet_type())
         retval.extend(super(Rdp_TS_FP_HEADER, self).get_pdu_types(rdp_context))
         return retval
 
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary(self._get_packet_type(), 'None')]
+        
 class TS_FP_LengthSerializer(BaseSerializer[int]):
     # TS_FP_INPUT_PDU.length1 and TS_FP_INPUT_PDU.length2 fields
     # see: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpbcgr/b8e7c588-51cb-455b-bb73-92d480903133
@@ -173,12 +180,28 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
         super(Rdp_TS_FP_UPDATE, self).__init__(fields = [
             UnionField([
                 PrimitiveField('updateCode', BitMaskSerializer(Rdp.FastPath.FASTPATH_UPDATE_CODE_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_UPDATETYPE_NAMES)),
-                PrimitiveField('fragmentation', BitMaskSerializer(Rdp.FastPath.FASTPATH_FRAGMENTATION_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_FRAGMENT_NAMES)),
-                PrimitiveField('compression', BitMaskSerializer(Rdp.FastPath.FASTPATH_COMPRESSION_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_OUTPUT_COMPRESSION_NAMES)),
+                PrimitiveField('fragmentation',
+                    ValueTransformSerializer(
+                        BitMaskSerializer(Rdp.FastPath.FASTPATH_FRAGMENTATION_MASK, StructEncodedSerializer(UINT_8)),
+                        ValueTransformer(
+                            to_serialized = lambda x: x << 4,
+                            from_serialized = lambda x: x >> 4)),
+                    to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_FRAGMENT_NAMES)),
+                PrimitiveField('compression',
+                    ValueTransformSerializer(
+                        BitMaskSerializer(Rdp.FastPath.FASTPATH_COMPRESSION_MASK, StructEncodedSerializer(UINT_8)),
+                        ValueTransformer(
+                            to_serialized = lambda x: x << 6,
+                            from_serialized = lambda x: x >> 6)),
+                    to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_OUTPUT_COMPRESSION_NAMES)),
             ]),
             ConditionallyPresentField(
                 lambda:  self.compression == Rdp.FastPath.FASTPATH_OUTPUT_COMPRESSION_USED,
-                PrimitiveField('compressionFlags', StructEncodedSerializer(UINT_8))),
+                # PrimitiveField('compressionFlags', StructEncodedSerializer(UINT_8))),
+                UnionField(name = 'compressionFlags', fields = [ 
+                    PrimitiveField('compressionArgs', BitFieldEncodedSerializer(UINT_8, Rdp.ShareDataHeader.PACKET_ARG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_ARG_NAMES)),
+                    PrimitiveField('compressionType', BitMaskSerializer(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_NAMES)),
+                ])),
             PrimitiveField('size', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('updateData', RawLengthSerializer(LengthDependency(lambda x: self.size))),
         ],
@@ -197,6 +220,14 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
         retval.extend(super(Rdp_TS_FP_UPDATE, self).get_pdu_types(rdp_context))
         return retval
 
+    def _get_pdu_summary_layers(self, rdp_context):
+        retval = [
+            PduLayerSummary('FastPath-Update', str(self._fields_by_name['updateCode'].get_human_readable_value())),
+        ]
+        if self.compression == Rdp.FastPath.FASTPATH_OUTPUT_COMPRESSION_USED:
+            retval.append(PduLayerSummary('FastPath-Update', 'compressed', command_extra = str(self._fields_by_name['compressionType'].get_human_readable_value())))
+        return retval
+        
 class Rdp_TS_SURFCMD(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_SURFCMD, self).__init__(fields = [
@@ -216,6 +247,9 @@ class Rdp_TS_SURFCMD(BaseDataUnit):
         retval.extend(super(Rdp_TS_SURFCMD, self).get_pdu_types(rdp_context))
         return retval
 
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('SURFCMD', str(self._fields_by_name['cmdType'].get_human_readable_value()))]
+        
 class Rdp_TS_FRAME_MARKER(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_FP_UPDATE, self).__init__(fields = [
@@ -329,8 +363,14 @@ class Rdp_DRAWING_ORDER_header(BaseDataUnit):
 
     def get_pdu_types(self, rdp_context):
         retval = []
-        retval.append(str(Rdp.DrawingOrders.DRAWING_ORDER_TYPE_NAMES[self.controlFlags_class]))
+        retval.append(str(Rdp.DrawingOrders.DRAWING_ORDER_TYPE_NAMES.get(self.controlFlags_class, 'unknown (%s)' % self.controlFlags_class)))
         if self.controlFlags_class == Rdp.DrawingOrders.ORDERS_SECONDARY_ALTERNATE:
             retval.append(str(self._fields_by_name['controlFlags'].get_human_readable_value()))
         retval.extend(super(Rdp_DRAWING_ORDER_header, self).get_pdu_types(rdp_context))
         return retval
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        if self.controlFlags_class == Rdp.DrawingOrders.ORDERS_SECONDARY_ALTERNATE:
+            return [PduLayerSummary('ALTERNATE_SECONDARY_DRAWING_ORDER', str(self._fields_by_name['controlFlags'].get_human_readable_value()))]
+        else:
+            return []

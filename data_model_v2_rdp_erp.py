@@ -16,6 +16,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
 )
 from serializers import (
     RawLengthSerializer,
@@ -75,6 +76,9 @@ class Rdp_TS_RAIL_PDU(BaseDataUnit):
         retval.extend(super(Rdp_TS_RAIL_PDU, self).get_pdu_types(rdp_context))
         return retval
         
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('RAIL', str(self.header._fields_by_name['orderType'].get_human_readable_value()))]
+
 class Rdp_TS_RAIL_PDU_HEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_RAIL_PDU_HEADER, self).__init__(fields = [
@@ -198,3 +202,6 @@ class Rdp_ALTSEC_WINDOW_ORDER_HEADER(BaseDataUnit):
                                                                                                     - self._fields_by_name['OrderSize'].get_length()
                                                                                                     - self._fields_by_name['FieldsPresentFlags_union'].get_length())))),
         ])
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('ALTERNATE_SECONDARY_DRAWING_ORDER', 'ALTSEC_WINDOW', command_extra = str(self._fields_by_name['FieldsPresentFlags_type'].get_human_readable_value()))]

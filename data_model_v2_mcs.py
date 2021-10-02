@@ -13,6 +13,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
 )
 from data_model_v2_rdp import (
     Rdp,
@@ -93,6 +94,9 @@ class McsHeaderDataUnit(BaseDataUnit):
         retval.append(str(self._fields_by_name['type'].get_human_readable_value()))
         retval.extend(super(McsHeaderDataUnit, self).get_pdu_types(rdp_context))
         return retval
+        
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('MCS', str(self._fields_by_name['type'].get_human_readable_value()))]
 
 class McsConnectHeaderDataUnit(BaseDataUnit):
     def __init__(self):
@@ -106,6 +110,9 @@ class McsConnectHeaderDataUnit(BaseDataUnit):
         retval.append(str(self._fields_by_name['mcs_connect_type'].get_human_readable_value()))
         retval.extend(super(McsConnectHeaderDataUnit, self).get_pdu_types(rdp_context))
         return retval
+    
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('MCS', str(self._fields_by_name['mcs_connect_type'].get_human_readable_value()))]
 
 class McsConnectInitialDataUnit(BaseDataUnit):
     def __init__(self):
@@ -183,17 +190,23 @@ class McsSendDataUnit(BaseDataUnit):
             DataUnitField('mcs_data', PerEncodedDataUnit(PerEncodedLengthSerializer.RANGE_VALUE_DEFINED)),
         ])
 
-    def get_pdu_types(self, rdp_context):
+    def _get_channel_name(self, rdp_context):
         channel_id = self._fields_by_name['channelId'].get_human_readable_value()
         if channel_id in rdp_context.get_channel_ids():
             channel_name = "%s (%d)" % (rdp_context.get_channel_by_id(channel_id).name, channel_id)
         else:
             channel_name = str(channel_id)
+        return channel_name
+
+    def get_pdu_types(self, rdp_context):
         retval = []
         retval.append('channelId')
-        retval.append(channel_name)
+        retval.append(self._get_channel_name(rdp_context))
         retval.extend(super(McsSendDataUnit, self).get_pdu_types(rdp_context))
         return retval
+    
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('MCS', envelope_extra = 'channel %s' % (self._get_channel_name(rdp_context)), command = 'Send Data')]
 
 class McsChannelJoinRequestDataUnit(BaseDataUnit):
     def __init__(self):
@@ -213,3 +226,6 @@ class McsChannelJoinRequestDataUnit(BaseDataUnit):
         retval.append(str(self._fields_by_name['channelId'].get_human_readable_value()))
         retval.extend(super(McsChannelJoinRequestDataUnit, self).get_pdu_types(rdp_context))
         return retval
+
+    # def _get_pdu_summary_layers(self, rdp_context):
+    #     return [PduLayerSummary('MCS', envelope_extra = 'channel %s' % (str(self._fields_by_name['channelId'].get_human_readable_value())), command = 'Channel Join Request')]

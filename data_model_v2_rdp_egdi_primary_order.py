@@ -19,6 +19,7 @@ from data_model_v2 import (
     
     add_constants_names_mapping,
     lookup_name_in,
+    PduLayerSummary,
     SerializationContext,
 )
 from serializers import (
@@ -185,6 +186,9 @@ class Rdp_PRIMARY_DRAWING_ORDER(BaseDataUnit):
         retval.append(str(self._fields_by_name['orderType'].get_human_readable_value()))
         retval.extend(super(Rdp_PRIMARY_DRAWING_ORDER, self).get_pdu_types(rdp_context))
         return retval
+
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('PRIMARY_DRAWING_ORDER', str(self._fields_by_name['orderType'].get_human_readable_value()))]
 
     @staticmethod
     def get_zero_field_bytes(drawing_order):

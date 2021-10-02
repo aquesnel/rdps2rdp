@@ -147,7 +147,8 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateCode, Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS)
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].fragmentation, Rdp.FastPath.FASTPATH_FRAGMENT_SINGLE)
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compression, 0)
-        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionFlags, None)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionType, None)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionArgs, None)
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].size, 12)
         
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.numberOrders, 2)
@@ -163,6 +164,53 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
       
 
+    def test_parse_unknown_2(self):
+        # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/b69a751e-34df-4326-b4e1-0e582ff7ea97
+        # data captured from an MSTSC session with a Win10 datacenter RDP 10? server
+        # OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930 ; offset = 180 ;
+        # pdu from server
+        data = extract_as_bytes("""
+            30 81 da # FastPath (num = 12, len=474)
+            a0 03 # FastPath Update (type=FASTPATH_UPDATETYPE_ORDERS, flags=FASTPATH_FRAGMENT_FIRST, FASTPATH_OUTPUT_COMPRESSION_USED, PACKET_COMPR_TYPE_RDP61)
+            02 01 06 a1 81 d2 30 81 cf 30 81 cc a0 81 c9 04 81 c6 4e 54 4c 4d 53 53 50 00 02 00 00 00 16 00 16 00 38 00 00 00 35 82 8a e2 ea 3e af 3b 6d 95 b8 dc 00 00 00 00 00 00 00 00 78 00 78 00 4e 00 00 00 0a 00 63 45 00 00 00 0f 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 02 00 16 00 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 01 00 16 00 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 04 00 16 00 61 00 70 00 70 00 76 00 65 00 79 00 6f 00 72 00 2d 00 76 00 6d 00 03 00 16 00 61 00 70 00 70 00 76 00 65 00 79 00 6f 00 72 00 2d 00 76 00 6d 00 07 00 08 00 1c 73 6c 9f 14 9e d7 01 00 00 00 00
+    
+            # 00 11 # FastPath (len=17)
+            # 00 0c 00 # FastPath Update (len=12, type=FASTPATH_UPDATETYPE_ORDERS)
+            # 02 00 # Orders (items=2)
+            # 36 00 00 00 00 # Order(type=TS_ALTSEC_FRAME_MARKER, action=TS_FRAME_START)
+            # 36 01 00 00 00 # Order(type=TS_ALTSEC_FRAME_MARKER, action=TS_FRAME_END)
+            """)
+        
+        rdp_context = extract_as_context({'encryption_level': 0, 'channel_defs': [{'options': 0, 'channel_id': 12, 'type': 'DYNAMIC', 'name': 'rdpdr'}, {'options': {1073741824, 2147483648}, 'channel_id': 1005, 'type': 'STATIC', 'name': 'rdpsnd'}, {'options': 0, 'channel_id': 14, 'type': 'DYNAMIC', 'name': 'rail'}, {'options': {2097152, 1073741824, 1048576, 2147483648}, 'channel_id': 1007, 'type': 'STATIC', 'name': 'rail_wi'}, {'options': {2097152, 1073741824, 1048576, 2147483648}, 'channel_id': 1008, 'type': 'STATIC', 'name': 'rail_ri'}, {'options': 0, 'channel_id': 17, 'type': 'DYNAMIC', 'name': 'cliprdr'}, {'options': {1073741824, 2147483648}, 'channel_id': 1010, 'type': 'STATIC', 'name': 'drdynvc'}, {'options': 0, 'channel_id': 1003, 'type': 'STATIC', 'name': 'I/O Channel'}, {'options': 0, 'channel_id': 1011, 'type': 'STATIC', 'name': 'McsMessageChannel'}, {'options': 0, 'channel_id': 3, 'type': 'DYNAMIC', 'name': 'Microsoft::Windows::RDS::Telemetry'}, {'options': 0, 'channel_id': 8, 'type': 'DYNAMIC', 'name': 'ECHO'}, {'options': 0, 'channel_id': 18, 'type': 'DYNAMIC', 'name': 'Microsoft::Windows::RDS::Input'}, {'options': 0, 'channel_id': 10, 'type': 'DYNAMIC', 'name': 'AUDIO_PLAYBACK_DVC'}, {'options': 0, 'channel_id': 11, 'type': 'DYNAMIC', 'name': 'Microsoft::Windows::RDS::DisplayControl'}, {'options': 0, 'channel_id': 18, 'type': 'DYNAMIC', 'name': 'AUDIO_PLAYBACK_LOSSY_DVC'}, {'options': 0, 'channel_id': 9, 'type': 'DYNAMIC', 'name': 'Microsoft::Windows::RDS::Geometry::v08.01'}], 'compression_virtual_chan_cs_encoder': None, 'previous_primary_drawing_orders': {'order_type': 13}, 'working_dir': '', 'pdu_source': None, 'encryption_method': 0, 'compression_type': None, 'user_name': 'runneradmin', 'password': 'P@ssw0rd!', 'domain': '', 'pre_capability_exchange': False, 'auto_logon': True, 'alternate_shell': 'rdpinit.exe', 'encrypted_client_random': None, 'rail_enabled': True, 'allow_partial_parsing': False, 'is_gcc_confrence': True})         
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context, allow_partial_parsing = True)
+        print(pdu)
+        
+        self.assertEqual(pdu.rdp_fp.header.action, Rdp.FastPath.FASTPATH_ACTION_FASTPATH)
+        self.assertEqual(pdu.rdp_fp.header.numEvents, 12)
+        self.assertEqual(pdu.rdp_fp.header.flags, set())
+        self.assertEqual(pdu.rdp_fp.length, 474)
+        self.assertEqual(pdu.rdp_fp.fipsInformation, None)
+        self.assertEqual(pdu.rdp_fp.dataSignature, None)
+        
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateCode, Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].fragmentation, Rdp.FastPath.FASTPATH_FRAGMENT_SINGLE)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compression, 0)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionType, None)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionArgs, None)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].size, 12)
+        
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.numberOrders, 2)
+        
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.orderData[0].header.controlFlags_class, Rdp.DrawingOrders.OrderFlags.TS_SECONDARY)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.orderData[0].header.controlFlags, Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_FRAME_MARKER)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.orderData[0].orderSpecificData.altSecondaryOrderData.action, 0)
+        
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.orderData[1].header.controlFlags_class, Rdp.DrawingOrders.OrderFlags.TS_SECONDARY)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.orderData[1].header.controlFlags, Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_FRAME_MARKER)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.orderData[1].orderSpecificData.altSecondaryOrderData.action, 1)
+        
+        self.assertEqual(bytes(pdu.as_wire_bytes()), data)
+    
     
 if __name__ == '__main__':
     unittest.main()

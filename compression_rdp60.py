@@ -10,6 +10,7 @@ import enum
 import compression_utils
 from compression_utils import (
     SymbolType,
+    CopyTuple,
 )
 
 DEBUG = False
@@ -17,12 +18,14 @@ DEBUG = False
 
 
 EncodingConfig = collections.namedtuple('EncodingConfig', ['min_value', 'prefix', 'value_bit_length'])
-HuffmanTreeNode = collections.namedtuple('HuffmanTreeNode', ['child_0', 'child_1'])
+# HuffmanTreeNode = collections.namedtuple('HuffmanTreeNode', ['child_0', 'child_1'])
 
 class HuffmanTreeNode(object):
     def __init__(self, huffman_index = None, child_0=None, child_1=None):
         self._children = [child_0, child_1]
         self._huffman_index = huffman_index
+    
+    
     
     def get_huffman_index(self):
         if not self.is_leaf():
@@ -57,22 +60,22 @@ class HuffmanTreeNode(object):
         if self._children[digit] is None:
             self._children[digit] = HuffmanTreeNode()
         self._children[digit].add_child(huffman_index, digits, index + 1)
+       
+def build_huffman_tree(codes, lengths):
+    root = HuffmanTreeNode()
+    
+    for code, length, huffman_index in zip(codes, lengths, range(len(codes))):
+        digits = []
+        for i in range(length):
+            digits.append(code & 0x01)
+            code >>= 1
+        digits = digits[::-1]
+        root.add_child(huffman_index, digits)
         
+    return root
+    
 class Rdp60CompressionHuffanConstants(object):
 
-    @staticmethod
-    def build_huffman_tree(codes, lengths):
-        root = HuffmanTreeNode()
-        
-        for code, length, huffman_index in zip(codes, lengths, range(len(codes))):
-            digits = []
-            for i in range(length):
-                digits.append(code & 0x01)
-                code >>= 1
-            digits = digits[::-1]
-            root.add_child(huffman_index, digits)
-            
-        return root
         
     # from https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/0fffd61e-9406-4a85-bc77-c712093bc95e
     HuffLengthLEC = [
@@ -261,7 +264,7 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
 
 class Rdp60CompressionDecoder(compression_utils.Decoder):
     
-    def decode_next(self, bits_iter): Tuple[SymbolType, Any]
+    def decode_next(self, bits_iter): # Tuple[SymbolType, Any]
         return self._decode_next(bits_iter)
     
     def decode_LEC_huffman_code(self, bits_iter):
@@ -274,7 +277,7 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         elif huffman_index == 256:
             return (SymbolType.END_OF_STREAM, None)
         elif 257 <= huffman_index and huffman_index <= 288:
-            return (SymbolType.COPY_OFFSET, (self.decode_copy_offset(huffman_index - 257, bits_iter), self.decode_length_of_match(bits_iter)))
+            return (SymbolType.COPY_OFFSET, CopyTuple(self.decode_copy_offset(huffman_index - 257, bits_iter), self.decode_length_of_match(bits_iter)))
         elif 289 <= huffman_index and huffman_index <= 292:
             return (SymbolType.COPY_OFFSET_CACHE_INDEX, (huffman_index - 289, self.decode_length_of_match(bits_iter)))
 

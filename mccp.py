@@ -81,12 +81,18 @@ import array
 import binascii
 import struct
 import sys
+import collections
+import bisect
+import enum
 
 DEBUG = False
 
+EncodingConfig = collections.namedtuple('EncodingConfig', ['min_value', 'prefix', 'value_bit_length'])
+CompressionConfig = collections.namedtuple('CompressionConfig', ['history_size', 'offset_encoding', 'length_encoding'])
+
 class MCCP(object):
     # Used as bit patterns in Offset Encoding (RFC Sec 4.2.1)
-    __offset_pattern_64 = 0b1111
+    __offset_pattern_64  = 0b1111
     __offset_pattern_320 = 0b1110
     __offset_pattern_8191 = 0b110
 
@@ -103,7 +109,91 @@ class MCCP(object):
     __length_pattern_4096 = 0b11111111110
     __length_pattern_8192 = 0b111111111110
 
+    # config = {
+    #     'RDP_4': CompressionConfig(
+    #         history_size = 8196,
+    #         reset_to_begining = True,
+    #         offset_cache_size = 0,
+    #         offset_encoding = [
+    #                 EncodingConfig(min_value = 0,   value_bit_length =  6, prefix = 0b1111),
+    #                 EncodingConfig(min_value = 64,  value_bit_length =  8, prefix = 0b1110),
+    #                 EncodingConfig(min_value = 320, value_bit_length = 13, prefix =  0b110),
+    #             ],
+    #         length_encoding = [
+    #                 EncodingConfig(min_value =     3, value_bit_length =  0, prefix = 0b0),
+    #                 EncodingConfig(min_value =     4, value_bit_length =  2, prefix = 0b10),
+    #                 EncodingConfig(min_value =     8, value_bit_length =  3, prefix = 0b110),
+    #                 EncodingConfig(min_value =    16, value_bit_length =  4, prefix = 0b1110),
+    #                 EncodingConfig(min_value =    32, value_bit_length =  5, prefix = 0b11110),
+    #                 EncodingConfig(min_value =    64, value_bit_length =  6, prefix = 0b111110),
+    #                 EncodingConfig(min_value =   128, value_bit_length =  7, prefix = 0b1111110),
+    #                 EncodingConfig(min_value =   256, value_bit_length =  8, prefix = 0b11111110),
+    #                 EncodingConfig(min_value =   512, value_bit_length =  9, prefix = 0b111111110),
+    #                 EncodingConfig(min_value =  1024, value_bit_length = 10, prefix = 0b1111111110),
+    #                 EncodingConfig(min_value =  2048, value_bit_length = 11, prefix = 0b11111111110),
+    #                 EncodingConfig(min_value =  4096, value_bit_length = 12, prefix = 0b111111111110),
+    #             ],
+    #     ),
+    #     'RDP_5': CompressionConfig(
+    #         history_size = 65536,
+    #         reset_to_begining = True,
+    #         offset_cache_size = 0,
+    #         offset_encoding = [
+    #                 EncodingConfig(min_value = 0,    value_bit_length =  6, prefix = 0b11111),
+    #                 EncodingConfig(min_value = 64,   value_bit_length =  8, prefix = 0b11110),
+    #                 EncodingConfig(min_value = 320,  value_bit_length = 11, prefix =  0b1110),
+    #                 EncodingConfig(min_value = 2368, value_bit_length = 16, prefix =   0b110),
+    #             ],
+    #         length_encoding = [
+    #                 EncodingConfig(min_value =     3, value_bit_length =  0, prefix = 0b0),
+    #                 EncodingConfig(min_value =     4, value_bit_length =  2, prefix = 0b10),
+    #                 EncodingConfig(min_value =     8, value_bit_length =  3, prefix = 0b110),
+    #                 EncodingConfig(min_value =    16, value_bit_length =  4, prefix = 0b1110),
+    #                 EncodingConfig(min_value =    32, value_bit_length =  5, prefix = 0b11110),
+    #                 EncodingConfig(min_value =    64, value_bit_length =  6, prefix = 0b111110),
+    #                 EncodingConfig(min_value =   128, value_bit_length =  7, prefix = 0b1111110),
+    #                 EncodingConfig(min_value =   256, value_bit_length =  8, prefix = 0b11111110),
+    #                 EncodingConfig(min_value =   512, value_bit_length =  9, prefix = 0b111111110),
+    #                 EncodingConfig(min_value =  1024, value_bit_length = 10, prefix = 0b1111111110),
+    #                 EncodingConfig(min_value =  2048, value_bit_length = 11, prefix = 0b11111111110),
+    #                 EncodingConfig(min_value =  4096, value_bit_length = 12, prefix = 0b111111111110),
+    #                 EncodingConfig(min_value =  8192, value_bit_length = 13, prefix = 0b1111111111110),
+    #                 EncodingConfig(min_value = 16384, value_bit_length = 14, prefix = 0b11111111111110),
+    #                 EncodingConfig(min_value = 32768, value_bit_length = 15, prefix = 0b111111111111110),
+    #             ],
+    #     ),
+    #     'RDP_60': CompressionConfig(
+    #         history_size = 65536,
+    #         reset_to_begining = False,
+    #         offset_cache_size = 4,
+    #         offset_encoding = [
+    #                 EncodingConfig(min_value = 0,    value_bit_length =  6, prefix = 0b11111),
+    #                 EncodingConfig(min_value = 64,   value_bit_length =  8, prefix = 0b11110),
+    #                 EncodingConfig(min_value = 320,  value_bit_length = 11, prefix =  0b1110),
+    #                 EncodingConfig(min_value = 2368, value_bit_length = 16, prefix =   0b110),
+    #             ],
+    #         length_encoding = [
+    #                 EncodingConfig(min_value =     3, value_bit_length =  0, prefix = 0b0),
+    #                 EncodingConfig(min_value =     4, value_bit_length =  2, prefix = 0b10),
+    #                 EncodingConfig(min_value =     8, value_bit_length =  3, prefix = 0b110),
+    #                 EncodingConfig(min_value =    16, value_bit_length =  4, prefix = 0b1110),
+    #                 EncodingConfig(min_value =    32, value_bit_length =  5, prefix = 0b11110),
+    #                 EncodingConfig(min_value =    64, value_bit_length =  6, prefix = 0b111110),
+    #                 EncodingConfig(min_value =   128, value_bit_length =  7, prefix = 0b1111110),
+    #                 EncodingConfig(min_value =   256, value_bit_length =  8, prefix = 0b11111110),
+    #                 EncodingConfig(min_value =   512, value_bit_length =  9, prefix = 0b111111110),
+    #                 EncodingConfig(min_value =  1024, value_bit_length = 10, prefix = 0b1111111110),
+    #                 EncodingConfig(min_value =  2048, value_bit_length = 11, prefix = 0b11111111110),
+    #                 EncodingConfig(min_value =  4096, value_bit_length = 12, prefix = 0b111111111110),
+    #                 EncodingConfig(min_value =  8192, value_bit_length = 13, prefix = 0b1111111111110),
+    #                 EncodingConfig(min_value = 16384, value_bit_length = 14, prefix = 0b11111111111110),
+    #                 EncodingConfig(min_value = 32768, value_bit_length = 15, prefix = 0b111111111111110),
+    #             ],
+    #     ),
+    # }
+
     def __init__(self, data = b''):
+        self.__min_match_size = 10
         self.resetHistory()
         self.__resetInOut(data)
 
@@ -112,6 +202,8 @@ class MCCP(object):
         self.__history = array.array('B')
         self.__history.fromlist([0] * self.__historyLength)
         self.__historyOffset = 0
+        # self.__historyRollingHash = RollingHash(size = self.__min_match_size)
+        # self.__historyEndPositionByHash = {}
 
     def __resetInOut(self, data):
         self.__in = data
@@ -177,15 +269,16 @@ class MCCP(object):
     def __appendDataToHistory(self, data):
         if self.__historyOffset + len(data) > self.__historyLength:
             raise ValueError("not supported yet")
-        i = 0
         for byte in data:
-            self.__history[self.__historyOffset + i] = byte
-            i += 1
-
+            self.__pushByteToHistory(byte)
+        
     def __pushByteToHistory(self, byte):
         self.__history[self.__historyOffset] = byte
         self.__incrementHistoryOffset()
-
+        # hash = self.__historyRollingHash.roll(byte)
+        # if self.__historyOffset >= self.__min_match_size:
+        #     self.__sortedHistoryEndPositionByHash.setdefault(hash, collections.OrderedDict())[self.__historyOffset] = True
+        
     def __pushByteToOutput(self, byte):
         if byte > 0xff:
             raise ValueError("Byte must be less than or equal to 0xff, got: ", hex(byte))
@@ -493,7 +586,7 @@ class MCCP(object):
                 self.__encodeCopyTuple(self.__historyOffset - longestOffset, longestLen)
 
         self.__trimOutputBuffer()
-        return self.__out
+        return self.__out.tobytes()
         
     def decompress(self, data):
         self.__resetInOut(data)

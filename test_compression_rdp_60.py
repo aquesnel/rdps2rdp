@@ -1,16 +1,16 @@
 import unittest
 
+import compression
     
-class TestParsing(unittest.TestCase):
+class TestCompressionRdp60(unittest.TestCase):
     
     def test_compress_same_packet_twice(self):
-        # from: https://datatracker.ietf.org/doc/html/rfc2118#section-4
-
         data = b"for whom the bell tolls, the bell tolls for thee.\xA6\x80"
-        c = mccp.MCCP()
+        c = compression.CompressionFactory.new_RDP_60()
+        d = compression.CompressionFactory.new_RDP_60()
         
         deflated_1 = c.compress(data)
-        inflated_1 = c.decompress(deflated_1)
+        inflated_1 = d.decompress(deflated_1)
         # print("data 1    :     ",binascii.hexlify(data))
         # print("deflated 1:     ",binascii.hexlify(deflated_1))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
@@ -20,7 +20,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(inflated_1, data)
         
         deflated_2 = c.compress(data)
-        inflated_2 = c.decompress(deflated_2)
+        inflated_2 = d.decompress(deflated_2)
         # print("data 2    :     ",binascii.hexlify(data))
         # print("deflated 2:     ",binascii.hexlify(deflated_2))
         # print("inflated 2:     ",binascii.hexlify(inflated_2))

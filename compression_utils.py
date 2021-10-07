@@ -1,3 +1,4 @@
+import array
 import collections
 import enum
 from typing import Any, Tuple
@@ -12,7 +13,7 @@ class SymbolType(enum.Enum):
     COPY_OFFSET_CACHE_INDEX = 'copy_offset_cache_index'
 
 CopyTuple = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_match'])
-
+HistoryMatch = collections.namedtuple('HistoryMatch', ['data_absolute_offset', 'history_absolute_offset', 'history_relative_offset', 'length'])
 
 
 
@@ -169,26 +170,80 @@ class Encoder(object):
         pass
 
 class Decoder(object):
-    # def __init__(self):
-    #     self._bitstream_iter = iter([])
-    
     def decode_next(self, bits_iter): #Tuple[SymbolType, Any]
         pass
-    
-    # def reset_bit_stream(self, bitstream):
-    #     self._bitstream = iter(bitstream)
 
-    # def __iter__(self):
-    #     while True:
-    #         next = self.decode_next()
-    #         if next:
-    #             yield next
-    #         else:
-    #             return
+class RecordingEncoder(Encoder):
+    def __init__(self, inner_encoder):
+        self._inner_encoder = inner_encoder
+        self._recording = []
+        self._prev = SymbolType.COPY_OFFSET
+    
+    def get_recording(self):
+        return self._recording
+    
+    def encode(self, bitstream_dest: BitStream, symbol_type: SymbolType, value: Any):
+        if symbol_type == SymbolType.LITERAL:
+            if self._prev != SymbolType.LITERAL:
+                self._recording.append(bytearray())
+            self._recording[-1].append(value)
+        else:
+            self._recording.append(value)
+        self._prev = symbol_type
+            
+        self._inner_encoder.encode(bitstream_dest, symbol_type, value)
+
+class HistoryManager(object):
+    def resetHistory(self):
+        pass
+
+    def append_bytes(self, bytes):
+        for byte in bytes:
+            self.append_byte(byte)
+
+    def append_byte(self, byte):
+        pass
+    
+    def get_bytes(self, offset, length):
+        return b''
+        
+    # def get_history_offset(self):
+    #     return 0
+        
+    def append_and_find_matches(self, data):
+        self.append_bytes(data)
+        # if False:
+        #     yield HistoryMatch(data_absolute_offset=0, history_absolute_offset=0, history_relative_offset=0, length=0)
+        return iter([])
+
+class BufferOnlyHistoryManager(HistoryManager):
+    def __init__(self, size):
+        self.__historyLength = size
+        self.resetHistory()
+    
+    def resetHistory(self):
+        self.__history = array.array('B')
+        self.__history.fromlist([0] * self.__historyLength)
+        self.__historyOffset = 0
+
+    def append_bytes(self, data):
+        for byte in data:
+            self.append_byte(byte)
+
+    def append_byte(self, byte):
+        self.__history[self.__historyOffset] = byte
+        self.__historyOffset += 1
+    
+    def get_bytes(self, offset_from_end, length):
+        offset = self.__historyOffset - offset_from_end
+        return memoryview(self.__history)[offset : offset + length]
+    
+    def append_and_find_matches(self, data):
+        raise NotImplementedError()
 
 class RollingHash(object):
     DEFAULT_MODULO = 2**31 - 1 # prime number less than 2*32 so that all of the math is guaranteed to fit in 64-bit registers (prime taken from https://primes.utm.edu/lists/2small/0bit.html  )
-    DEFAULT_BASE = 256 # = 2**8 since we are using 8-bit bytes as the character size, so each value is 
+    DEFAULT_BASE = 256 # = 2**8 since we are using 8-bit bytes as the character size, so each value is in this base
     #DEFAULT_BASE_MULTIPLICAIVE_INVERSE = 8388608 # = pow(256, -1, 2**31-1) # this is only needed if the rolling window size can be changed, but since this only supports a constant window size it is not needed. see https://youtu.be/w6nuXg0BISo?t=2116    .
 
     # @classmethod

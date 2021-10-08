@@ -281,7 +281,8 @@ class MPPC(object):
             if history_match.length > 0:
                 self._encoder.encode(bitstream_dest, SymbolType.COPY_OFFSET, CopyTuple(history_match.history_relative_offset, history_match.length))
                 inByteOffset += history_match.length
-        
+        self._encoder.encode(bitstream_dest, SymbolType.END_OF_STREAM, None)
+                
         return bitstream_dest.tobytes()
         
     def decompress(self, data):

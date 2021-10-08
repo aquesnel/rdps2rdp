@@ -4,6 +4,7 @@ import enum
 from typing import Any, Tuple
 
 DEBUG = False
+DEBUG = True
 
 @enum.unique
 class SymbolType(enum.Enum):
@@ -125,8 +126,7 @@ class BitStream(object):
             self._bit_offset_from_top = bits_remaining
         self._bit_offset_from_top %= 8
 
-        if DEBUG: print('bit stream bytes = %s -%d bits' % (self._bytes.hex(), (8 - self._bit_offset_from_top if self._bit_offset_from_top > 0 else self._bit_offset_from_top)))
-        if DEBUG: print('bit stream bytes = %s ' % (self._bytes))
+        if DEBUG: print('bit stream bytes = %s -%d' % (self._bytes.hex(), (8 - self._bit_offset_from_top if self._bit_offset_from_top > 0 else self._bit_offset_from_top)))
 
     
     def append_packed_bits(self, bytes, bit_length):
@@ -134,7 +134,7 @@ class BitStream(object):
             # raise ValueError('int byte not supported "%s"' % bytes)
             if bytes < 0:
                 raise ValueError('Invalid positive integer "%s"' % bytes)
-            if DEBUG: print('appending int as bits. length = %s, int  = %s' % (bit_length, bytes))
+            if DEBUG: print('appending int as bits. length = %s, int  = %s = %s' % (bit_length, bytes, ("{0:0%db}"%(bit_length)).format(bytes)))
             temp = []
             shift_to_align = bit_length % 8
             if shift_to_align > 0:

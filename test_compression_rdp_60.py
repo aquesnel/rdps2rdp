@@ -1,6 +1,8 @@
 import unittest
+import binascii
 
 import compression
+import test_utils
     
 class TestCompressionRdp60(unittest.TestCase):
     

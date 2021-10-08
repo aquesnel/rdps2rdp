@@ -6,6 +6,7 @@ import sys
 import collections
 import bisect
 import enum
+import pprint
 
 import compression_utils
 from compression_utils import (
@@ -19,19 +20,50 @@ DEBUG = False
 
 EncodingConfig = collections.namedtuple('EncodingConfig', ['min_value', 'prefix', 'value_bit_length'])
 # HuffmanTreeNode = collections.namedtuple('HuffmanTreeNode', ['child_0', 'child_1'])
+HuffmanTreeLeaf = collections.namedtuple('HuffmanTreeLeaf', ['isLeaf', 'index', 'in_path', 'path', 'has_child_0', 'has_child_1'])
 
 class HuffmanTreeNode(object):
-    def __init__(self, huffman_index = None, child_0=None, child_1=None):
+    def __init__(self, huffman_index = None, child_0=None, child_1=None, path=''):
         self._children = [child_0, child_1]
         self._huffman_index = huffman_index
+        self._path = path
     
-    
+    def __str__(self):
+        return "HuffmanTreeNode(has_child_0=%5s, has_child_1=%5s, index=%4s, in_path=%-10s)" % (
+            self._children[0] is not None, 
+            self._children[1] is not None,
+            self._huffman_index, 
+            self._path)
+        
+    def tree_to_str(self):
+        # return pprint.pformat(self.as_dict())
+        return pprint.pformat(["HuffmanTreeLeaf(isLeaf=%5s, index=%3d, in_path=%-10s, path=%-10s)" % (n.isLeaf, n.index, n.in_path, n.path)
+            for n in sorted(self.as_tuples(), key=lambda x: x.index)], width=100)
+        
+    def as_dict(self):
+        return {
+            'huffman_index': self._huffman_index,
+            'child_0': None if self._children[0] is None else self._children[0].as_dict(),
+            'child_1': None if self._children[1] is None else self._children[1].as_dict(),
+        }
+        
+    def as_tuples(self, prefix=''):
+        retval = []
+        if self._huffman_index is not None:
+            retval.append(HuffmanTreeLeaf(self.is_leaf(), self._huffman_index, self._path, prefix, self._children[0] is not None, self._children[1] is not None))
+        
+        if self._children[0]:
+            retval.extend(self._children[0].as_tuples(prefix + '0'))
+        if self._children[1]:
+            retval.extend(self._children[1].as_tuples(prefix + '1'))
+            
+        return retval
     
     def get_huffman_index(self):
         if not self.is_leaf():
-            raise ValueError('Invalid node. A non-leaf node does not have a huffman_index')
+            raise ValueError('Invalid node. A non-leaf node does not have a huffman_index. %s' % self)
         if self._huffman_index is None:
-            raise ValueError('Invalid node. This leaf node does not have a huffman_index')
+            raise ValueError('Invalid node. This leaf node does not have a huffman_index. %s' % self)
         return self._huffman_index
 
     def next_huffman_index_from(self, bits_iter):
@@ -40,8 +72,11 @@ class HuffmanTreeNode(object):
             tree_node = tree_node.get_child(bits_iter.next())
         return tree_node.get_huffman_index()
 
+    def has_children(self):
+        return (self._children[0] is not None) or (self._children[1] is not None)
+    
     def is_leaf(self):
-        return (self._children[0] is None) and (self._children[1] is None)
+        return (self._huffman_index is not None) and not self.has_children()
         
     def get_child(self, digit):
         if digit != 0 and digit != 1:
@@ -50,27 +85,36 @@ class HuffmanTreeNode(object):
             
     def add_child(self, huffman_index, digits, index = 0):
         if len(digits) <= index:
-            if not self.is_leaf():
-                raise ValueError('Invalid node. A Node must have children or have a value but not both')
+            if self.has_children():
+                raise ValueError('Invalid node. A Node must have children or have a value but not both. %s' % self)
             self._huffman_index = huffman_index
+            if DEBUG: print('Adding child: huff_index=%3d, digit=N/A to %s' % (huffman_index, self))
             return
         digit = digits[index]
         if digit != 0 and digit != 1:
             raise ValueError('Invalid binary digit "%s"' % digit)
         if self._children[digit] is None:
-            self._children[digit] = HuffmanTreeNode()
+            self._children[digit] = HuffmanTreeNode(path=''.join(('%s' % d for d in digits[:index+1])))
+        if self._children[digit].is_leaf():
+            raise ValueError('Invalid operation: add_child. A Node must have children or have a value but not both. %s, huff_index=%s, digit_index=%s, digits=%s' % (self._children[digit], huffman_index, index + 1, digits))
+        
+        if DEBUG: print('Adding child: huff_index=%3d, digit=%-3s to %s' % (huffman_index, digits[index], self))
         self._children[digit].add_child(huffman_index, digits, index + 1)
-       
+
 def build_huffman_tree(codes, lengths):
     root = HuffmanTreeNode()
-    
-    for code, length, huffman_index in zip(codes, lengths, range(len(codes))):
-        digits = []
-        for i in range(length):
-            digits.append(code & 0x01)
-            code >>= 1
-        digits = digits[::-1]
-        root.add_child(huffman_index, digits)
+    try:
+        for code, length, huffman_index in zip(codes, lengths, range(len(codes))):
+            digits = []
+            for i in range(length):
+                digits.append(code & 0x01)
+                code >>= 1
+            # digits = digits[::-1]
+            if DEBUG: print('Adding to Tree: huff_index=%3d, digits=%s' % (huffman_index, digits))
+            root.add_child(huffman_index, digits)
+    except Exception as e:
+        print(root.tree_to_str())
+        raise e
         
     return root
     
@@ -158,7 +202,7 @@ class Rdp60CompressionHuffanConstants(object):
 
     HuffTreeLEC = build_huffman_tree(HuffCodeLEC, HuffLengthLEC)
     
-    CopyOffsetBitsLUT,  = [
+    CopyOffsetBitsLUT  = [
  0,  0,  0,  0,  1,  1,  2,  2, 
  3,  3,  4,  4,  5,  5,  6,  6, 
  7,  7,  8,  8,  9,  9, 10, 10, 
@@ -201,23 +245,34 @@ class Rdp60CompressionHuffanConstants(object):
 
 class Rdp60CompressionEncoder(compression_utils.Encoder):
 
-    def encode(self, bitstream_dest: BitStream, symbol_type: SymbolType, value: Any):
+    def encode(self, bitstream_dest, symbol_type, value):
         encoding_tuples = []
         if symbol_type == SymbolType.LITERAL:
             encoding_tuples = self.encode_literal(value)
+            if DEBUG: print("encoding literal: '%s' = %d" % (chr(value), value))
         elif symbol_type == SymbolType.END_OF_STREAM:
             encoding_tuples = self.encode_end_of_stream()
+            if DEBUG: print('encoding end-of-stream')
         elif symbol_type == SymbolType.COPY_OFFSET:
             encoding_tuples = self.encode_copy_offset(value.copy_offset)
             encoding_tuples.extend(self.encode_length_of_match(value.length_of_match))
+            if DEBUG: print('encoding copy_tuple: copy_offset = %s, length = %s' % (value.copy_offset, value.length_of_match))
         elif symbol_type == SymbolType.COPY_OFFSET_CACHE_INDEX:
             encoding_tuples = self.encode_copy_offset_cache(value.copy_offset)
             encoding_tuples.extend(self.encode_length_of_match(value.length_of_match))
+            if DEBUG: print('encoding copy_tuple: copy_offset_cache_index = %s, length = %s' % (value.copy_offset, value.length_of_match))
         else:
             raise ValueError('Invalid symbol type: %s' % (symbol_type, ))
         
         for packed_bits, bit_length in encoding_tuples:
-            bitstream_dest.append_packed_bits(packed_bits, bit_length)
+            # TODO: bit swap the packed_bits to that the value is output as: little endian byte order with highest order bit first
+            # see: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/c3ce7d89-1924-4b58-a8c8-623440571be0
+            # bitstream_dest.append_packed_bits(packed_bits, bit_length)
+            if DEBUG: print('appending int as bits. length = %s, int  = %s = %s' % (bit_length, packed_bits, ("{0:0%db}"%(bit_length)).format(packed_bits)))
+            while bit_length > 0:
+                bitstream_dest.append_bit(packed_bits & 0x01)
+                packed_bits >>= 1
+                bit_length -= 1
 
     def encode_LEC_huffman_index(self, LEC_huffman_index):
         return (Rdp60CompressionHuffanConstants.HuffCodeLEC[LEC_huffman_index], Rdp60CompressionHuffanConstants.HuffLengthLEC[LEC_huffman_index])
@@ -233,7 +288,7 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
     def encode_copy_offset(self, CopyOffset):
         retval = []
         # encode CopyOffset base
-        LUTIndex = bisect.bisect_right(CopyOffset + 1, Rdp60CompressionHuffanConstants.CopyOffsetBaseLUT) - 1 # IndexOfEqualOrSmallerEntry
+        LUTIndex = bisect.bisect_right(Rdp60CompressionHuffanConstants.CopyOffsetBaseLUT, CopyOffset + 1) - 1 # IndexOfEqualOrSmallerEntry
         retval.append(self.encode_LEC_huffman_index(LUTIndex + 257))
         
         # encode CopyOffset offset
@@ -252,7 +307,7 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
         retval = []
 
         # encode LengthOfMatch base
-        LUTIndex = bisect.bisect_right(LengthOfMatch, Rdp60CompressionHuffanConstants.LoMBaseLUT) - 1 # IndexOfEqualOrSmallerEntry
+        LUTIndex = bisect.bisect_right(Rdp60CompressionHuffanConstants.LoMBaseLUT, LengthOfMatch) - 1 # IndexOfEqualOrSmallerEntry
         retval.append((Rdp60CompressionHuffanConstants.HuffCodeL[LUTIndex], Rdp60CompressionHuffanConstants.HuffLengthL[LUTIndex]))
         
         # encode LengthOfMatch offset
@@ -261,7 +316,7 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
         retval.append((ExtraBits, ExtraBitsLength))
         
         return retval
-
+DEBUG=True
 class Rdp60CompressionDecoder(compression_utils.Decoder):
     
     def decode_next(self, bits_iter): # Tuple[SymbolType, Any]
@@ -273,29 +328,36 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
     def _decode_next(self, bits_iter):
         huffman_index = self.decode_LEC_huffman_code(bits_iter)
         if 0 <= huffman_index and huffman_index <= 255:
+            if DEBUG: print('decoding literal: %s' % (chr(huffman_index)))
             return (SymbolType.LITERAL, huffman_index)
         elif huffman_index == 256:
+            if DEBUG: print('decoding end-of-stream')
             return (SymbolType.END_OF_STREAM, None)
         elif 257 <= huffman_index and huffman_index <= 288:
-            return (SymbolType.COPY_OFFSET, CopyTuple(self.decode_copy_offset(huffman_index - 257, bits_iter), self.decode_length_of_match(bits_iter)))
+            copy_tuple = CopyTuple(self.decode_copy_offset(huffman_index - 257, bits_iter), self.decode_length_of_match(bits_iter))
+            if DEBUG: print('decoding copy_tuple: copy_offset = %s, length = %s' % (copy_tuple.copy_offset, copy_tuple.length_of_match))
+            return (SymbolType.COPY_OFFSET, copy_tuple)
         elif 289 <= huffman_index and huffman_index <= 292:
-            return (SymbolType.COPY_OFFSET_CACHE_INDEX, (huffman_index - 289, self.decode_length_of_match(bits_iter)))
+            copy_index = huffman_index - 289
+            length_of_match = self.decode_length_of_match(bits_iter)
+            if DEBUG: print('decoding copy_offset_cache_index: copy_index = %s, length = %s' % (copy_index, length_of_match))
+            return (SymbolType.COPY_OFFSET_CACHE_INDEX, (copy_index, length_of_match))
 
-    def decode_copy_offset(LUTIndex, bits_iter):
+    def decode_copy_offset(self, LUTIndex, bits_iter):
         # decode CopyOffset
         BaseLUT = Rdp60CompressionHuffanConstants.CopyOffsetBaseLUT[LUTIndex]
         BitsLUT = Rdp60CompressionHuffanConstants.CopyOffsetBitsLUT[LUTIndex]
         
-        StreamBits = BitStream.next_int(bits_iter, BitsLUT)
+        StreamBits = bits_iter.next_int(BitsLUT)
         CopyOffset = BaseLUT + StreamBits - 1
         return CopyOffset
         
-    def decode_length_of_match(bits_iter):
+    def decode_length_of_match(self, bits_iter):
         # decode LengthOfMatch
-        LUTIndex = self.HuffTreeL.next_huffman_index_from(bits_iter)
+        LUTIndex = Rdp60CompressionHuffanConstants.HuffTreeL.next_huffman_index_from(bits_iter)
         BaseLUT = Rdp60CompressionHuffanConstants.LoMBaseLUT[LUTIndex]
         BitsLUT = Rdp60CompressionHuffanConstants.LoMBitsLUT[LUTIndex]
         
-        StreamBits = BitStream.next_int(bits_iter, BitsLUT)
+        StreamBits = bits_iter.next_int(BitsLUT)
         LengthOfMatch = BaseLUT + StreamBits
         return LengthOfMatch

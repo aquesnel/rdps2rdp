@@ -4,7 +4,7 @@ import enum
 from typing import Any, Tuple
 
 DEBUG = False
-DEBUG = True
+# DEBUG = True
 
 @enum.unique
 class SymbolType(enum.Enum):
@@ -19,9 +19,10 @@ HistoryMatch = collections.namedtuple('HistoryMatch', ['data_absolute_offset', '
 
 
 class BitStream(object):
-    def __init__(self, packed_bits = []):
-        self._bit_offset_from_top = 0
+    def __init__(self, packed_bits = [], append_low_to_high = False):
+        self._bit_offset = 0
         self._bytes = bytearray(packed_bits)
+        self._append_low_to_high = append_low_to_high
 
     class BitStreamIter(object):
         def __init__(self, bit_stream):
@@ -58,12 +59,54 @@ class BitStream(object):
             
         def remaining(self):
             return self._remaining
+        
+    class LowToHightBitStreamIter(object):
+        def __init__(self, bit_stream):
+            self.bit_stream = bit_stream
+            self._iter = self.__priv_iter()
+            self._remaining = len(bit_stream)
+        
+        def __priv_iter(self):
+            for b in self.bit_stream._bytes:
+                mask = 0x01
+                for bit_index in range(8):
+                    bit = (b & mask) >> bit_index
+                    if DEBUG: print('next_bit bit = %s ' % (bit))
+                    yield bit 
+                    mask <<= 1
+                    self._remaining -= 1
+        
+        def __next__(self):
+            return next(self._iter)
             
+        def next(self):
+            return self.__next__()
+            
+        def next_int(self, bit_length):
+            retval = 0
+            if DEBUG: print('next_int bit_length = %s ' % (bit_length))
+            for bit_index in range(bit_length):
+                bit = self.next()
+                BitStream._verify_bit(bit)
+                bit <<= bit_index
+                retval |= bit
+            if DEBUG: print('next_int bit_length = %s, value = %s' % (bit_length, retval))
+            return retval
+            
+        def remaining(self):
+            return self._remaining
+        
     def __iter__(self):
-        return BitStream.BitStreamIter(self)
+        if self._append_low_to_high:
+            return BitStream.LowToHightBitStreamIter(self)
+        else:
+            return BitStream.BitStreamIter(self)
     
     def __len__(self):
-        return len(self._bytes) * 8 - (8 - self._bit_offset_from_top)
+        return len(self._bytes) * 8 - (8 - self._bit_offset)
+    
+    def iter_low_to_high(self):
+        return BitStream.LowToHightBitStreamIter(self)
     
     def as_byte_array(self):
         return bytearray(self)
@@ -71,15 +114,15 @@ class BitStream(object):
     def tobytes(self):
         return bytes(self._bytes)
     
-    @classmethod
-    def next_int(cls, bit_iter, bit_length):
-        retval = 0
-        for bit_index in range(bit_length):
-            bit = bit_iter.next()
-            self._verify_bit(bit)
-            retval <<= 1
-            retval |= bit
-        return retval
+    # @classmethod
+    # def next_int(cls, bit_iter, bit_length):
+    #     retval = 0
+    #     for bit_index in range(bit_length):
+    #         bit = bit_iter.next()
+    #         self._verify_bit(bit)
+    #         retval <<= 1
+    #         retval |= bit
+    #     return retval
     
     @classmethod
     def _verify_bit(cls, bit):
@@ -87,8 +130,10 @@ class BitStream(object):
             raise ValueError('Invalid binary digit "%s"' % bit)
     
     def append_bit(self, bit):
+        self._verify_bit(bit)
+        if DEBUG: print('append bit = %s' % (bit))
         self.append_byte(bit, 1)
-        
+    
     def append_byte(self, byte, bit_length):
         if bit_length == 0:
             return
@@ -96,37 +141,48 @@ class BitStream(object):
             raise ValueError('Invalid byte "%s"' % byte)
         if bit_length < 1 or 8 < bit_length:
             raise ValueError('Invalid bit length "%s"' % bit_length)
-        if self._bit_offset_from_top == 0:
+        if self._bit_offset == 0:
             self._bytes.append(0)
         
-        available_bits = 8 - self._bit_offset_from_top
+        available_bits = 8 - self._bit_offset
         if bit_length <= available_bits:
-            # we can fit the whole thing, shift the bits
-            # up so we pack the top of the byte first
-            shift = available_bits - bit_length
+            # we can fit the whole thing
+            if self._append_low_to_high:
+                # shift the bits up to be just past the existing bits
+                shift = self._bit_offset
+            else:
+                # shift the bits up to be next to the already packed bits
+                shift = available_bits - bit_length
             shifted_bits = byte << shift
 
             self._bytes[-1] |= shifted_bits
-            self._bit_offset_from_top += bit_length
+            self._bit_offset += bit_length
             
         else:
             # grab 'available_bits' from the top
-            shift = bit_length - available_bits
-            shifted_bits = byte >> shift
-            self._bytes[-1] |= shifted_bits
-            # self.append_byte(shifted_bits, available_bits)
+            if self._append_low_to_high:
+                # shift the bits up to be just past the existing bits
+                shifted_bits_1 = (byte << self._bit_offset) & 0xff
+                # shift the remaining high bits to start the next byte
+                shifted_bits_2 = byte >> available_bits
+                
+            else:
+                # shift the bits down to append the high order bits to be next to the already packed bits
+                shift = bit_length - available_bits
+                shifted_bits_1 = byte >> shift
+                
+                shift = 8 - shift
+                # mask = (1 << bits_remaining) - 1
+                # byte &= mask
+                shifted_bits_2 = (byte << shift) & 0xff
+                
+            self._bytes[-1] |= shifted_bits_1
+            self._bytes.append(shifted_bits_2)
+            bits_remaining = bit_length - available_bits
+            self._bit_offset = bits_remaining
+        self._bit_offset %= 8
 
-            # append the remainder
-            bits_remaining = shift
-            shift = 8 - bits_remaining
-            mask = (1 << bits_remaining) - 1
-            byte &= mask
-            byte <<= shift
-            self._bytes.append(byte)
-            self._bit_offset_from_top = bits_remaining
-        self._bit_offset_from_top %= 8
-
-        if DEBUG: print('bit stream bytes = %s -%d' % (self._bytes.hex(), (8 - self._bit_offset_from_top if self._bit_offset_from_top > 0 else self._bit_offset_from_top)))
+        if DEBUG: print('bit stream bytes = %s -%d' % (self._bytes.hex(), (8 - self._bit_offset if self._bit_offset > 0 else self._bit_offset)))
 
     
     def append_packed_bits(self, bytes, bit_length):
@@ -169,9 +225,15 @@ class Encoder(object):
     def encode(self, bitstream_dest: BitStream, symbol_type: SymbolType, value: Any):
         pass
 
+    def init_dest_stream(self):
+        return BitStream()
+
 class Decoder(object):
     def decode_next(self, bits_iter): #Tuple[SymbolType, Any]
         pass
+    
+    def init_src_iter(self, data):
+        return iter(BitStream(data))
 
 class RecordingEncoder(Encoder):
     def __init__(self, inner_encoder):

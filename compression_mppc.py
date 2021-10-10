@@ -268,7 +268,7 @@ class MPPC(object):
         self._compressionHistoryManager.resetHistory()
 
     def compress(self, data):
-        bitstream_dest = compression_utils.BitStream()
+        bitstream_dest = self._encoder.init_dest_stream()
 
         inByteOffset = 0
         for history_match in itertools.chain(self._compressionHistoryManager.append_and_find_matches(data), 
@@ -287,7 +287,7 @@ class MPPC(object):
         
     def decompress(self, data):
         # DEBUG = True
-        bitstream_src_iter = iter(compression_utils.BitStream(data))
+        bitstream_src_iter = self._decoder.init_src_iter(data)
         dest = bytearray()
         done = False
         while not done:

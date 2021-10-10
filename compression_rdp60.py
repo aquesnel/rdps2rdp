@@ -242,8 +242,11 @@ class Rdp60CompressionHuffanConstants(object):
  34,  42,  50,  58, 66, 82, 98, 114, 
 130, 194, 258, 514, 770, 17154, 
 ]
-
+DEBUG=True
 class Rdp60CompressionEncoder(compression_utils.Encoder):
+
+    def init_dest_stream(self):
+        return compression_utils.BitStream(append_low_to_high = True)
 
     def encode(self, bitstream_dest, symbol_type, value):
         encoding_tuples = []
@@ -268,11 +271,24 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
             # TODO: bit swap the packed_bits to that the value is output as: little endian byte order with highest order bit first
             # see: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/c3ce7d89-1924-4b58-a8c8-623440571be0
             # bitstream_dest.append_packed_bits(packed_bits, bit_length)
-            if DEBUG: print('appending int as bits. length = %s, int  = %s = %s' % (bit_length, packed_bits, ("{0:0%db}"%(bit_length)).format(packed_bits)))
-            while bit_length > 0:
-                bitstream_dest.append_bit(packed_bits & 0x01)
-                packed_bits >>= 1
-                bit_length -= 1
+            # if DEBUG: print('appending int as bits. length = %s, int  = %s = %s' % (bit_length, packed_bits, ("{0:0%db}"%(bit_length)).format(packed_bits)))
+            if bit_length > 0:
+                while bit_length > 0:
+                    shift_max = min(8, bit_length)
+                    # mask = 0x01 << (shift_max-1)
+                    # for shift in range(shift_max):
+                    #     bitstream_dest.append_bit((packed_bits & mask) >> (shift))
+                    #     mask >>= 1
+                    mask = 0x01
+                    for shift in range(shift_max):
+                        bitstream_dest.append_bit((packed_bits & mask) >> (shift))
+                        mask <<= 1
+                    bit_length -= shift_max
+                    packed_bits >>= shift_max
+                    # bitstream_dest.append_bit(packed_bits & 0x01)
+                    # packed_bits >>= 1
+                # BF = 1011 1111
+                # FD = 1111 1101
 
     def encode_LEC_huffman_index(self, LEC_huffman_index):
         return (Rdp60CompressionHuffanConstants.HuffCodeLEC[LEC_huffman_index], Rdp60CompressionHuffanConstants.HuffLengthLEC[LEC_huffman_index])
@@ -316,8 +332,11 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
         retval.append((ExtraBits, ExtraBitsLength))
         
         return retval
-DEBUG=True
+
 class Rdp60CompressionDecoder(compression_utils.Decoder):
+    
+    def init_src_iter(self, data):
+        return iter(compression_utils.BitStream(data, append_low_to_high = True))
     
     def decode_next(self, bits_iter): # Tuple[SymbolType, Any]
         return self._decode_next(bits_iter)
@@ -327,6 +346,7 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
 
     def _decode_next(self, bits_iter):
         huffman_index = self.decode_LEC_huffman_code(bits_iter)
+        # if DEBUG: print('decoding huffman_index: %s' % (huffman_index))
         if 0 <= huffman_index and huffman_index <= 255:
             if DEBUG: print('decoding literal: %s' % (chr(huffman_index)))
             return (SymbolType.LITERAL, huffman_index)
@@ -334,8 +354,10 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
             if DEBUG: print('decoding end-of-stream')
             return (SymbolType.END_OF_STREAM, None)
         elif 257 <= huffman_index and huffman_index <= 288:
-            copy_tuple = CopyTuple(self.decode_copy_offset(huffman_index - 257, bits_iter), self.decode_length_of_match(bits_iter))
-            if DEBUG: print('decoding copy_tuple: copy_offset = %s, length = %s' % (copy_tuple.copy_offset, copy_tuple.length_of_match))
+            copy_offset = self.decode_copy_offset(huffman_index - 257, bits_iter)
+            length_of_match = self.decode_length_of_match(bits_iter)
+            copy_tuple = CopyTuple(copy_offset, length_of_match)
+            if DEBUG: print('decoding copy_tuple: copy_tuple = %s' % (str(copy_tuple)))
             return (SymbolType.COPY_OFFSET, copy_tuple)
         elif 289 <= huffman_index and huffman_index <= 292:
             copy_index = huffman_index - 289
@@ -348,6 +370,7 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         BaseLUT = Rdp60CompressionHuffanConstants.CopyOffsetBaseLUT[LUTIndex]
         BitsLUT = Rdp60CompressionHuffanConstants.CopyOffsetBitsLUT[LUTIndex]
         
+        # if DEBUG: print('decoding copy_offset: base = %s, bit_length = %s' % (BaseLUT, BitsLUT))
         StreamBits = bits_iter.next_int(BitsLUT)
         CopyOffset = BaseLUT + StreamBits - 1
         return CopyOffset
@@ -358,6 +381,7 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         BaseLUT = Rdp60CompressionHuffanConstants.LoMBaseLUT[LUTIndex]
         BitsLUT = Rdp60CompressionHuffanConstants.LoMBitsLUT[LUTIndex]
         
+        # if DEBUG: print('decoding length_of_match: huffman_index = %s, base = %s, bit_length = %s' % (LUTIndex, BaseLUT, BitsLUT))
         StreamBits = bits_iter.next_int(BitsLUT)
         LengthOfMatch = BaseLUT + StreamBits
         return LengthOfMatch

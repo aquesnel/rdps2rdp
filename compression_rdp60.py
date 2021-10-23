@@ -242,13 +242,17 @@ class Rdp60CompressionHuffanConstants(object):
  34,  42,  50,  58, 66, 82, 98, 114, 
 130, 194, 258, 514, 770, 17154, 
 ]
-DEBUG=True
+
 class Rdp60CompressionEncoder(compression_utils.Encoder):
 
-    def init_dest_stream(self):
-        return compression_utils.BitStream(append_low_to_high = True)
+    def __init__(self):
+        self._bitstream_dest = compression_utils.BitStream(append_low_to_high = True)
 
-    def encode(self, bitstream_dest, symbol_type, value):
+    def get_encoded_bytes(self):
+        return self._bitstream_dest.tobytes()
+
+    def encode(self, symbol_type, value):
+        bitstream_dest = self._bitstream_dest
         encoding_tuples = []
         if symbol_type == SymbolType.LITERAL:
             encoding_tuples = self.encode_literal(value)
@@ -335,16 +339,14 @@ class Rdp60CompressionEncoder(compression_utils.Encoder):
 
 class Rdp60CompressionDecoder(compression_utils.Decoder):
     
-    def init_src_iter(self, data):
-        return iter(compression_utils.BitStream(data, append_low_to_high = True))
-    
-    def decode_next(self, bits_iter): # Tuple[SymbolType, Any]
-        return self._decode_next(bits_iter)
+    def __init__(self, data):
+        self._bitstream_src_iter = iter(compression_utils.BitStream(data, append_low_to_high = True))
     
     def decode_LEC_huffman_code(self, bits_iter):
         return Rdp60CompressionHuffanConstants.HuffTreeLEC.next_huffman_index_from(bits_iter)
 
-    def _decode_next(self, bits_iter):
+    def decode_next(self): # Tuple[SymbolType, Any]
+        bits_iter = self._bitstream_src_iter
         huffman_index = self.decode_LEC_huffman_code(bits_iter)
         # if DEBUG: print('decoding huffman_index: %s' % (huffman_index))
         if 0 <= huffman_index and huffman_index <= 255:
@@ -385,3 +387,14 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         StreamBits = bits_iter.next_int(BitsLUT)
         LengthOfMatch = BaseLUT + StreamBits
         return LengthOfMatch
+
+class Rdp60CompressionEncodingFacotry(compression_utils.EncodingFacotry):
+    def __init__(self):
+        pass
+        
+    def make_encoder(self):
+        return Rdp60CompressionEncoder()
+    
+    def make_decoder(self, data):
+        return Rdp60CompressionDecoder(data)
+    

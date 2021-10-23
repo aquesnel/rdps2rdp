@@ -81,8 +81,12 @@ class MccpCompressionEncoder(compression_utils.Encoder):
 
     def __init__(self, encoding_config):
         self.encoding_config = encoding_config
+        self._bitstream_dest = compression_utils.BitStream()
 
-    def encode(self, bitstream_dest, symbol_type, value):
+    def get_encoded_bytes(self):
+        return self._bitstream_dest.tobytes()
+
+    def encode(self, symbol_type, value):
         encoding_tuples = []
         if symbol_type == SymbolType.LITERAL:
             encoding_tuples = self.encode_literal(value)
@@ -99,7 +103,7 @@ class MccpCompressionEncoder(compression_utils.Encoder):
             raise ValueError('Invalid symbol type: %s' % (symbol_type, ))
         
         for packed_bits, bit_length in encoding_tuples:
-            bitstream_dest.append_packed_bits(packed_bits, bit_length)
+            self._bitstream_dest.append_packed_bits(packed_bits, bit_length)
 
     def encode_literal(self, byte):
         if byte < 0 or 255 < byte:
@@ -132,10 +136,12 @@ class MccpCompressionEncoder(compression_utils.Encoder):
 
 class MccpCompressionDecoder(compression_utils.Decoder):
     
-    def __init__(self, encoding_config):
+    def __init__(self, encoding_config, data):
         self.encoding_config = encoding_config
+        self._bitstream_src_iter = iter(compression_utils.BitStream(data, append_low_to_high = False))
     
-    def decode_next(self, bits_iter): #Tuple[SymbolType, Any]
+    def decode_next(self): #Tuple[SymbolType, Any]
+        bits_iter = self._bitstream_src_iter
         # if DEBUG: print("Processing input byte %d, bit %d, bits: %s" % (byte_offset, self.__getInputBit(), bits))
         # encoding rules from https://www.ietf.org/rfc/rfc2118.txt section 4.2.1
         if bits_iter.next() == 0: # literal value <= 0x7f with prefix 0b0
@@ -171,6 +177,17 @@ class MccpCompressionDecoder(compression_utils.Decoder):
                 return bits_iter.next_int(encoding_range.value_bit_length) + encoding_range.min_value
 
         raise ValueError('No matching prefix in config. Prefix: %s' % (prefix))
+
+class MppcEncodingFacotry(compression_utils.EncodingFacotry):
+    def __init__(self, config):
+        self._config = config
+        
+    def make_encoder(self):
+        return MccpCompressionEncoder(self._config)
+    
+    def make_decoder(self, data):
+        return MccpCompressionDecoder(self._config, data)
+    
 
 class BruteForceHistoryManager(compression_utils.HistoryManager):
     def __init__(self, size):
@@ -255,11 +272,10 @@ class BruteForceHistoryManager(compression_utils.HistoryManager):
                 inByteOffset += 1
 
 
-class MPPC(object):
+class MPPC(compression_utils.CompressionEngine):
 
-    def __init__(self, compression_history_manager, decompression_history_manager, encoder, decoder):
-        self._encoder = encoder
-        self._decoder = decoder
+    def __init__(self, compression_history_manager, decompression_history_manager, encoder_factory):
+        self._encoder_factory = encoder_factory
         self._decompressionHistoryManager = decompression_history_manager
         self._compressionHistoryManager = compression_history_manager
 
@@ -268,7 +284,7 @@ class MPPC(object):
         self._compressionHistoryManager.resetHistory()
 
     def compress(self, data):
-        bitstream_dest = self._encoder.init_dest_stream()
+        encoder = self._encoder_factory.make_encoder()
 
         inByteOffset = 0
         for history_match in itertools.chain(self._compressionHistoryManager.append_and_find_matches(data), 
@@ -276,22 +292,22 @@ class MPPC(object):
             if history_match.data_absolute_offset > inByteOffset:
                 non_match_length = history_match.data_absolute_offset - inByteOffset
                 for _ in range(non_match_length):
-                    self._encoder.encode(bitstream_dest, SymbolType.LITERAL, data[inByteOffset])
+                    encoder.encode(SymbolType.LITERAL, data[inByteOffset])
                     inByteOffset += 1
             if history_match.length > 0:
-                self._encoder.encode(bitstream_dest, SymbolType.COPY_OFFSET, CopyTuple(history_match.history_relative_offset, history_match.length))
+                encoder.encode(SymbolType.COPY_OFFSET, CopyTuple(history_match.history_relative_offset, history_match.length))
                 inByteOffset += history_match.length
-        self._encoder.encode(bitstream_dest, SymbolType.END_OF_STREAM, None)
+        encoder.encode(SymbolType.END_OF_STREAM, None)
                 
-        return bitstream_dest.tobytes()
+        return encoder.get_encoded_bytes()
         
     def decompress(self, data):
         # DEBUG = True
-        bitstream_src_iter = self._decoder.init_src_iter(data)
+        decoder = self._encoder_factory.make_decoder(data)
         dest = bytearray()
         done = False
         while not done:
-            type, value = self._decoder.decode_next(bitstream_src_iter)
+            type, value = decoder.decode_next()
             if type == SymbolType.END_OF_STREAM:
                 done = True
             elif type == SymbolType.LITERAL:

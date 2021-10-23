@@ -221,19 +221,38 @@ class BitStream(object):
             except Exception:
                 raise ValueError('assumed invalid offset. len(bytes) = %s, i = %s, bit_length = %s' % (len(bytes), i, bit_length))
 
-class Encoder(object):
-    def encode(self, bitstream_dest: BitStream, symbol_type: SymbolType, value: Any):
+class CompressionEngine(object):
+    def resetHistory(self):
         pass
 
-    def init_dest_stream(self):
-        return BitStream()
+    def compress(self, data):
+        raise NotImplementedError()
+        return b''
+
+    def decompress(self, data):
+        raise NotImplementedError()
+        return b''
+
+class EncodingFacotry(object):
+    def make_encoder(self):
+        return Encoder()
+    
+    def make_decoder(self, data):
+        return Decoder()
+
+class Encoder(object):
+    def encode(self, symbol_type: SymbolType, value: Any):
+        pass
+
+    def get_encoded_bytes(self):
+        return b''
 
 class Decoder(object):
-    def decode_next(self, bits_iter): #Tuple[SymbolType, Any]
+    def decode_next(self): #Tuple[SymbolType, Any]
         pass
     
-    def init_src_iter(self, data):
-        return iter(BitStream(data))
+    # def get_decoded_bytes(self):
+    #     return b''
 
 class RecordingEncoder(Encoder):
     def __init__(self, inner_encoder):
@@ -266,7 +285,10 @@ class HistoryManager(object):
     def append_byte(self, byte):
         pass
     
-    def get_bytes(self, offset, length):
+    def get_byte(self, offset, relative=True):
+        return self.get_bytes(offset, 1, relative)[0]
+        
+    def get_bytes(self, offset, length, relative=True):
         return b''
         
     # def get_history_offset(self):
@@ -296,8 +318,11 @@ class BufferOnlyHistoryManager(HistoryManager):
         self.__history[self.__historyOffset] = byte
         self.__historyOffset += 1
     
-    def get_bytes(self, offset_from_end, length):
-        offset = self.__historyOffset - offset_from_end
+    def get_bytes(self, offset_from_end, length, relative=True):
+        if relative:
+            offset = self.__historyOffset - offset_from_end
+        else:
+            offset = offset_from_end
         return memoryview(self.__history)[offset : offset + length]
     
     def append_and_find_matches(self, data):

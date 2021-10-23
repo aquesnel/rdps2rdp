@@ -53,6 +53,63 @@ from data_model_v2_rdp_erp import (
 )
 
 
+class Rdp_RDP61_COMPRESSED_DATA(BaseDataUnit):
+    def __init__(self, CompressedDataSize_dep):
+        super(Rdp_RDP61_COMPRESSED_DATA, self).__init__(fields = [
+            DataUnitField('header', Rdp_RDP61_COMPRESSED_DATA_header()),
+            DataUnitField('payload', Rdp_RDP61_COMPRESSED_DATA_L1_content()),
+            DataUnitField('payload', Rdp_RDP61_COMPRESSED_DATA_L2_content()),
+        ])
+
+class Rdp_RDP61_COMPRESSED_DATA_header(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP61_COMPRESSED_DATA_header, self).__init__(fields = [
+            PrimitiveField('Level1ComprFlags', 
+                BitFieldEncodedSerializer(UINT_8, Rdp.Compression61.L1_COMPRESSION_NAMES.keys()), 
+                to_human_readable = lookup_name_in(Rdp.Compression61.L1_COMPRESSION_NAMES)),
+            PrimitiveField('Level2ComprFlags', 
+                BitFieldEncodedSerializer(UINT_8, Rdp.Compression61.L2_COMPRESSION_NAMES.keys()), 
+                to_human_readable = lookup_name_in(Rdp.Compression61.L2_COMPRESSION_NAMES)),
+        ])
+
+# class Rdp_RDP61_COMPRESSED_DATA_L1_content(BaseDataUnit):
+#     def __init__(self, root, CompressedDataSize_dep):
+#         super(Rdp_RDP61_COMPRESSED_DATA_L1_content, self).__init__(fields = [
+#             ConditionallyPresentField(
+#                 lambda: Rdp.Compression61.L1_COMPRESSED in root.header.Level1ComprFlags,
+#                 PrimitiveField('MatchCount', StructEncodedSerializer(UINT_16_LE))),
+#             ConditionallyPresentField(
+#                 lambda: Rdp.Compression61.L1_COMPRESSED in root.header.Level1ComprFlags,
+#                 DataUnitField('MatchDetails', 
+#                     ArrayDataUnit(Rdp_RDP61_MATCH_DETAILS,
+#                         item_count_dependency = ValueDependency(lambda x: self.MatchCount)))),
+#             PrimitiveField('Literals', RawLengthSerializer(LengthDependency(lambda x: CompressedDataSize_dep.get_length(x) - (2 + (0 if self.MatchCount is None else (2 + self.MatchCount * 8)))))), 
+#         ])
+        
+class Rdp_RDP61_COMPRESSED_DATA_L1_content(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP61_COMPRESSED_DATA_L1_content, self).__init__(fields = [
+            PrimitiveField('MatchCount', StructEncodedSerializer(UINT_16_LE)),
+            DataUnitField('MatchDetails', 
+                ArrayDataUnit(Rdp_RDP61_MATCH_DETAILS,
+                    item_count_dependency = ValueDependency(lambda x: self.MatchCount))),
+            PrimitiveField('Literals', RawLengthSerializer()), 
+        ])
+
+class Rdp_RDP61_COMPRESSED_DATA_L2_content(BaseDataUnit):
+    def __init__(self, CompressedDataSize_dep):
+        super(Rdp_RDP61_COMPRESSED_DATA_L2_content, self).__init__(fields = [
+            PrimitiveField('Literals', RawLengthSerializer()), 
+        ])
+
+class Rdp_RDP61_MATCH_DETAILS(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDP61_MATCH_DETAILS, self).__init__(fields = [
+            PrimitiveField('MatchLength', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('MatchOutputOffset', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('MatchHistoryOffset', StructEncodedSerializer(UINT_32_LE)),
+        ])
+
 class Rdp_SECONDARY_DRAWING_ORDER(BaseDataUnit):
     def __init__(self):
         super(Rdp_SECONDARY_DRAWING_ORDER, self).__init__(fields = [

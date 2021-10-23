@@ -2,6 +2,7 @@
 import compression_utils
 import compression_mppc
 import compression_rdp60
+import compression_rdp61
 
 
 class CompressionFactory(object):
@@ -28,4 +29,12 @@ class CompressionFactory(object):
         return compression_mppc.MPPC(#TODO: change this to use the RDP 6.0 slide-back-by-half reset behaviour
                                     compression_mppc.BruteForceHistoryManager(history_size),
                                     compression_utils.BufferOnlyHistoryManager(history_size),
-                                        compression_rdp60.Rdp60CompressionEncodingFacotry())
+                                    compression_rdp60.Rdp60CompressionEncodingFacotry())
+    
+    @classmethod
+    def new_RDP_61(cls):
+        # history_size = 2_000_000
+        return compression_rdp61.Rdp61_CompressionEngine(
+                                    # compression_mppc.BruteForceHistoryManager(history_size),
+                                    # compression_utils.BufferOnlyHistoryManager(history_size)
+                                    )

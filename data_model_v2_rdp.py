@@ -569,6 +569,19 @@ class Rdp(object):
         SURFACECMD_FRAMEACTION_BEGIN = 0x0000
         SURFACECMD_FRAMEACTION_END = 0x0001
 
+    @add_constants_names_mapping('L1_',     'L1_COMPRESSION_NAMES')
+    @add_constants_names_mapping('PACKET_', 'L2_COMPRESSION_NAMES')
+    class Compression61(object):
+        L1_COMPRESSED = 0x01
+        L1_NO_COMPRESSION = 0x02
+        L1_PACKET_AT_FRONT = 0x04
+        L1_INNER_COMPRESSION = 0x10
+        
+        PACKET_COMPR_TYPE_64K = 0x01
+        PACKET_COMPRESSED = 0x20
+        PACKET_AT_FRONT = 0x40
+        PACKET_FLUSHED = 0x80
+
     @add_constants_names_mapping('ORDERS_', 'ORDERS_NAMES')
     class DrawingOrders(object):
         @add_constants_names_mapping('TS_S', 'ORDER_FLAG_NAMES')

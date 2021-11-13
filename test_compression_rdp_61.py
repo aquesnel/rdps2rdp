@@ -2,7 +2,14 @@ import unittest
 import binascii
 
 import compression
+from data_model_v2_rdp import Rdp
 import test_utils
+from compression_utils import (
+    CompressionArgs,
+)
+from compression_rdp61 import (
+    CompressionFlags_61,
+)
 
 # test data copied from https://github.com/FreeRDP/FreeRDP/blob/master/libfreerdp/codec/test/TestFreeRDPCodecXCrush.c
 # limitations of that test data:
@@ -39,7 +46,7 @@ class TestCompressionRdp61(unittest.TestCase):
         # self.assertEqual(inflated_1.hex(), data.hex())
         
         # deflated_1 = c.compress(data)
-        # self.assertEqual(deflated_1.hex(), compressed_data.hex())
+        # self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
 
     # @unittest.skip("skip for debugging")
     def test_null_compress_L1_and_L2(self):
@@ -54,7 +61,7 @@ class TestCompressionRdp61(unittest.TestCase):
         c = compression.CompressionFactory.new_RDP_61()
         d = compression.CompressionFactory.new_RDP_61()
         
-        inflated_1 = d.decompress(compressed_data[2:], l1_compressed = False, l2_compressed = False)
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data[2:], flags = CompressionFlags_61(L1_flags = set(), L2_flags = set())))
         self.assertEqual(inflated_1, data)
         self.assertEqual(inflated_1.hex(), data.hex())
 
@@ -76,22 +83,21 @@ class TestCompressionRdp61(unittest.TestCase):
 
         c = compression.CompressionFactory.new_RDP_61_L1()
         d = compression.CompressionFactory.new_RDP_61_L1()
-        
-        # inflated_1 = d.decompress(compressed_data, l1_compressed = True, l2_compressed = False)
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = CompressionFlags_61(L1_flags = {Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED}, L2_flags = set())))
         # self.assertEqual(inflated_1, data)
         # self.assertEqual(inflated_1.hex(), data.hex())
         
         deflated_1 = c.compress(data)
-        self.assertEqual(deflated_1.hex(), compressed_data.hex())
+        self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
         inflated_1 = d.decompress(deflated_1)
         self.assertEqual(inflated_1, data)
         # print("data 1    :     ",binascii.hexlify(data))
-        # print("deflated 1:     ",binascii.hexlify(deflated_1))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
         
         deflated_2 = c.compress(data)
         # print("data 2    :     ",binascii.hexlify(data))
-        # print("deflated 2:     ",binascii.hexlify(deflated_2))
+        # print("deflated 2:     ",binascii.hexlify(deflated_2.data))
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
 
         inflated_2 = d.decompress(deflated_2)
@@ -105,20 +111,20 @@ class TestCompressionRdp61(unittest.TestCase):
         d = compression.CompressionFactory.new_RDP_61()
         
         deflated_1 = c.compress(data)
-        self.assertEqual(deflated_1.hex(), compressed_data.hex())
+        self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
 
-        inflated_1 = d.decompress(deflated_1, l1_compressed = True, l2_compressed = True)
+        inflated_1 = d.decompress(deflated_1)
         # print("data 1    :     ",binascii.hexlify(data))
-        # print("deflated 1:     ",binascii.hexlify(deflated_1))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
         self.assertEqual(inflated_1, data)
         
         deflated_2 = c.compress(data)
         # print("data 2    :     ",binascii.hexlify(data))
-        # print("deflated 2:     ",binascii.hexlify(deflated_2))
-        self.assertEqual(deflated_2.hex(), '0100817a55eb0000')
+        # print("deflated 2:     ",binascii.hexlify(deflated_2.data))
+        self.assertEqual(deflated_2.data.hex(), '0100817a55eb0000')
 
-        inflated_2 = d.decompress(deflated_2, l1_compressed = True, l2_compressed = True)
+        inflated_2 = d.decompress(deflated_2)
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
         self.assertEqual(inflated_2, data)
     

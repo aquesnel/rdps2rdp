@@ -8,6 +8,7 @@ import bisect
 import enum
 import pprint
 
+from data_model_v2_rdp import Rdp
 import compression_utils
 from compression_utils import (
     SymbolType,
@@ -396,6 +397,9 @@ class Rdp60CompressionEncodingFacotry(compression_utils.EncodingFacotry):
     def make_encoder(self):
         return Rdp60CompressionEncoder()
     
-    def make_decoder(self, data):
-        return Rdp60CompressionDecoder(data)
+    def make_decoder(self, compression_args):
+        if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in compression_args.flags:
+            return Rdp60CompressionDecoder(compression_args.data)
+        else:
+            return compression_utils.NoOpDecoder(compression_args.data)
     

@@ -9,12 +9,14 @@ import enum
 import itertools
 
 import sorted_collection
+from data_model_v2_rdp import Rdp
 import compression_utils
 from compression_utils import (
     SymbolType,
     CopyTuple,
     CopyTupleV2,
     CopyTupleV3,
+    CompressionArgs,
 )
 
 DEBUG = False
@@ -188,8 +190,11 @@ class MppcEncodingFacotry(compression_utils.EncodingFacotry):
     def make_encoder(self):
         return MccpCompressionEncoder(self._config)
     
-    def make_decoder(self, data):
-        return MccpCompressionDecoder(self._config, data)
+    def make_decoder(self, compression_args):
+        if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in compression_args.flags:
+            return MccpCompressionDecoder(self._config, compression_args.data)
+        else:
+            return compression_utils.NoOpDecoder(compression_args.data)
     
 
 
@@ -221,16 +226,17 @@ class MPPC(compression_utils.CompressionEngine):
                 inByteOffset += history_match.length
         encoder.encode(SymbolType.END_OF_STREAM, None)
                 
-        return encoder.get_encoded_bytes()
+        return CompressionArgs(data = encoder.get_encoded_bytes(), flags = {Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED})
         
-    def decompress(self, data):
+    def decompress(self, compression_args):
         # DEBUG = True
-        decoder = self._encoder_factory.make_decoder(data)
-        # dest = bytearray()
+        decoder = self._encoder_factory.make_decoder(compression_args)
         output_length = 0
         done = False
         while not done:
-            type, value = decoder.decode_next()
+            decoder_retval = decoder.decode_next()
+            if DEBUG: print("decoder (%s) returned: %s" % (decoder, decoder_retval,))
+            type, value = decoder_retval
             if type == SymbolType.END_OF_STREAM:
                 if DEBUG: print('decoding end-of-stream')
                 done = True
@@ -252,4 +258,3 @@ class MPPC(compression_utils.CompressionEngine):
             else:
                 raise ValueError('unknown SymbolType: %s' % type)
         return self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True).tobytes()
-        # return dest

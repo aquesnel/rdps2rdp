@@ -11,9 +11,10 @@ class CompressionFactory(object):
     def new_NoOp(cls):
         class NoOpCompressionEngine(compression_utils.CompressionEngine):
             def compress(self, data):
-                return data
-            def decompress(self, data):
-                return data
+                return CompressionArgs(data = data, flags = set())
+            
+            def decompress(self, compression_args):
+                return compression_args.data
         
         return NoOpCompressionEngine()
     

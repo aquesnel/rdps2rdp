@@ -29,7 +29,7 @@ class TestCompressionMppc(unittest.TestCase):
         deflated_2 = c.compress(data)
         inflated_2 = c.decompress(deflated_2)
         # print("data 2    :     ",binascii.hexlify(data))
-        # print("deflated 2:     ",binascii.hexlify(deflated_2))
+        # print("deflated 2:     ",binascii.hexlify(deflated_2.data))
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
         self.assertEqual(deflated_2, test_utils.extract_as_bytes("""fc # F[0:4] = 0b1111 = copy-offset with base 0, CF[0:6] = 0b110011 = copy-offset of 0 + 51
                                                                     fd # FD[2:7] = 0b111101 = length-of-match with base 32
@@ -47,9 +47,9 @@ class TestCompressionMppc(unittest.TestCase):
         
         deflated_1 = c.compress(data)
         # print("data 1    :     ",binascii.hexlify(data))
-        # print("deflated 1:     ",binascii.hexlify(deflated_1))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
-        self.assertEqual(deflated_1, test_utils.extract_as_bytes("""66 6f 72 20 77 68 6f 6d 20 74 68 65 20 62 65 6c
+        self.assertEqual(deflated_1.data, test_utils.extract_as_bytes("""66 6f 72 20 77 68 6f 6d 20 74 68 65 20 62 65 6c
                                                                     6c 20 74 6f 6c 6c 73 2c f4 37 20 fa 23 d3 32 97
                                                                     49 a0 00"""))
         inflated_1 = d.decompress(deflated_1)
@@ -58,9 +58,9 @@ class TestCompressionMppc(unittest.TestCase):
         deflated_2 = c.compress(data)
         inflated_2 = d.decompress(deflated_2)
         # print("data 2    :     ",binascii.hexlify(data))
-        # print("deflated 2:     ",binascii.hexlify(deflated_2))
+        # print("deflated 2:     ",binascii.hexlify(deflated_2.data))
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
-        self.assertEqual(deflated_2, test_utils.extract_as_bytes("""fc # F[0:4] = 0b1111 = copy-offset with base 0, CF[0:6] = 0b110011 = copy-offset of 0 + 51
+        self.assertEqual(deflated_2.data, test_utils.extract_as_bytes("""fc # F[0:4] = 0b1111 = copy-offset with base 0, CF[0:6] = 0b110011 = copy-offset of 0 + 51
                                                                     fd # FD[2:7] = 0b111101 = length-of-match with base 32
                                                                     30 # D3[3:8] = 0b10011 = length-of-match of 32 + 19
                                                                     """))
@@ -76,9 +76,9 @@ class TestCompressionMppc(unittest.TestCase):
         deflated_1 = c.compress(data)
         # import pprint ; pprint.pprint(c._encoder.get_recording())
         # print("data 1    :     ",binascii.hexlify(data))
-        # print("deflated 1:     ",binascii.hexlify(deflated_1))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
-        self.assertEqual(deflated_1, test_utils.extract_as_bytes("""
+        self.assertEqual(deflated_1.data, test_utils.extract_as_bytes("""
                                             66 6f 72 20 77 68 6f 6d 20 74 68 65 20 62 65 6c # for whom the bel
                                             6c 20 74 6f 6c 6c 73 2c                         # l tolls,
                                             # CopyTuple(offset=16, len=15)
@@ -121,7 +121,7 @@ class TestCompressionMppc(unittest.TestCase):
         # print("data 2    :     ",binascii.hexlify(data))
         # print("deflated 2:     ",binascii.hexlify(deflated_2))
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
-        self.assertEqual(deflated_2, test_utils.extract_as_bytes("""
+        self.assertEqual(deflated_2.data, test_utils.extract_as_bytes("""
                                             # CopyTuple(offset=51, len=51)
                                             # carryover None
                                             # copy-offset 51 with base 0 = 0b11111 && (51 - 0) = 0b110011

@@ -230,11 +230,11 @@ class CompressionEngine(object):
     def resetHistory(self):
         pass
 
-    def compress(self, data):
+    def compress(self, data: bytes):
         raise NotImplementedError()
-        return b''
+        return CompressionArgs(data = b'', flags = 0)
 
-    def decompress(self, data):
+    def decompress(self, args: CompressionArgs):
         raise NotImplementedError()
         return b''
 
@@ -242,7 +242,7 @@ class EncodingFacotry(object):
     def make_encoder(self):
         return Encoder()
     
-    def make_decoder(self, data):
+    def make_decoder(self, compression_args: CompressionArgs):
         return Decoder()
 
 class Encoder(object):
@@ -251,13 +251,23 @@ class Encoder(object):
 
     def get_encoded_bytes(self):
         return b''
+    # def get_encoding_flags(self):
+    #     return 0
 
 class Decoder(object):
-    def decode_next(self): #Tuple[SymbolType, Any]
+    def decode_next(self):
         pass
-    
-    # def get_decoded_bytes(self):
-    #     return b''
+
+class NoOpDecoder(object):
+    def __init__(self, data):
+        self._data_iter = self.decode_iter(data)
+        
+    def decode_next(self):
+        return next(self._data_iter)
+        
+    def decode_iter(self, data):
+        yield (SymbolType.LITERAL, data)
+        yield (SymbolType.END_OF_STREAM, None)
 
 class RecordingEncoder(Encoder):
     def __init__(self, inner_encoder):

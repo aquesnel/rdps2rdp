@@ -2,6 +2,10 @@ import unittest
 import binascii
 
 import compression
+from data_model_v2_rdp import Rdp
+from compression_utils import (
+    CompressionArgs,
+)
 import test_utils
     
 class TestCompressionRdp60(unittest.TestCase):
@@ -31,9 +35,8 @@ class TestCompressionRdp60(unittest.TestCase):
         # self.assertEqual(inflated_1.hex(), data.hex())
         
         deflated_1 = c.compress(data)
-        self.assertEqual(deflated_1.hex(), compressed_data.hex())
+        self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
         
-    # @unittest.skip("compressing not ready yet")
     def test_compress_same_packet_twice(self):
         data = b"for whom the bell tolls, the bell tolls for thee.\xA6\x80"
         data = b"for.whom.the.bell.tolls,.the.bell.tolls.for.thee!"
@@ -42,28 +45,28 @@ class TestCompressionRdp60(unittest.TestCase):
         c = compression.CompressionFactory.new_RDP_60()
         d = compression.CompressionFactory.new_RDP_60()
         
-        inflated_1 = d.decompress(compressed_data)
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = {Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED}))
         self.assertEqual(inflated_1, data)
         self.assertEqual(inflated_1.hex(), data.hex())
         
         
         deflated_1 = c.compress(data)
-        # self.assertEqual(deflated_1.hex(), compressed_data.hex())
-        # self.assertEqual(deflated_1, test_utils.extract_as_bytes("""66 6f 72 20 77 68 6f 6d 20 74 68 65 20 62 65 6c
+        # self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
+        # self.assertEqual(deflated_1.data, test_utils.extract_as_bytes("""66 6f 72 20 77 68 6f 6d 20 74 68 65 20 62 65 6c
         #                                                             6c 20 74 6f 6c 6c 73 2c f4 37 20 fa 23 d3 32 97
         #                                                             49 a0 00"""))
         inflated_1 = d.decompress(deflated_1)
         self.assertEqual(inflated_1, data)
         # print("data 1    :     ",binascii.hexlify(data))
-        # print("deflated 1:     ",binascii.hexlify(deflated_1))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
         
         deflated_2 = c.compress(data)
         # print("data 2    :     ",binascii.hexlify(data))
-        # print("deflated 2:     ",binascii.hexlify(deflated_2))
+        # print("deflated 2:     ",binascii.hexlify(deflated_2.data))
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
-        self.assertLessEqual(len(deflated_2), 5)
-        # self.assertEqual(deflated_2, test_utils.extract_as_bytes("""fc # F[0:4] = 0b1111 = copy-offset with base 0, CF[0:6] = 0b110011 = copy-offset of 0 + 51
+        self.assertLessEqual(len(deflated_2.data), 5)
+        # self.assertEqual(deflated_2.data, test_utils.extract_as_bytes("""fc # F[0:4] = 0b1111 = copy-offset with base 0, CF[0:6] = 0b110011 = copy-offset of 0 + 51
         #                                                             fd # FD[2:7] = 0b111101 = length-of-match with base 32
         #                                                             30 # D3[3:8] = 0b10011 = length-of-match of 32 + 19
         #                                                             """))

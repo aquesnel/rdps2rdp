@@ -13,10 +13,12 @@ import compression_utils
 from compression_utils import (
     SymbolType,
     CopyTuple,
+    CopyTupleV2,
+    CopyTupleV3,
 )
 
 DEBUG = False
-
+# DEBUG = True
 
 EncodingConfig = collections.namedtuple('CompressionConfig', ['history_size', 'offset_encoding', 'length_encoding'])
 EncodingRange = collections.namedtuple('EncodingRange', ['min_value', 'value_bit_length', 'prefix', 'prefix_length'])
@@ -93,11 +95,11 @@ class MccpCompressionEncoder(compression_utils.Encoder):
             if DEBUG: print('encoding literal: %s' % (chr(value)))
             
         elif symbol_type == SymbolType.COPY_OFFSET:
-            copy_offset, length_of_match = value.copy_offset, value.length_of_match
-            if DEBUG: print('encoding copy_tuple: copy_offset = %s, length = %s' % (copy_offset, length_of_match))
-            encoding_tuples = self.encode_copy_offset(copy_offset)
-            encoding_tuples.extend(self.encode_length_of_match(length_of_match))
+            if DEBUG: print('encoding copy_tuple: %s' % (value,))
+            encoding_tuples = self.encode_copy_offset(value.copy_offset)
+            encoding_tuples.extend(self.encode_length_of_match(value.length_of_match))
         elif symbol_type == SymbolType.END_OF_STREAM:
+            if DEBUG: print('encoding end-of-stream')
             return
         else:
             raise ValueError('Invalid symbol type: %s' % (symbol_type, ))
@@ -144,23 +146,24 @@ class MccpCompressionDecoder(compression_utils.Decoder):
         bits_iter = self._bitstream_src_iter
         # if DEBUG: print("Processing input byte %d, bit %d, bits: %s" % (byte_offset, self.__getInputBit(), bits))
         # encoding rules from https://www.ietf.org/rfc/rfc2118.txt section 4.2.1
+        if DEBUG: print('bits remaining: %s' % bits_iter.remaining())
         if bits_iter.next() == 0: # literal value <= 0x7f with prefix 0b0
             if bits_iter.remaining() < 8: # padding bits at the end of the stream to align to a byte boundary that can be discarded
                 return (SymbolType.END_OF_STREAM, None)
             else:
                 literal_byte = bits_iter.next_int(7)
-                return (SymbolType.LITERAL, literal_byte)
+                return (SymbolType.LITERAL, literal_byte.to_bytes(1,'little'))
 
         elif bits_iter.next() == 0: # literal value > 0x7f with prefix 0b10
             literal_byte = bits_iter.next_int(7) + 128
-            return (SymbolType.LITERAL, literal_byte)
+            return (SymbolType.LITERAL, literal_byte.to_bytes(1,'little'))
             
         else:
             # encoded copy tuple with prefix 0b11
             copy_offset = self.decode_range_value(bits_iter, reversed(self.encoding_config.offset_encoding), prefix = 0b11, prefix_length = 2)
             length = self.decode_range_value(bits_iter, self.encoding_config.length_encoding)
 
-            return (SymbolType.COPY_OFFSET, CopyTuple(copy_offset, length))
+            return (SymbolType.COPY_OFFSET, CopyTupleV2(copy_offset, length, is_relative_offset = True))
 
     def decode_range_value(self, bits_iter, encoding_ranges_iter, prefix = 0, prefix_length = 0):
         for encoding_range in encoding_ranges_iter:
@@ -189,87 +192,6 @@ class MppcEncodingFacotry(compression_utils.EncodingFacotry):
         return MccpCompressionDecoder(self._config, data)
     
 
-class BruteForceHistoryManager(compression_utils.HistoryManager):
-    def __init__(self, size):
-        self.__historyLength = size
-        self.resetHistory()
-
-    def resetHistory(self):
-        self.__history = array.array('B')
-        self.__history.fromlist([0] * self.__historyLength)
-        self.__historyOffset = 0
-
-    def append_bytes(self, bytes):
-        for byte in bytes:
-            self.append_byte(byte)
-
-    def append_byte(self, byte):
-        self.__history[self.__historyOffset] = byte
-        self.__historyOffset += 1
-
-    def get_bytes(self, offset, length):
-        if offset + length > self.__historyOffset:
-            raise ValueError('index out of history range')
-        return memoryview(self.__history)[offset : offset + length]
-
-    def get_byte(self, index):
-        if index > self.__historyOffset:
-            raise ValueError('index out of history range')
-        return self.__history[index]
-        
-    def get_history_offset(self):
-        return self.__historyOffset
-
-    def append_and_find_matches(self, data):
-        self.append_bytes(data)
-
-    # def findLongestHistory(self, data):
-        '''
-            Begining at __inByteOffset, find the longest substring in the
-            history that matches it.
-            This is an inefficient implementation as it does a linear scan.
-            Because the minimum length encoding is 3, we do not match
-            any substrings less than 3 bytes long.
-            :return: (offset, length) or None
-        '''
-        
-        inByteOffset = 0
-        while inByteOffset < len(data):
-            istring = data[inByteOffset:]
-
-            longestLen = 0
-            longestOffset = 0
-            history_end = (self.__historyOffset 
-                - (len(data) - inByteOffset)) # remove trailing data that is not entered the dest history buffer yet
-
-            hstr = self.__history.tobytes()[:history_end]
-            if DEBUG: print("comparing: history = %s, data = %s" % (hstr, istring))
-            
-            # min match length = 3
-            for iLen in range(3, 1 + len(istring)):
-                idx = hstr.rfind(istring[0:iLen])
-                if idx > -1:
-                    # substrings match, so possible hit
-                    if iLen > longestLen:
-                        longestLen = iLen
-                        longestOffset = idx
-                else:
-                    # substrings no longer match, give up on this historyOffset
-                    # breaks out of iLen loop
-                    break
-    
-            if longestLen > 0:
-                if DEBUG: print("Found longest match (idx = {}, len = {})".format(longestOffset, longestLen))
-                history_absolute_offset = longestOffset
-                yield compression_utils.HistoryMatch(data_absolute_offset=inByteOffset, 
-                        history_absolute_offset=history_absolute_offset, 
-                        history_relative_offset=history_end - history_absolute_offset, 
-                        length=longestLen)
-                # (longestOffset, longestLen)
-                inByteOffset += longestLen
-            else:
-                # return (None, None)
-                inByteOffset += 1
 
 
 class MPPC(compression_utils.CompressionEngine):
@@ -295,7 +217,7 @@ class MPPC(compression_utils.CompressionEngine):
                     encoder.encode(SymbolType.LITERAL, data[inByteOffset])
                     inByteOffset += 1
             if history_match.length > 0:
-                encoder.encode(SymbolType.COPY_OFFSET, CopyTuple(history_match.history_relative_offset, history_match.length))
+                encoder.encode(SymbolType.COPY_OFFSET, CopyTupleV3(history_match.history_relative_offset, history_match.length, history_match.history_absolute_offset))
                 inByteOffset += history_match.length
         encoder.encode(SymbolType.END_OF_STREAM, None)
                 
@@ -304,26 +226,30 @@ class MPPC(compression_utils.CompressionEngine):
     def decompress(self, data):
         # DEBUG = True
         decoder = self._encoder_factory.make_decoder(data)
-        dest = bytearray()
+        # dest = bytearray()
+        output_length = 0
         done = False
         while not done:
             type, value = decoder.decode_next()
             if type == SymbolType.END_OF_STREAM:
+                if DEBUG: print('decoding end-of-stream')
                 done = True
             elif type == SymbolType.LITERAL:
-                if value > 0xff:
-                    raise ValueError("Byte must be less than or equal to 0xff, got: ", hex(value))
-                dest.append(value)
-                if DEBUG: print("Push byte to output: %s = %s, dest = %s" % (hex(value), chr(value), dest))
-                self._decompressionHistoryManager.append_byte(value)
+                # if value > b'\xff':
+                #     raise ValueError("Byte must be less than or equal to 0xff, got: ", hex(value))
+                # dest.append(value)
+                self._decompressionHistoryManager.append_bytes(value)
+                output_length += len(value)
+                if DEBUG: print('decoding literal: %s' % (value,))
+                #if DEBUG: print("Push bytes to output: %s = %s, dest = ...%s" % (' '.join([hex(v) for v in value]), bytes(value), self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True).tobytes()[-10:]))
             elif type == SymbolType.COPY_OFFSET:
-                offset, length = value.copy_offset, value.length_of_match
-                match_data = self._decompressionHistoryManager.get_bytes(offset, length)
-                if DEBUG: print("Processing CopyTuple: offset %d, length %d" % (offset, length))
-                if DEBUG: print("Push bytes to output: match_data = %s" % (bytes(match_data)))
-                dest.extend(match_data)
+                match_data = self._decompressionHistoryManager.get_bytes(value.copy_offset, value.length_of_match, relative = value.is_relative_offset)
+                if DEBUG: print("decoding copy_tuple: %s, match_data = [...]%s" % (value, bytes(match_data)[-10:]))
+                # dest.extend(match_data)
                 self._decompressionHistoryManager.append_bytes(match_data)
+                output_length += value.length_of_match
                 
             else:
                 raise ValueError('unknown SymbolType: %s' % type)
-        return dest
+        return self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True).tobytes()
+        # return dest

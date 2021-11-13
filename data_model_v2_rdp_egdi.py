@@ -89,7 +89,10 @@ class Rdp_RDP61_COMPRESSED_DATA_header(BaseDataUnit):
 class Rdp_RDP61_COMPRESSED_DATA_L1_content(BaseDataUnit):
     def __init__(self):
         super(Rdp_RDP61_COMPRESSED_DATA_L1_content, self).__init__(fields = [
-            PrimitiveField('MatchCount', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('MatchCount', 
+                DependentValueSerializer(
+                    StructEncodedSerializer(UINT_16_LE),
+                    ValueDependency(lambda x: len(self.MatchDetails)))),
             DataUnitField('MatchDetails', 
                 ArrayDataUnit(Rdp_RDP61_MATCH_DETAILS,
                     item_count_dependency = ValueDependency(lambda x: self.MatchCount))),

@@ -265,7 +265,7 @@ class PrimitiveField(BaseField):
         self._to_human_readable = to_human_readable
         self.value = None
         self.raw_value = None
-        self.is_value_dirty = False
+        self.is_value_dirty = True
         self._deserialize_value_snapshot = None
 
     def __str__(self):
@@ -1196,6 +1196,21 @@ class ArrayDataUnit(BaseDataUnit):
 
     def fields_as_array(self):
         return [f.get_value() for f in self._fields if isinstance(f, DataUnitField)]
+
+    def append(self, item):
+        field_name = '%d' % len(self.fields_as_array())
+        field_item = DataUnitField(field_name, item)
+        self._fields_by_name[field_name] = field_item
+        self._fields.append(field_item)
+        
+        if self._alias_hinter:
+            alias = self._alias_hinter.get_value(item)
+            if alias:
+                self.alias_field(alias, field_name)
+        
+    def extend(self, items):
+        for item in items:
+            self.append(item)
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
         consumed = 0

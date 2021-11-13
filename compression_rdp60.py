@@ -12,6 +12,7 @@ import compression_utils
 from compression_utils import (
     SymbolType,
     CopyTuple,
+    CopyTupleV2,
 )
 
 DEBUG = False
@@ -351,14 +352,14 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         # if DEBUG: print('decoding huffman_index: %s' % (huffman_index))
         if 0 <= huffman_index and huffman_index <= 255:
             if DEBUG: print('decoding literal: %s' % (chr(huffman_index)))
-            return (SymbolType.LITERAL, huffman_index)
+            return (SymbolType.LITERAL, huffman_index.to_bytes(1,'little'))
         elif huffman_index == 256:
             if DEBUG: print('decoding end-of-stream')
             return (SymbolType.END_OF_STREAM, None)
         elif 257 <= huffman_index and huffman_index <= 288:
             copy_offset = self.decode_copy_offset(huffman_index - 257, bits_iter)
             length_of_match = self.decode_length_of_match(bits_iter)
-            copy_tuple = CopyTuple(copy_offset, length_of_match)
+            copy_tuple = CopyTupleV2(copy_offset, length_of_match, is_relative_offset = True)
             if DEBUG: print('decoding copy_tuple: copy_tuple = %s' % (str(copy_tuple)))
             return (SymbolType.COPY_OFFSET, copy_tuple)
         elif 289 <= huffman_index and huffman_index <= 292:

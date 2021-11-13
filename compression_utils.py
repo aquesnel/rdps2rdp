@@ -14,9 +14,11 @@ class SymbolType(enum.Enum):
     COPY_OFFSET_CACHE_INDEX = 'copy_offset_cache_index'
 
 CopyTuple = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_match'])
+CopyTupleV2 = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_match', 'is_relative_offset'])
+CopyTupleV3 = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_match', 'history_absolute_offset'])
 HistoryMatch = collections.namedtuple('HistoryMatch', ['data_absolute_offset', 'history_absolute_offset', 'history_relative_offset', 'length'])
 
-
+CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags'])
 
 class BitStream(object):
     def __init__(self, packed_bits = [], append_low_to_high = False):
@@ -103,7 +105,10 @@ class BitStream(object):
             return BitStream.BitStreamIter(self)
     
     def __len__(self):
-        return len(self._bytes) * 8 - (8 - self._bit_offset)
+        bits_in_last_byte = 8
+        if self._bit_offset > 0:
+            bits_in_last_byte = self._bit_offset
+        return len(self._bytes) * 8 - (8 - bits_in_last_byte)
     
     def iter_low_to_high(self):
         return BitStream.LowToHightBitStreamIter(self)
@@ -328,6 +333,89 @@ class BufferOnlyHistoryManager(HistoryManager):
     def append_and_find_matches(self, data):
         raise NotImplementedError()
 
+
+class BruteForceHistoryManager(HistoryManager):
+    def __init__(self, size):
+        self.__historyLength = size
+        self.resetHistory()
+
+    def resetHistory(self):
+        self.__history = array.array('B')
+        self.__history.fromlist([0] * self.__historyLength)
+        self.__historyOffset = 0
+
+    def append_bytes(self, bytes):
+        for byte in bytes:
+            self.append_byte(byte)
+
+    def append_byte(self, byte):
+        self.__history[self.__historyOffset] = byte
+        self.__historyOffset += 1
+
+    def get_bytes(self, offset, length):
+        if offset + length > self.__historyOffset:
+            raise ValueError('index out of history range')
+        return memoryview(self.__history)[offset : offset + length]
+
+    def get_byte(self, index):
+        if index > self.__historyOffset:
+            raise ValueError('index out of history range')
+        return self.__history[index]
+        
+    def get_history_offset(self):
+        return self.__historyOffset
+
+    def append_and_find_matches(self, data):
+        self.append_bytes(data)
+
+    # def findLongestHistory(self, data):
+        '''
+            Begining at __inByteOffset, find the longest substring in the
+            history that matches it.
+            This is an inefficient implementation as it does a linear scan.
+            Because the minimum length encoding is 3, we do not match
+            any substrings less than 3 bytes long.
+            :return: (offset, length) or None
+        '''
+        
+        inByteOffset = 0
+        while inByteOffset < len(data):
+            istring = data[inByteOffset:]
+
+            longestLen = 0
+            longestOffset = 0
+            history_end = (self.__historyOffset 
+                - (len(data) - inByteOffset)) # remove trailing data that is not entered the dest history buffer yet
+
+            hstr = self.__history.tobytes()[:history_end]
+            if DEBUG: print("comparing: history = %s, data = %s" % (hstr, istring))
+            
+            # min match length = 3
+            for iLen in range(3, 1 + len(istring)):
+                idx = hstr.rfind(istring[0:iLen])
+                if idx > -1:
+                    # substrings match, so possible hit
+                    if iLen > longestLen:
+                        longestLen = iLen
+                        longestOffset = idx
+                else:
+                    # substrings no longer match, give up on this historyOffset
+                    # breaks out of iLen loop
+                    break
+    
+            if longestLen > 0:
+                if DEBUG: print("Found longest match (idx = {}, len = {})".format(longestOffset, longestLen))
+                history_absolute_offset = longestOffset
+                yield HistoryMatch(data_absolute_offset=inByteOffset, 
+                        history_absolute_offset=history_absolute_offset, 
+                        history_relative_offset=history_end - history_absolute_offset, 
+                        length=longestLen)
+                # (longestOffset, longestLen)
+                inByteOffset += longestLen
+            else:
+                # return (None, None)
+                inByteOffset += 1
+                
 class RollingHash(object):
     DEFAULT_MODULO = 2**31 - 1 # prime number less than 2*32 so that all of the math is guaranteed to fit in 64-bit registers (prime taken from https://primes.utm.edu/lists/2small/0bit.html  )
     DEFAULT_BASE = 256 # = 2**8 since we are using 8-bit bytes as the character size, so each value is in this base

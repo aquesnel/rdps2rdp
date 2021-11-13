@@ -8,10 +8,20 @@ import compression_rdp61
 class CompressionFactory(object):
     
     @classmethod
+    def new_NoOp(cls):
+        class NoOpCompressionEngine(compression_utils.CompressionEngine):
+            def compress(self, data):
+                return data
+            def decompress(self, data):
+                return data
+        
+        return NoOpCompressionEngine()
+    
+    @classmethod
     def new_RDP_40(cls):
         compression_config = compression_mppc.MccpCompressionConfig.RDP_40
         return compression_mppc.MPPC(
-                                    compression_mppc.BruteForceHistoryManager(compression_config.history_size),
+                                    compression_utils.BruteForceHistoryManager(compression_config.history_size),
                                     compression_utils.BufferOnlyHistoryManager(compression_config.history_size),
                                     compression_mppc.MppcEncodingFacotry(compression_config))
     
@@ -19,7 +29,7 @@ class CompressionFactory(object):
     def new_RDP_50(cls):
         compression_config = compression_mppc.MccpCompressionConfig.RDP_50
         return compression_mppc.MPPC(
-                                    compression_mppc.BruteForceHistoryManager(compression_config.history_size),
+                                    compression_utils.BruteForceHistoryManager(compression_config.history_size),
                                     compression_utils.BufferOnlyHistoryManager(compression_config.history_size),
                                     compression_mppc.MppcEncodingFacotry(compression_config))
     
@@ -27,14 +37,23 @@ class CompressionFactory(object):
     def new_RDP_60(cls):
         history_size = 65536
         return compression_mppc.MPPC(#TODO: change this to use the RDP 6.0 slide-back-by-half reset behaviour
-                                    compression_mppc.BruteForceHistoryManager(history_size),
+                                    compression_utils.BruteForceHistoryManager(history_size),
                                     compression_utils.BufferOnlyHistoryManager(history_size),
                                     compression_rdp60.Rdp60CompressionEncodingFacotry())
+
+    @classmethod
+    def new_RDP_61_L1(cls):
+        history_size_l1 = 2000000
+        return compression_mppc.MPPC(
+                                    compression_utils.BruteForceHistoryManager(history_size_l1),
+                                    compression_utils.BufferOnlyHistoryManager(history_size_l1),
+                                    compression_rdp61.Rdp61_L1_CompressionEncodingFacotry()
+                                    )
     
     @classmethod
     def new_RDP_61(cls):
-        # history_size = 2_000_000
-        return compression_rdp61.Rdp61_CompressionEngine(
-                                    # compression_mppc.BruteForceHistoryManager(history_size),
-                                    # compression_utils.BufferOnlyHistoryManager(history_size)
-                                    )
+        l1_compression = CompressionFactory.new_RDP_61_L1()
+        l2_compression = CompressionFactory.new_RDP_50()
+        # l2_compression = CompressionFactory.new_NoOp()
+        
+        return compression_rdp61.Rdp61_CompressionEngine(l1_compression, l2_compression)

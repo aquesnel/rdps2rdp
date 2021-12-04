@@ -14,6 +14,8 @@ from data_model_v2 import RawDataUnit
 DEFAULT_BUFF_SIZE = 4096
 DEFAULT_FLAGS = 0
 
+DEBUG = False
+
 @contextlib.contextmanager
 def managed_timeout(sck, timeout = None, blocking = False):
     skip_setting_timeout = False
@@ -316,7 +318,7 @@ class PduSocketWrapper(DelegatingMixin):
                     print("%s receive: %s" % (self.socket_name, e))
                     raise e
             finally:
-                if dbg_msg:
+                if DEBUG and dbg_msg:
                     print(dbg_msg)
             # print("           Msg from %s [len(msg) = %s] : '%s'" % (self.socket_name, len(msg), utils.as_hex_str(msg)))
             # print("      ->                '%s'" % msg)
@@ -331,7 +333,7 @@ class PduSocketWrapper(DelegatingMixin):
             msg = pdu
         else:
             raise ValueError('unsupported pdu type: %s' % (pdu.__class__.__name__))
-        print('sending to %s pdu (len = %d)' % (self.socket_name, len(msg)))
+        if DEBUG: print('sending to %s pdu (len = %d)' % (self.socket_name, len(msg)))
         # print("Sending Msg to %s [len(msg) = %s] : '%s'" % (source_name, self.socket_name, len(msg), utils.as_hex_str(msg)))
         self.socket.sendall(msg)
 

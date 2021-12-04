@@ -579,9 +579,10 @@ class ConditionallyPresentWrapperField(BaseField):
         return 0
 
 class DefaultValueField(BaseField):
-    def __init__(self, default_value_dependency, optional_field):
+    def __init__(self, default_value_dependency, optional_field, to_human_readable = lambda x: x):
         self._optional_field = optional_field
         self._default_value_dependency = default_value_dependency
+        self._to_human_readable = to_human_readable
 
     def __str__(self):
         return '<DefaultValueField(field=%s)>' % (self._optional_field)
@@ -594,7 +595,7 @@ class DefaultValueField(BaseField):
         field_value = self._optional_field.get_human_readable_value()
         if field_value is None:
             field_value = self._default_value_dependency.get_value(None)
-        return field_value
+        return self._to_human_readable(field_value)
 
     def get_pdu_types(self, rdp_context):
         return self._optional_field.get_pdu_types(rdp_context)

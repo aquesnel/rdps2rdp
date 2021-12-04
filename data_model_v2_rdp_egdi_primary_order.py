@@ -118,7 +118,9 @@ class Rdp_PRIMARY_DRAWING_ORDER(BaseDataUnit):
                 ValueDependency(lambda x: rdp_context.previous_primary_drawing_orders['order_type']),
                 ConditionallyPresentField( # Note: when the orderType is not present then the orderType value is equal to the previous order type sent
                     lambda: Rdp.DrawingOrders.OrderFlags.TS_PRIMARY_TYPE_CHANGE in drawing_order.header.controlFlags,
-                    PrimitiveField('orderType', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.DrawingOrders.PrimaryOrderTypes.PRIMARY_ORDER_NAMES)))),
+                    PrimitiveField('orderType', 
+                        StructEncodedSerializer(UINT_8))), 
+                to_human_readable = lookup_name_in(Rdp.DrawingOrders.PrimaryOrderTypes.PRIMARY_ORDER_NAMES)),
             PrimitiveField('fieldFlags', 
                 PRIMARY_DRAWING_ORDER_fieldFlagsSerializer(
                     zero_field_byte_dependency = ValueDependency(lambda x: self.get_zero_field_bytes(drawing_order)),

@@ -129,7 +129,7 @@ def handler_v2(stream):
                 raise ValueError('Server requested unknown security')
         stream.client.send_pdu(pdu)
         
-        print('Intercepting rdp SSL session from %s' % clientsock.getpeername()[0])
+        print('Intercepting rdp SSL session from %s' % stream.client.getpeername()[0])
         with stream.managed_timeout(blocking = True) as _:
             stream.replace_sockets(
                     server = ssl.wrap_socket(stream.server,ssl_version=ssl.PROTOCOL_TLS), 
@@ -200,6 +200,7 @@ def main():
     
     True
     False
+    global OUTPUTPCAP
 
     args = parser.parse_args()
     print("command = %s" % args.cmd_name)
@@ -219,6 +220,8 @@ def main():
                 pkt = stream_context.make_tcp_packet(source_peer, buffer)
                 # s = hexdump(pkt, dump=True)
                 wrpcap(OUTPUTPCAP, pkt, append=True)
+                print('%s %s - len %4d' % (datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load)))
+                
                 
             def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
                 if request_type == self.RequestType.RECEIVE:
@@ -395,9 +398,11 @@ def main():
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
-        OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
+        # OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
         # OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930
         # offset = 180 ; limit = 1 ; # alt-sec err
+        
+        OUTPUTPCAP = 'output.win10.rail.no-gfx.fail.pcap'; SERVER_PORT = 33994
         
         rdp_context = parser_v2_context.RdpContext()
         i = 0
@@ -412,10 +417,11 @@ def main():
             pre_parsing_rdp_context = rdp_context.clone()
             try:
                 pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+            except parser_v2.ParserException as e:
+                err = e.__cause__
+                pdu = e.pdu
             except Exception as e:
-                err = RuntimeError('Error while parsing pdu %d' % i)
-                err.__cause__ = e
-                err = traceback.TracebackException.from_exception(err)
+                err = e
                 pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
             root_pdu = pdu
 
@@ -470,15 +476,15 @@ def main():
                     print(utils.as_hex_str(pdu.as_wire_bytes()))
 
             if err:
+                e = err
+                err = RuntimeError('Error while parsing pdu %d' % i)
+                err.__cause__ = e
                 if args.partial_parsing:
+                    err = traceback.TracebackException.from_exception(err)
                     print("".join(err.format()))
                 else:
                     raise err
-            # TODO: this must be skipped because re-running the parsing with the side effects causes an out of memory error
-            # elif ALLOW_PARTIAL_PARSING:
-            #     # TODO this is broken since parsing has side effects on the context which means that parsing a second time will be parsing with an invalid context
-            #     parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = False)
-            
+
             if offset + limit <= i: 
                 break
             i += 1

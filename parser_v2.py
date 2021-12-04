@@ -103,6 +103,10 @@ import mccp
 IS_DECRYPTION_SUPPORTED = False
 NULL_CHANNEL = ChannelDef('null', 0, Rdp.Channel.ChannelType.STATIC)
 
+class ParserException(Exception):
+    def __init__(self, pdu):
+        self.pdu = pdu
+
 def _get_pdu_type(data, rdp_context):
     
     # the first byte value of the payload for each type is:
@@ -512,10 +516,14 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
             #         and tpkt.x224.mcs.rdp.is_license_success()):
             #     rdp_context.pre_capability_exchange = False
     except Exception as e:
-        if allow_partial_parsing:
-            print('Parser v2:', e)
-        else:
-            raise
+        raise ParserException(pdu) from e
+        # if allow_partial_parsing:
+        #     # print('Parser v2:', e)
+        #     import traceback
+        #     # traceback.print_exc()
+        #     print("".join(traceback.TracebackException.from_exception(e).format()))
+        # else:
+        #     raise
     return pdu
     
 

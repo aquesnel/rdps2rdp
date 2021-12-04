@@ -9,7 +9,7 @@ import enum
 import itertools
 
 import sorted_collection
-from data_model_v2_rdp import Rdp
+import compression_constants
 import compression_utils
 from compression_utils import (
     SymbolType,
@@ -22,13 +22,14 @@ from compression_utils import (
 DEBUG = False
 # DEBUG = True
 
-EncodingConfig = collections.namedtuple('CompressionConfig', ['history_size', 'offset_encoding', 'length_encoding'])
+EncodingConfig = collections.namedtuple('CompressionConfig', ['compression_type', 'history_size', 'offset_encoding', 'length_encoding'])
 EncodingRange = collections.namedtuple('EncodingRange', ['min_value', 'value_bit_length', 'prefix', 'prefix_length'])
 
 
 class MccpCompressionConfig(object):
     
     RDP_40 = EncodingConfig(
+            compression_type = compression_constants.CompressionTypes.RDP_40,
             history_size = 8196,
             # reset_to_begining = True,
             # offset_cache_size = 0,
@@ -53,6 +54,7 @@ class MccpCompressionConfig(object):
                 ], key = lambda x: x.min_value),
         )
     RDP_50 = EncodingConfig(
+            compression_type = compression_constants.CompressionTypes.RDP_50,
             history_size = 65536,
             # reset_to_begining = True,
             # offset_cache_size = 0,
@@ -183,21 +185,22 @@ class MccpCompressionDecoder(compression_utils.Decoder):
 
         raise ValueError('No matching prefix in config. Prefix: %s' % (prefix))
 
-class MppcEncodingFacotry(compression_utils.EncodingFacotry):
+class MppcEncodingFacotry(compression_utils.EncodingFactory):
     def __init__(self, config):
         self._config = config
+        
+    def compression_type(self):
+        return self._config.compression_type
         
     def make_encoder(self):
         return MccpCompressionEncoder(self._config)
     
     def make_decoder(self, compression_args):
-        if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in compression_args.flags:
+        if compression_constants.CompressionFlags.COMPRESSED in compression_args.flags:
             return MccpCompressionDecoder(self._config, compression_args.data)
         else:
             return compression_utils.NoOpDecoder(compression_args.data)
     
-
-
 
 class MPPC(compression_utils.CompressionEngine):
 
@@ -206,12 +209,18 @@ class MPPC(compression_utils.CompressionEngine):
         self._decompressionHistoryManager = decompression_history_manager
         self._compressionHistoryManager = compression_history_manager
 
-    def resetHistory(self):
-        self._decompressionHistoryManager.resetHistory()
-        self._compressionHistoryManager.resetHistory()
+    # def resetHistory(self):
+    #     self._decompressionHistoryManager.resetHistory()
+    #     self._compressionHistoryManager.resetHistory()
 
     def compress(self, data):
         encoder = self._encoder_factory.make_encoder()
+        flags = {compression_constants.CompressionFlags.COMPRESSED}
+        
+        if self._compressionHistoryManager.buffer_space_remaining() < len(data):
+            self._compressionHistoryManager.resetHistory()
+            flags.add(compression_constants.CompressionFlags.AT_FRONT)
+            flags.add(compression_constants.CompressionFlags.FLUSHED)
 
         inByteOffset = 0
         for history_match in itertools.chain(self._compressionHistoryManager.append_and_find_matches(data), 
@@ -226,11 +235,20 @@ class MPPC(compression_utils.CompressionEngine):
                 inByteOffset += history_match.length
         encoder.encode(SymbolType.END_OF_STREAM, None)
                 
-        return CompressionArgs(data = encoder.get_encoded_bytes(), flags = {Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED})
+        return CompressionArgs(data = encoder.get_encoded_bytes(), flags = flags, type = self._encoder_factory.compression_type())
         
     def decompress(self, compression_args):
         # DEBUG = True
+        
+        if (compression_constants.CompressionFlags.FLUSHED in compression_args.flags
+                or compression_constants.CompressionFlags.AT_FRONT in compression_args.flags):
+            self._decompressionHistoryManager.resetHistory()
+        
+        if compression_constants.CompressionFlags.COMPRESSED not in compression_args.flags:
+            return compression_args.data
+        
         decoder = self._encoder_factory.make_decoder(compression_args)
+        
         output_length = 0
         done = False
         while not done:
@@ -257,4 +275,9 @@ class MPPC(compression_utils.CompressionEngine):
                 
             else:
                 raise ValueError('unknown SymbolType: %s' % type)
-        return self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True).tobytes()
+        retval = self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True)
+        # import utils
+        # utils.assertEqual(len(retval), output_length)
+        retval = retval.tobytes()
+        # utils.assertEqual(len(retval), output_length)
+        return retval

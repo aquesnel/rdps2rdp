@@ -170,9 +170,13 @@ class TestParsing(unittest.TestCase):
         # OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930 ; offset = 180 ;
         # pdu from server
         data = extract_as_bytes("""
-            30 81 da # FastPath (num = 12, len=474)
-            a0 03 # FastPath Update (type=FASTPATH_UPDATETYPE_ORDERS, flags=FASTPATH_FRAGMENT_FIRST, FASTPATH_OUTPUT_COMPRESSION_USED, PACKET_COMPR_TYPE_RDP61)
-            02 01 06 a1 81 d2 30 81 cf 30 81 cc a0 81 c9 04 81 c6 4e 54 4c 4d 53 53 50 00 02 00 00 00 16 00 16 00 38 00 00 00 35 82 8a e2 ea 3e af 3b 6d 95 b8 dc 00 00 00 00 00 00 00 00 78 00 78 00 4e 00 00 00 0a 00 63 45 00 00 00 0f 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 02 00 16 00 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 01 00 16 00 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 04 00 16 00 61 00 70 00 70 00 76 00 65 00 79 00 6f 00 72 00 2d 00 76 00 6d 00 03 00 16 00 61 00 70 00 70 00 76 00 65 00 79 00 6f 00 72 00 2d 00 76 00 6d 00 07 00 08 00 1c 73 6c 9f 14 9e d7 01 00 00 00 00
+            30 81 da # FastPath (num/reserved = 12, len=474)
+            a0 03 # FastPath Update (type=FASTPATH_UPDATETYPE_ORDERS, flags=FASTPATH_FRAGMENT_FIRST, FASTPATH_OUTPUT_COMPRESSION_USED, compressionFlags=PACKET_COMPR_TYPE_RDP61)
+            02 01 # FastPath Update (size= 258) # I think this is uncompressed or re-assembeled since the remaining bytes in the PDU is 214
+            06 # RDP61_COMPRESSED_DATA (Level1ComprFlags= L1_PACKET_AT_FRONT, L1_NO_COMPRESSION)
+            a1 # RDP61_COMPRESSED_DATA (Level2ComprFlags= ignored because not L1_INNER_COMPRESSION flag is set)
+            # the rest is RDP61 compression literals
+            81 d2 30 81 cf 30 81 cc a0 81 c9 04 81 c6 4e 54 4c 4d 53 53 50 00 02 00 00 00 16 00 16 00 38 00 00 00 35 82 8a e2 ea 3e af 3b 6d 95 b8 dc 00 00 00 00 00 00 00 00 78 00 78 00 4e 00 00 00 0a 00 63 45 00 00 00 0f 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 02 00 16 00 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 01 00 16 00 41 00 50 00 50 00 56 00 45 00 59 00 4f 00 52 00 2d 00 56 00 4d 00 04 00 16 00 61 00 70 00 70 00 76 00 65 00 79 00 6f 00 72 00 2d 00 76 00 6d 00 03 00 16 00 61 00 70 00 70 00 76 00 65 00 79 00 6f 00 72 00 2d 00 76 00 6d 00 07 00 08 00 1c 73 6c 9f 14 9e d7 01 00 00 00 00
     
             # 00 11 # FastPath (len=17)
             # 00 0c 00 # FastPath Update (len=12, type=FASTPATH_UPDATETYPE_ORDERS)
@@ -193,11 +197,11 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.rdp_fp.dataSignature, None)
         
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateCode, Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS)
-        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].fragmentation, Rdp.FastPath.FASTPATH_FRAGMENT_SINGLE)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].fragmentation, Rdp.FastPath.FASTPATH_FRAGMENT_FIRST)
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compression, 0)
-        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionType, None)
-        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionArgs, None)
-        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].size, 12)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionType, compression_constants.CompressionTypes.RDP_61)
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].compressionArgs, set())
+        self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].size, 258)
         
         self.assertEqual(pdu.rdp_fp.fpOutputUpdates[0].updateData.numberOrders, 2)
         

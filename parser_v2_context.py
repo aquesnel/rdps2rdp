@@ -2,6 +2,7 @@ import collections
 import contextlib
 from enum import Enum, unique
 
+import compression
 from data_model_v2_rdp import Rdp
 
 # ChannelDef = collections.namedtuple('ChannelDef', ['name', 'options'])
@@ -39,6 +40,7 @@ class RdpContext(object):
         self.rail_enabled = False
         self.compression_type = None
         self.compression_virtual_chan_cs_encoder = None
+        self.compression_engines = {}
         self.domain = None
         self.user_name = None
         self.password = None
@@ -110,3 +112,9 @@ class RdpContext(object):
         finally:
             self.pdu_source = orig_pdu_source
 
+    def get_compression_engine(self, compression_type = None):
+        if compression_type is None:
+            compression_type = self.compression_type
+        if compression_type not in self.compression_engines:
+            self.compression_engines[compression_type] = compression.CompressionFactory.new_engine(compression_type)
+        return self.compression_engines[compression_type]

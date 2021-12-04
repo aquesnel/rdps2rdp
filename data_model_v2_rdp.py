@@ -1,6 +1,7 @@
 import functools
 from enum import Enum, unique
 
+import compression_constants
 from data_model_v2 import (
     BaseDataUnit,
     ArrayDataUnit,
@@ -10,6 +11,7 @@ from data_model_v2 import (
     UnionField,
     OptionalField,
     ConditionallyPresentField,
+    CompressedField,
     
     AutoReinterpret,
     ArrayAutoReinterpret,
@@ -39,7 +41,10 @@ from serializers import (
     Utf16leEncodedStringSerializer,
     
     ValueDependency,
+    ValueDependencyWithContext,
+    ValueDependencyWithSideEffect,
     LengthDependency,
+    SerializationContext,
 )
 
 class Rdp(object):
@@ -342,6 +347,72 @@ class Rdp(object):
         MESSAGE_CHANNEL_NAME = 'McsMessageChannel'
         IO_CHANNEL_NAME = 'I/O Channel'
         
+        @classmethod
+        def replace_compression_flags(cls, old_flags, compression_flags, compression_type):
+            flags = set(old_flags)
+            flags.discard(cls.CHANNEL_FLAG_PACKET_COMPRESSED)
+            flags.discard(cls.CHANNEL_FLAG_PACKET_AT_FRONT)
+            flags.discard(cls.CHANNEL_FLAG_PACKET_FLUSHED)
+            flags.discard(cls.PACKET_COMPR_TYPE_64K)
+            flags.discard(cls.PACKET_COMPR_TYPE_RDP6)
+            flags.discard(cls.PACKET_COMPR_TYPE_RDP61)
+            
+            flags |= self.from_compression_flags(compression_flags)
+            flags |= self.from_compression_type(compression_type)
+            
+            return flags
+            
+        @classmethod
+        def to_compression_flags(cls, flags):
+            retval = set()
+            if cls.CHANNEL_FLAG_PACKET_COMPRESSED in flags:
+                retval.add(compression_constants.CompressionFlags.COMPRESSED)
+            if cls.CHANNEL_FLAG_PACKET_AT_FRONT in flags:
+                retval.add(compression_constants.CompressionFlags.AT_FRONT)
+            if cls.CHANNEL_FLAG_PACKET_FLUSHED in flags:
+                retval.add(compression_constants.CompressionFlags.FLUSHED)
+                
+            return retval
+        
+        @classmethod
+        def from_compression_flags(cls, compression_flags):
+            retval = set()
+            if compression_constants.CompressionFlags.COMPRESSED in compression_flags:
+                retval.add(cls.CHANNEL_FLAG_PACKET_COMPRESSED)
+            if compression_constants.CompressionFlags.AT_FRONT in flags:
+                retval.add(cls.CHANNEL_FLAG_PACKET_AT_FRONT)
+            if compression_constants.CompressionFlags.FLUSHED in flags:
+                retval.add(cls.CHANNEL_FLAG_PACKET_FLUSHED)
+                
+            return retval
+            
+        @classmethod
+        def to_compression_type(cls, flags):
+            compression_type = compression_constants.CompressionTypes.RDP_40
+            if cls.PACKET_COMPR_TYPE_64K in flags:
+                compression_type = compression_constants.CompressionTypes.RDP_50
+            if cls.PACKET_COMPR_TYPE_RDP6 in flags:
+                compression_type = compression_constants.CompressionTypes.RDP_60
+            if cls.PACKET_COMPR_TYPE_RDP61 in flags:
+                compression_type = compression_constants.CompressionTypes.RDP_61
+            
+            return compression_type
+        
+        @classmethod
+        def from_compression_type(cls, compression_type):
+            if compression_constants.CompressionTypes.RDP_40 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_8K
+            elif compression_constants.CompressionTypes.RDP_50 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_64K
+            elif compression_constants.CompressionTypes.RDP_60 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_RDP6
+            elif compression_constants.CompressionTypes.RDP_61 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_RDP61
+            else:
+                raise AssertionError("Unknown Compression Type: %s" % compression_type)
+            
+            return {flag}
+
     class License(object):
         ERROR_ALERT = 0xff
 
@@ -403,6 +474,63 @@ class Rdp(object):
         PDUTYPE2_ARC_STATUS_PDU = 0x32
         PDUTYPE2_STATUS_INFO_PDU = 0x36
         PDUTYPE2_MONITOR_LAYOUT_PDU = 0x37
+        
+        @classmethod
+        def to_compression_flags(cls, flags):
+            retval = set()
+            if flags is None:
+                return retval
+            
+            if cls.PACKET_ARG_COMPRESSED in flags:
+                retval.add(compression_constants.CompressionFlags.COMPRESSED)
+            if cls.PACKET_ARG_AT_FRONT in flags:
+                retval.add(compression_constants.CompressionFlags.AT_FRONT)
+            if cls.PACKET_ARG_FLUSHED in flags:
+                retval.add(compression_constants.CompressionFlags.FLUSHED)
+                
+            return retval
+        
+        @classmethod
+        def from_compression_flags(cls, compression_flags):
+            retval = set()
+            if compression_constants.CompressionFlags.COMPRESSED in compression_flags:
+                retval.add(cls.PACKET_ARG_COMPRESSED)
+            if compression_constants.CompressionFlags.AT_FRONT in flags:
+                retval.add(cls.PACKET_ARG_AT_FRONT)
+            if compression_constants.CompressionFlags.FLUSHED in flags:
+                retval.add(cls.PACKET_ARG_FLUSHED)
+                
+            return retval
+            
+        @classmethod
+        def to_compression_type(cls, flags):
+            if flags is None:
+                return compression_constants.CompressionTypes.NO_OP
+            
+            compression_type = compression_constants.CompressionTypes.RDP_40
+            if cls.PACKET_COMPR_TYPE_64K == flags:
+                compression_type = compression_constants.CompressionTypes.RDP_50
+            if cls.PACKET_COMPR_TYPE_RDP6 == flags:
+                compression_type = compression_constants.CompressionTypes.RDP_60
+            if cls.PACKET_COMPR_TYPE_RDP61 == flags:
+                compression_type = compression_constants.CompressionTypes.RDP_61
+            
+            return compression_type
+        
+        @classmethod
+        def from_compression_type(cls, compression_type):
+            if compression_constants.CompressionTypes.RDP_40 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_8K
+            elif compression_constants.CompressionTypes.RDP_50 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_64K
+            elif compression_constants.CompressionTypes.RDP_60 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_RDP6
+            elif compression_constants.CompressionTypes.RDP_61 == compression_type:
+                flag = cls.PACKET_COMPR_TYPE_RDP61
+            else:
+                raise AssertionError("Unknown Compression Type: %s" % compression_type)
+            
+            return {flag}
 
     @add_constants_names_mapping('CAPSTYPE_', 'CAPSTYPE_NAMES')
     class Capabilities(object):
@@ -581,6 +709,61 @@ class Rdp(object):
         PACKET_COMPRESSED = 0x20
         PACKET_AT_FRONT = 0x40
         PACKET_FLUSHED = 0x80
+        
+        @classmethod
+        def to_L1_compression_flags(cls, flags):
+            retval = set()
+            
+            if cls.L1_COMPRESSED in flags:
+                retval.add(compression_constants.CompressionFlags.COMPRESSED)
+            if cls.L1_NO_COMPRESSION in flags:
+                retval.discard(compression_constants.CompressionFlags.COMPRESSED)
+            if cls.L1_PACKET_AT_FRONT in flags:
+                retval.add(compression_constants.CompressionFlags.AT_FRONT)
+            if cls.L1_INNER_COMPRESSION in flags:
+                retval.add(compression_constants.CompressionFlags.INNER_COMPRESSION)
+                
+            return retval
+        
+        @classmethod
+        def from_L1_compression_flags(cls, compression_flags):
+            # raise AssertionError('TODO: implement this method')
+            retval = set()
+            if compression_constants.CompressionFlags.COMPRESSED in compression_flags:
+                retval.add(cls.L1_COMPRESSED)
+            else:
+                retval.add(cls.L1_NO_COMPRESSION)
+            if compression_constants.CompressionFlags.AT_FRONT in compression_flags:
+                retval.add(cls.L1_PACKET_AT_FRONT)
+            if compression_constants.CompressionFlags.INNER_COMPRESSION in compression_flags:
+                retval.add(cls.L1_INNER_COMPRESSION)
+                
+            return retval
+            
+        @classmethod
+        def to_L2_compression_flags(cls, flags):
+            retval = set()
+            
+            if cls.PACKET_COMPRESSED in flags:
+                retval.add(compression_constants.CompressionFlags.COMPRESSED)
+            if cls.PACKET_AT_FRONT in flags:
+                retval.add(compression_constants.CompressionFlags.AT_FRONT)
+            if cls.PACKET_FLUSHED in flags:
+                retval.add(compression_constants.CompressionFlags.FLUSHED)
+                
+            return retval
+        
+        @classmethod
+        def from_L2_compression_flags(cls, compression_flags):
+            retval = set()
+            if compression_constants.CompressionFlags.COMPRESSED in compression_flags:
+                retval.add(cls.PACKET_COMPRESSED)
+            if compression_constants.CompressionFlags.AT_FRONT in compression_flags:
+                retval.add(cls.PACKET_AT_FRONT)
+            if compression_constants.CompressionFlags.FLUSHED in compression_flags:
+                retval.add(cls.PACKET_FLUSHED)
+                
+            return retval
 
     @add_constants_names_mapping('ORDERS_', 'ORDERS_NAMES')
     class DrawingOrders(object):
@@ -1184,12 +1367,40 @@ class Rdp_TS_WINDOW_CAPABILITYSET(BaseDataUnit):
             PrimitiveField('NumIconCacheEntries', StructEncodedSerializer(UINT_16_LE)),
         ])
 
-class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
+class Rdp_CHANNEL_PDU(BaseDataUnit):
     def __init__(self):
-        super(Rdp_CHANNEL_PDU_HEADER, self).__init__(fields = [
-            PrimitiveField('length', StructEncodedSerializer(UINT_32_LE)),
-            PrimitiveField('flags', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Channel.CHANNEL_FLAG_NAMES)),
+        super(Rdp_CHANNEL_PDU, self).__init__(fields = [
+            DataUnitField('header', 
+                Rdp_CHANNEL_PDU_HEADER(
+                    payload_length = ValueDependency(lambda x: self.as_field_objects().payload.get_inner_field().get_length()),
+                    do_compression = ValueDependencyWithSideEffect(lambda x, serde_context: self.as_field_objects().payload.compress_field(serde_context).flags))),
+            CompressedField(
+                decompression_type = ValueDependency(lambda x: Rdp.Channel.to_compression_type(self.header.flags)),
+                decompression_flags = ValueDependency(lambda x: Rdp.Channel.to_compression_flags(self.header.flags)),
+                field = PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: self.header.length)))),
         ])
+
+class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
+    def __init__(self, payload_length: ValueDependency, do_compression: ValueDependencyWithSideEffect):
+        super(Rdp_CHANNEL_PDU_HEADER, self).__init__(fields = [
+            PrimitiveField('length', 
+                DependentValueSerializer(
+                    StructEncodedSerializer(UINT_32_LE), 
+                    payload_length)),
+            PrimitiveField('flags', 
+                DependentValueSerializer(
+                    BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_FLAG_NAMES.keys()),
+                    ValueDependencyWithContext(lambda x, serde_context: self._get_flags(x, serde_context, do_compression))),
+                to_human_readable = lookup_name_in(Rdp.Channel.CHANNEL_FLAG_NAMES)),
+        ])
+        
+    def _get_flags(self, x, serde_context: SerializationContext, do_compression: ValueDependencyWithSideEffect):
+        compression_args = do_compression.get_value_with_side_effect(x, serde_context)
+        
+        return Rdp.Channel.replace_compression_flags(
+                self.flags, 
+                Rdp.Channel.from_compression_flags(compression_args.flags), 
+                Rdp.Channel.from_compression_type(compression_args.type))
 
     def get_pdu_types(self, rdp_context):
         retval = []

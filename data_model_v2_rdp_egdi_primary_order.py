@@ -92,7 +92,7 @@ class PRIMARY_DRAWING_ORDER_fieldFlagsSerializer(BaseSerializer[Set[int]]):
     def get_serialized_length(self, value: Set[int]) -> int:
         return self.FIELD_FLAG_LENGTH_BY_ORDER[self._orderType.get_value(None)] - self._zero_field_byte.get_value(None)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[Set[int], int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[Set[int], int]:
         length = self.get_serialized_length(None)
         value = set()
         max_field_count = self.FIELD_COUNT_BY_ORDER[self._orderType.get_value(None)]
@@ -108,7 +108,7 @@ class PRIMARY_DRAWING_ORDER_fieldFlagsSerializer(BaseSerializer[Set[int]]):
                     return value, length
         return value, length
     
-    def pack_into(self, buffer: bytes, offset: int, value: Set[int]) -> None:
+    def pack_into(self, buffer: bytes, offset: int, value: Set[int], serde_context: SerializationContext) -> None:
         raise NotImplementedError('TODO')
    
 class Rdp_PRIMARY_DRAWING_ORDER(BaseDataUnit):

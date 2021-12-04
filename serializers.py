@@ -1,4 +1,6 @@
 
+import contextlib
+import enum
 import struct
 from typing import Any, Sequence, Callable, TypeVar, Generic, Set, Tuple
 
@@ -30,8 +32,26 @@ class ValueDependency(Generic[VALUE_RESULT_TYPE]):
     def __init__(self, value_getter: Callable[[Any], VALUE_RESULT_TYPE]):
         self._value_getter = value_getter
         
-    def get_value(self, value: Any):
+    def get_value(self, value: Any, serde_context = None):
         return self._value_getter(value)
+        
+class ValueDependencyWithContext(Generic[VALUE_RESULT_TYPE]):
+    def __init__(self, value_getter: Callable[[Any, Any], VALUE_RESULT_TYPE]):
+        self._value_getter = value_getter
+        
+    def get_value(self, value: Any, serde_context):
+        return self._value_getter(value, serde_context)
+        
+class ValueDependencyWithSideEffect(Generic[VALUE_RESULT_TYPE]):
+    def __init__(self, value_getter: Callable[[Any, Any], VALUE_RESULT_TYPE]):
+        self._value_getter = value_getter
+        self._call_count = 0
+        
+    def get_value_with_side_effect(self, value: Any, serde_context):
+        if self._call_count > 0:
+            raise AssertionError("get_value_with_side_effect can only be called once")
+        self._call_count += 1
+        return self._value_getter(value, serde_context)
 
 class ValueTransformer(Generic[SERIALIZED_TYPE, DESERIALIZED_TYPE]):
     def __init__(self, to_serialized: Callable[[DESERIALIZED_TYPE], SERIALIZED_TYPE], from_serialized: Callable[[SERIALIZED_TYPE], DESERIALIZED_TYPE]):
@@ -43,7 +63,68 @@ class ValueTransformer(Generic[SERIALIZED_TYPE, DESERIALIZED_TYPE]):
     
     def from_serializable_value(self, serialized_value: SERIALIZED_TYPE) -> DESERIALIZED_TYPE:
         return self._from_serialized(serialized_value)
+
+
+class SerializationException(Exception):
+    pass
+
+class SerializationContext(object):
+    @enum.unique
+    class Operation(enum.Enum):
+        SERIALIZE = 'Serialize'
+        DESERIALIZE = 'Deserialize'
+
+    def __init__(self, operation: Operation):
+        self._operation = operation
+        self._debug_field_path = []
+        self._force_dirty = False
+        self._rdp_context = None
         
+    def get_operation(self):
+        return self._operation
+        
+    def get_allow_partial_parsing(self):
+        if self._rdp_context:
+            return self._rdp_context.allow_partial_parsing
+        else:
+            False
+
+    @contextlib.contextmanager
+    def field_context(self, field):
+        self._debug_field_path.append(field)
+        try:
+            yield self
+        finally:
+            self._debug_field_path.pop()
+            
+    def get_debug_field_path(self):
+        return '.'.join([f.name for f in self._debug_field_path])
+
+    @contextlib.contextmanager
+    def dirty_context(self, force_is_dirty):
+        orig_force_is_dirty = self._force_dirty
+        if force_is_dirty is not None:
+            self._force_dirty = force_is_dirty
+        try:
+            yield self
+        finally:
+            self._force_dirty = orig_force_is_dirty
+
+    def get_force_is_dirty(self):
+        return self._force_dirty
+
+    @contextlib.contextmanager
+    def rdp_context(self, rdp_context):
+        orig_rdp_context = self._rdp_context
+        self._rdp_context = rdp_context
+        try:
+            yield self
+        finally:
+            self._rdp_context = orig_rdp_context
+
+    def get_rdp_context(self):
+        return self._rdp_context
+
 class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
     """
     Serialization/deserialization unit for a value. Can be a single unnamed value, or a structure with named values.
@@ -54,10 +135,10 @@ class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
     def get_serialized_length(self, value: FIELD_VALUE_TYPE) -> int:
         raise NotImplementedError()
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[FIELD_VALUE_TYPE, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[FIELD_VALUE_TYPE, int]:
         raise NotImplementedError()
     
-    def pack_into(self, buffer: bytes, offset: int, value: FIELD_VALUE_TYPE) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: FIELD_VALUE_TYPE, serde_context: SerializationContext) -> int:
         raise NotImplementedError()
 
 class StaticSerializer(BaseSerializer[FIELD_VALUE_TYPE]):
@@ -67,10 +148,10 @@ class StaticSerializer(BaseSerializer[FIELD_VALUE_TYPE]):
     def get_serialized_length(self, value: FIELD_VALUE_TYPE) -> int:
         return len(self._static_value)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[FIELD_VALUE_TYPE, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[FIELD_VALUE_TYPE, int]:
         return self._static_value, self.get_serialized_length(self._static_value)
     
-    def pack_into(self, buffer: bytes, offset: int, value: FIELD_VALUE_TYPE) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: FIELD_VALUE_TYPE, serde_context: SerializationContext) -> int:
         length = len(self._static_value)
         buffer[offset : offset + length] = self._static_value
         return length
@@ -82,7 +163,7 @@ class StructEncodedSerializer(BaseSerializer[int]):
     def get_serialized_length(self, value: int) -> int:
         return self._struct.size
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
         value = self._struct.unpack_from(raw_data, offset)
         length = self.get_serialized_length(value)
         if len(value) == 0:
@@ -92,7 +173,7 @@ class StructEncodedSerializer(BaseSerializer[int]):
         else:
             raise ValueError('unexpected number of values unpacked')
     
-    def pack_into(self, buffer: bytes, offset: int, value: int) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: int, serde_context: SerializationContext) -> int:
         if value is not None:
             self._struct.pack_into(buffer, offset, value)
         return self.get_serialized_length(value)
@@ -116,7 +197,7 @@ class VariableLengthIntSerializer(BaseSerializer[int]):
     def get_serialized_length(self, value: int) -> int:
         return self._get_struct_format().size
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
         struct_format = self._get_struct_format()
         length = struct_format.size
         value = struct_format.unpack_from(raw_data, offset)
@@ -127,7 +208,7 @@ class VariableLengthIntSerializer(BaseSerializer[int]):
         else:
             raise ValueError('unexpected number of values unpacked')
     
-    def pack_into(self, buffer: bytes, offset: int, value: int) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: int, serde_context: SerializationContext) -> int:
         struct_format = self._get_struct_format()
         length = struct_format.size
         max_value = 256 ** length
@@ -168,7 +249,7 @@ class EncodedStringSerializer(BaseSerializer[str]):
         else:
             raise ValueError('Unsupported Encoding: %s' % self._encoding)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[str, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[str, int]:
         max_length = self._length_dependency.get_length(raw_data[offset:])
         s = bytes(raw_data[offset : offset+max_length]).decode(self._encoding, errors = 'replace')
         if self._delimiter_dependency:
@@ -179,7 +260,7 @@ class EncodedStringSerializer(BaseSerializer[str]):
         consumed_length = self.get_serialized_length(s)
         return s, consumed_length
     
-    def pack_into(self, buffer: bytes, offset: int, value: str) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: str, serde_context: SerializationContext) -> int:
         length = self.get_serialized_length(value)
         if self._include_delimiter_in_length and self._delimiter_dependency:
             delimiter = self._delimiter_dependency.get_value(None)
@@ -199,10 +280,10 @@ class FixedLengthEncodedStringSerializer(EncodedStringSerializer):
     def get_serialized_length(self, value: str) -> int:
         return self._length_dependency.get_length(value)
         
-    def pack_into(self, buffer: bytes, offset: int, value: str) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: str, serde_context: SerializationContext) -> int:
         length = self.get_serialized_length(value)
         buffer[offset : offset+length] = b'\x00' * length
-        super().pack_into(buffer, offset, value)
+        super().pack_into(buffer, offset, value, serde_context)
         return length
 
 class DelimitedEncodedStringSerializer(EncodedStringSerializer):
@@ -244,7 +325,7 @@ class ArraySerializer(BaseSerializer[Sequence[Any]]):
     def get_serialized_length(self, value: Sequence[Any]) -> int:
         return sum(self._item_serializer.get_serialized_length(v) for v in value)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[Sequence[Any], int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[Sequence[Any], int]:
         result = []
         consumed = 0
         
@@ -256,17 +337,17 @@ class ArraySerializer(BaseSerializer[Sequence[Any]]):
             has_more_items = lambda: len(result) < max_items
             
         while has_more_items():
-            item, item_length = self._item_serializer.unpack_from(raw_data, offset + consumed)
+            item, item_length = self._item_serializer.unpack_from(raw_data, offset + consumed, serde_context)
             result.append(item)
             utils.assertEqual(item_length, self._item_serializer.get_serialized_length(item))
             consumed += item_length
 
         return result, consumed
 
-    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any]) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any], serde_context: SerializationContext) -> int:
         orig_offset = offset
         for item in value:
-            item_length = self._item_serializer.pack_into(buffer, offset, item)
+            item_length = self._item_serializer.pack_into(buffer, offset, item, serde_context)
             # item_length = self._item_serializer.get_serialized_length(item)
             offset += item_length
         return offset - orig_offset
@@ -279,8 +360,8 @@ class BitFieldEncodedSerializer(BaseSerializer[Sequence[int]]):
     def get_serialized_length(self, value: Sequence[int]) -> int:
         return self._struct_serializer.get_serialized_length(value)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
-        value, length = self._struct_serializer.unpack_from(raw_data, offset)
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
+        value, length = self._struct_serializer.unpack_from(raw_data, offset, serde_context)
         result = set()
         for bit_mask in self._allowed_bits:
             if bit_mask & value:
@@ -290,11 +371,11 @@ class BitFieldEncodedSerializer(BaseSerializer[Sequence[int]]):
         utils.assertEqual(length, self.get_serialized_length(result))
         return result, length
     
-    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any]) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any], serde_context: SerializationContext) -> int:
         bit_flags = 0
         for bit_mask in value:
             bit_flags |= bit_mask
-        return self._struct_serializer.pack_into(buffer, offset, bit_flags)
+        return self._struct_serializer.pack_into(buffer, offset, bit_flags, serde_context)
 
 class BitMaskSerializer(BaseSerializer[int]):
     def __init__(self, bit_mask: int, int_serializer: BaseSerializer[int]):
@@ -304,15 +385,15 @@ class BitMaskSerializer(BaseSerializer[int]):
     def get_serialized_length(self, value: Sequence[int]) -> int:
         return self._int_serializer.get_serialized_length(value)
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
-        value, length = self._int_serializer.unpack_from(raw_data, offset)
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
+        value, length = self._int_serializer.unpack_from(raw_data, offset, serde_context)
         masked_value = (self._bit_mask & value)
         utils.assertEqual(length, self.get_serialized_length(masked_value))
         return masked_value, length
     
-    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any]) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: Sequence[Any], serde_context: SerializationContext) -> int:
         masked_value = self._bit_mask & value
-        return self._int_serializer.pack_into(buffer, offset, masked_value)
+        return self._int_serializer.pack_into(buffer, offset, masked_value, serde_context)
 
 class ValueTransformSerializer(BaseSerializer[DESERIALIZED_TYPE]):
     def __init__(self, inner_serializer: BaseSerializer[SERIALIZED_TYPE], transform: ValueTransformer[SERIALIZED_TYPE, DESERIALIZED_TYPE]):
@@ -322,15 +403,15 @@ class ValueTransformSerializer(BaseSerializer[DESERIALIZED_TYPE]):
     def get_serialized_length(self, value: DESERIALIZED_TYPE) -> int:
         return self._inner_serializer.get_serialized_length(self._transform.to_serializable_value(value))
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[DESERIALIZED_TYPE, int]:
-        value, length = self._inner_serializer.unpack_from(raw_data, offset)
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[DESERIALIZED_TYPE, int]:
+        value, length = self._inner_serializer.unpack_from(raw_data, offset, serde_context)
         transformed_value = self._transform.from_serializable_value(value)
         utils.assertEqual(length, self.get_serialized_length(transformed_value))
         return transformed_value, length
     
-    def pack_into(self, buffer: bytes, offset: int, value: DESERIALIZED_TYPE) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: DESERIALIZED_TYPE, serde_context: SerializationContext) -> int:
         transformed_value = self._transform.to_serializable_value(value)
-        return self._inner_serializer.pack_into(buffer, offset, transformed_value)
+        return self._inner_serializer.pack_into(buffer, offset, transformed_value, serde_context)
 
 # BASE_DATA_UNIT = TypeVar('BASE_DATA_UNIT')
 # class DataUnitSerializer(BaseSerializer[BASE_DATA_UNIT]):
@@ -340,13 +421,13 @@ class ValueTransformSerializer(BaseSerializer[DESERIALIZED_TYPE]):
 #     def get_serialized_length(self, value: BASE_DATA_UNIT) -> int:
 #         return len(value)
         
-#     def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[BASE_DATA_UNIT, int]:
+#     def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[BASE_DATA_UNIT, int]:
 #         data_unit = self._data_unit_factory()
 #         length = data_unit.deserialize_value(raw_data, offset)
 #         utils.assertEqual(length, self.get_serialized_length(data_unit))
 #         return data_unit, length
 
-#     def pack_into(self, buffer: bytes, offset: int, value: BASE_DATA_UNIT) -> int:
+#     def pack_into(self, buffer: bytes, offset: int, value: BASE_DATA_UNIT, serde_context: SerializationContext) -> int:
 #         return value.serialize_value(buffer, offset)
 
 class BerEncodedLengthSerializer(BaseSerializer[int]):
@@ -363,7 +444,7 @@ class BerEncodedLengthSerializer(BaseSerializer[int]):
                 length += 1
             return length
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
         payload_length = raw_data[offset]
         length_length = 1
         if (payload_length & 0x80 == 0x80):
@@ -376,7 +457,7 @@ class BerEncodedLengthSerializer(BaseSerializer[int]):
         utils.assertEqual(length_length, self.get_serialized_length(payload_length))
         return payload_length, length_length
     
-    def pack_into(self, buffer: bytes, offset: int, value: int) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: int, serde_context: SerializationContext) -> int:
         if value < 0x80:
             struct.pack_into(UINT_8, buffer, offset, value)
             return 1
@@ -399,13 +480,13 @@ class BerEncodedBooleanSerializer(BaseSerializer[bool]):
     def get_serialized_length(self, value: int) -> int:
         return 1
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[bool, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[bool, int]:
         if raw_data[offset]:
             return True, 1
         else:
             return False, 1
 
-    def pack_into(self, buffer: bytes, offset: int, value: bool) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: bool, serde_context: SerializationContext) -> int:
         if value:
             i = 0xff
         else:
@@ -420,7 +501,7 @@ class BerEncodedIntegerSerializer(BaseSerializer[int]):
     def get_serialized_length(self, value: int) -> int:
         return len(self._encode(value))
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
         length = self._length_dependency.get_length(None)
         offset_end = offset + length
         value = 0
@@ -431,7 +512,7 @@ class BerEncodedIntegerSerializer(BaseSerializer[int]):
         utils.assertEqual(length, self.get_serialized_length(value))
         return value, length
 
-    def pack_into(self, buffer: bytes, offset: int, value: int) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: int, serde_context: SerializationContext) -> int:
         encoded_value = self._encode(value)
         length = len(encoded_value)
         buffer[offset : offset+length] = encoded_value
@@ -489,7 +570,7 @@ class PerEncodedLengthSerializer(BaseSerializer[int]):
             raise ValueError('value too large for range %s: %d' % (self._range, value))
         return length
 
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
         length = 1
         value = raw_data[offset]
         if (self._range in { self.RANGE_0_64K, self.RANGE_VALUE_DEFINED }
@@ -501,7 +582,7 @@ class PerEncodedLengthSerializer(BaseSerializer[int]):
         # utils.assertEqual(length, self.get_serialized_length(value))
         return value, length
     
-    def pack_into(self, buffer: bytes, offset: int, value: int) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: int, serde_context: SerializationContext) -> int:
         length_length = self.get_serialized_length(value, range = self._range)
         print('packing length %s' % length_length)
         if length_length == 1:
@@ -520,14 +601,14 @@ class RawLengthSerializer(BaseSerializer[bytes]):
     def get_serialized_length(self, value: bytes) -> int:
         return self._length_dependency.get_length(value)
 
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[bytes, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[bytes, int]:
         max_length = self.get_serialized_length(raw_data)
         value = raw_data[offset : offset + max_length]
         # utils.assertEqual(length, self.get_serialized_length(value))
         # utils.assertEqual(length, len(value))
         return value, len(value)
     
-    def pack_into(self, buffer: bytes, offset: int, value: bytes) -> int:
+    def pack_into(self, buffer: bytes, offset: int, value: bytes, serde_context: SerializationContext) -> int:
         length = self.get_serialized_length(value)
         buffer[offset : offset + length] = value[:length]
         return length
@@ -540,9 +621,34 @@ class DependentValueSerializer(BaseSerializer):
     def get_serialized_length(self, value):
         return self._serializer.get_serialized_length(value)
         
-    def unpack_from(self, raw_data, offset) -> Tuple[Any, int]:
-        return self._serializer.unpack_from(raw_data, offset)
+    def unpack_from(self, raw_data, offset, serde_context: SerializationContext) -> Tuple[Any, int]:
+        return self._serializer.unpack_from(raw_data, offset, serde_context)
     
-    def pack_into(self, buffer, offset, value) -> int:
-        dependent_value = self._dependency.get_value(value)
-        return self._serializer.pack_into(buffer, offset, dependent_value)
+    def pack_into(self, buffer, offset, value, serde_context: SerializationContext) -> int:
+        dependent_value = self._dependency.get_value(value, serde_context)
+        return self._serializer.pack_into(buffer, offset, dependent_value, serde_context)
+
+# class CompressionSerializer(BaseSerializer):
+#     def __init__(self, compression_id: ValueDependency, compression_flags: ValueDependency):
+#         self._compression_id = compression_id
+#         self._compression_flags = compression_flags
+        
+#     def get_serialized_length(self, value):
+#         raise NotImplementedError("TODO")
+#         return self._serializer.get_serialized_length(value)
+        
+#     def unpack_from(self, raw_data, offset, serde_context: SerializationContext) -> Tuple[Any, int]:
+#         engine = serde_context.get_rdp_context().get_compression_engine(*self._compression_id.get_value())
+#         inflated = engine.decompress(CompressionArgs(data = memoryview(raw_data)[offset:], flags = self._compression_flags.get_value()))
+#         return inflated, (len(raw_data) - offset)
+    
+#     def pack_into(self, buffer, offset, value, serde_context: SerializationContext) -> int:
+#         engine = serde_context.get_rdp_context().get_compression_engine(*self._compression_id.get_value())
+#         deflated = engine.compress(value)
+#         length = len(deflated)
+#         buffer[offset : offset + length] = deflated.data
+        
+#         raise NotImplementedError("TODO: return the compression flags")
+#         return length
+
+

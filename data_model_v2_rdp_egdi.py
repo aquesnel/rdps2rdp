@@ -54,11 +54,10 @@ from data_model_v2_rdp_erp import (
 
 
 class Rdp_RDP61_COMPRESSED_DATA(BaseDataUnit):
-    def __init__(self, CompressedDataSize_dep):
+    def __init__(self):
         super(Rdp_RDP61_COMPRESSED_DATA, self).__init__(fields = [
             DataUnitField('header', Rdp_RDP61_COMPRESSED_DATA_header()),
-            DataUnitField('payload', Rdp_RDP61_COMPRESSED_DATA_L1_content()),
-            DataUnitField('payload', Rdp_RDP61_COMPRESSED_DATA_L2_content()),
+            PrimitiveField('payload', RawLengthSerializer()),
         ])
 
 class Rdp_RDP61_COMPRESSED_DATA_header(BaseDataUnit):
@@ -72,20 +71,6 @@ class Rdp_RDP61_COMPRESSED_DATA_header(BaseDataUnit):
                 to_human_readable = lookup_name_in(Rdp.Compression61.L2_COMPRESSION_NAMES)),
         ])
 
-# class Rdp_RDP61_COMPRESSED_DATA_L1_content(BaseDataUnit):
-#     def __init__(self, root, CompressedDataSize_dep):
-#         super(Rdp_RDP61_COMPRESSED_DATA_L1_content, self).__init__(fields = [
-#             ConditionallyPresentField(
-#                 lambda: Rdp.Compression61.L1_COMPRESSED in root.header.Level1ComprFlags,
-#                 PrimitiveField('MatchCount', StructEncodedSerializer(UINT_16_LE))),
-#             ConditionallyPresentField(
-#                 lambda: Rdp.Compression61.L1_COMPRESSED in root.header.Level1ComprFlags,
-#                 DataUnitField('MatchDetails', 
-#                     ArrayDataUnit(Rdp_RDP61_MATCH_DETAILS,
-#                         item_count_dependency = ValueDependency(lambda x: self.MatchCount)))),
-#             PrimitiveField('Literals', RawLengthSerializer(LengthDependency(lambda x: CompressedDataSize_dep.get_length(x) - (2 + (0 if self.MatchCount is None else (2 + self.MatchCount * 8)))))), 
-#         ])
-        
 class Rdp_RDP61_COMPRESSED_DATA_L1_content(BaseDataUnit):
     def __init__(self):
         super(Rdp_RDP61_COMPRESSED_DATA_L1_content, self).__init__(fields = [
@@ -96,12 +81,6 @@ class Rdp_RDP61_COMPRESSED_DATA_L1_content(BaseDataUnit):
             DataUnitField('MatchDetails', 
                 ArrayDataUnit(Rdp_RDP61_MATCH_DETAILS,
                     item_count_dependency = ValueDependency(lambda x: self.MatchCount))),
-            PrimitiveField('Literals', RawLengthSerializer()), 
-        ])
-
-class Rdp_RDP61_COMPRESSED_DATA_L2_content(BaseDataUnit):
-    def __init__(self, CompressedDataSize_dep):
-        super(Rdp_RDP61_COMPRESSED_DATA_L2_content, self).__init__(fields = [
             PrimitiveField('Literals', RawLengthSerializer()), 
         ])
 
@@ -201,7 +180,7 @@ class Rdp_CREATE_OFFSCR_BITMAP_ORDER(BaseDataUnit):
             UnionField([
                 PrimitiveField('offscreenBitmapId',
                     BitMaskSerializer(Rdp.DrawingOrders.OrderFlags.ALT_SECAONDARY_FLAG_MASK_offscreenBitmapId, StructEncodedSerializer(UINT_8))),
-                PrimitiveField('deleteList', 
+                PrimitiveField('deleteList_present', 
                     ValueTransformSerializer(
                         BitMaskSerializer(Rdp.DrawingOrders.OrderFlags.ALT_SECAONDARY_FLAG_MASK_deleteList, StructEncodedSerializer(UINT_8)), 
                         ValueTransformer(
@@ -211,7 +190,7 @@ class Rdp_CREATE_OFFSCR_BITMAP_ORDER(BaseDataUnit):
             PrimitiveField('cx', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('cy', StructEncodedSerializer(UINT_16_LE)),
             ConditionallyPresentField(
-                lambda: self.deleteList,
+                lambda: self.deleteList_present,
                 DataUnitField('deleteList', Rdp_OFFSCR_DELETE_LIST())),
         ])
 

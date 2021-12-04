@@ -14,6 +14,8 @@ from enum import Enum, unique
 import traceback
 import datetime
 
+import compression_constants
+import compression_utils
 import utils
 import serializers
 from serializers import (
@@ -45,10 +47,16 @@ from serializers import (
     LengthDependency,
     DependentValueSerializer,
     ValueDependency,
+    ValueDependencyWithContext,
+    
+    SerializationException,
+    SerializationContext,
 )
 
 from typing import Any, Sequence, Callable, TypeVar, Generic, Union, Dict
 
+DEBUG = False
+# DEBUG = True
 
 # FIELD_VALUE_TYPE = TypeVar('FIELD_VALUE_TYPE')
 
@@ -140,65 +148,6 @@ class PduSummary(object):
     def clone(self):
         return copy.deepcopy(self)
 
-class SerializationException(Exception):
-    pass
-
-class SerializationContext(object):
-    @unique
-    class Operation(Enum):
-        SERIALIZE = 'Serialize'
-        DESERIALIZE = 'Deserialize'
-
-    def __init__(self, operation: Operation):
-        self._operation = operation
-        self._debug_field_path = []
-        self._force_dirty = False
-        self._rdp_context = None
-        
-    def get_operation(self):
-        return self._operation
-        
-    def get_allow_partial_parsing(self):
-        if self._rdp_context:
-            return self._rdp_context.allow_partial_parsing
-        else:
-            False
-
-    @contextlib.contextmanager
-    def field_context(self, field):
-        self._debug_field_path.append(field)
-        try:
-            yield self
-        finally:
-            self._debug_field_path.pop()
-            
-    def get_debug_field_path(self):
-        return '.'.join([f.name for f in self._debug_field_path])
-
-    @contextlib.contextmanager
-    def dirty_context(self, force_is_dirty):
-        orig_force_is_dirty = self._force_dirty
-        if force_is_dirty is not None:
-            self._force_dirty = force_is_dirty
-        try:
-            yield self
-        finally:
-            self._force_dirty = orig_force_is_dirty
-
-    def get_force_is_dirty(self):
-        return self._force_dirty
-
-    @contextlib.contextmanager
-    def rdp_context(self, rdp_context):
-        orig_rdp_context = self._rdp_context
-        self._rdp_context = rdp_context
-        try:
-            yield self
-        finally:
-            self._rdp_context = orig_rdp_context
-
-    def get_rdp_context(self):
-        return self._rdp_context
 
 class BaseField(object):
     """
@@ -235,6 +184,7 @@ class BaseField(object):
         raise NotImplementedError()
     
     def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        if DEBUG: print('%s: raw data length %d' % (self.name, len(raw_data)))
         with serde_context.field_context(self) as _:
             try:
                 return self._deserialize_value(raw_data, offset, serde_context)
@@ -302,7 +252,7 @@ class PrimitiveField(BaseField):
                     and self.value != self._deserialize_value_snapshot))
 
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
-        value, length = self.serializer.unpack_from(raw_data, offset)
+        value, length = self.serializer.unpack_from(raw_data, offset, serde_context)
         self.value = value
         if isinstance(value, collections.abc.Iterable) and not isinstance(value, memoryview):
             self._deserialize_value_snapshot = copy.copy(value)
@@ -315,7 +265,7 @@ class PrimitiveField(BaseField):
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         # print('Serializing: is_dirty? %s for %s' % (self.is_dirty(), serde_context.get_debug_field_path()))
         if self.is_dirty() or serde_context.get_force_is_dirty():
-            length = self.serializer.pack_into(buffer, offset, self.value)
+            length = self.serializer.pack_into(buffer, offset, self.value, serde_context)
         else:
             length = len(self.raw_value)
             utils.assertLessEqual(offset+length, len(buffer))
@@ -498,6 +448,12 @@ class ConditionallyPresentField(BaseField):
     def __init__(self, is_present_condition, optional_field):
         self._optional_field = optional_field
         self._is_present_condition = is_present_condition
+    #         lambda: self._debug(is_present_condition())
+
+    # def _debug(self, value):
+    #     print('<ConditionallyPresentField(field=%s)> -> %s' % (
+    #         self._optional_field, value))
+    #     return value
 
     def __str__(self):
         return '<ConditionallyPresentField(is_present=%s, field=%s)>' % (
@@ -776,6 +732,7 @@ class UnionWrapperField(BaseField):
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
 
+
 POLYMORPHIC_TYPE_ID = TypeVar('POLYMORPHIC_TYPE_ID')
 class PolymophicField(BaseField):
     NULL_FIELD = PrimitiveField('null_field', RawLengthSerializer(LengthDependency(lambda x: 0)))
@@ -787,6 +744,7 @@ class PolymophicField(BaseField):
         self.name = name
         self._type_getter = type_getter
         self._fields_by_type = fields_by_type
+        self._unknown_type_field = PrimitiveField('field_with_unknown_type', RawLengthSerializer())
 
     def __str__(self):
         return '<PolymophicField(type=%s, fields=%s)>' % (
@@ -794,7 +752,7 @@ class PolymophicField(BaseField):
 
     def _get_field(self, allow_unknown = False):
         if allow_unknown:
-            return self._fields_by_type.get(self._type_getter.get_value(None), self.NULL_FIELD)
+            return self._fields_by_type.get(self._type_getter.get_value(None), self._unknown_type_field)
         else:
             return self._fields_by_type[self._type_getter.get_value(None)]
         
@@ -825,11 +783,155 @@ class PolymophicField(BaseField):
     def is_dirty(self) -> bool:
         return self._get_field().is_dirty()
 
+    def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        if DEBUG: print('%s: raw data length %d' % (self.name, len(raw_data)))
+        try:
+            return self._get_field()._deserialize_value(raw_data, offset, serde_context)
+        except Exception as e:
+            # if there is an unknown field, then optimistically deserialize to a raw field so the data is available for debugging
+            try:
+                self._get_field(allow_unknown = True)._deserialize_value(raw_data, offset, serde_context)
+            except Exception:
+                pass
+            raise e
+    
+    
+    def serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return self._get_field().serialize_value(buffer, offset, serde_context)
+
+class CompressedField(BaseField):
+    def __init__(self, decompression_type: ValueDependency, decompression_flags: ValueDependency, field: BaseField):
+        self._decompression_type_getter = decompression_type
+        self._decompression_flags_getter = decompression_flags
+        self._decompression_count = {}
+        self._compression_count = {}
+        self._cached_compressed_value = None
+        self._compression_flags = None
+        self._compression_type = None
+        self._field = field
+
+        # HACK! this field is just to be able to show the compression headers when printing the field
+        self._cached_wrapper_rdp61_struct = ConditionallyPresentWrapperField(
+            lambda: self._compression_type == compression_constants.CompressionTypes.RDP_61,
+            BaseField('__HIDDEN__compression_struct_for_(field=%s)' % field.name))
+
+    @property
+    def name(self):
+        return self._field.name
+        
+    def __str__(self):
+        return '<CompressedField(field=%s)>' % self._field.name
+    
+    def get_human_readable_value(self):
+        return self._field.get_human_readable_value()
+
+    def get_pdu_types(self, rdp_context):
+        return self._field.get_pdu_types(rdp_context)
+
+    def get_pdu_summary_layers(self, rdp_context):
+        return self._field.get_pdu_summary_layers(rdp_context)
+    
+    def get_sub_fields(self):
+        # HACK! this is a horrible way to just be able to show the compression headers when printing the field
+        retval = [self._cached_wrapper_rdp61_struct]
+        retval.extend(self._field.get_sub_fields())
+        return retval
+
+    def get_length(self):
+        if self._cached_compressed_value is None:
+            raise AssertionError("compress_field must be called before get_length")
+        return len(self._cached_compressed_value)
+
+    def get_value(self) -> Any:
+        return self._field.get_value()
+    
+    def get_inner_field(self) -> BaseField:
+        return self._field
+    
+    def _update_cached_value(self, data, flags, type):
+        self._cached_compressed_value = data
+        self._compression_flags = flags
+        self._compression_type = type
+        if self._compression_type == compression_constants.CompressionTypes.RDP_61:
+            import data_model_v2_rdp_egdi
+            compress_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(self._cached_compressed_value)
+            self._cached_wrapper_rdp61_struct._optional_field = DataUnitField(self._cached_wrapper_rdp61_struct.name, compress_struct)
+        elif self._compression_type is None:
+            self._cached_wrapper_rdp61_struct._optional_field = BaseField(self._cached_wrapper_rdp61_struct.name)
+    
+    def get_compression_flags(self):
+        if self._cached_compressed_value is None:
+            raise AssertionError("compress_field must be called before get_compression_flags")
+        return self._compression_flags
+        
+    def get_compression_type(self):
+        if self._cached_compressed_value is None:
+            raise AssertionError("compress_field must be called before get_compression_type")
+        return self._compression_type
+    
+    def compress_field(self, serde_context: SerializationContext):
+        engine = serde_context.get_rdp_context().get_compression_engine()
+        engine_id = id(engine)
+        # Note: this method has side-effects (updating the compression history buffer) 
+        # and is therefore not safe to call multiple times
+        if engine_id in self._compression_count:
+            raise AssertionError("compress_field must be called only once per compression engine")
+        
+        self._compression_count[engine_id] = 1
+        
+        inflated_buffer = bytearray()
+        inflated_length = self._field.serialize_value(inflated_buffer, 0, serde_context)
+        deflated = engine.compress(inflated_buffer[:inflated_length])
+        
+        self._update_cached_value(deflated.data, deflated.flags, deflated.type)
+        
+        return deflated
+        
+    def decompress_field(self, data: bytes, serde_context: SerializationContext):
+        flags = self._decompression_flags_getter.get_value(None)
+        compression_type = self._decompression_type_getter.get_value(None)
+        engine = serde_context.get_rdp_context().get_compression_engine(compression_type)
+        engine_id = id(engine)
+        
+        # Note: this method has side-effects (updating the compression history buffer) 
+        # and is therefore not safe to call multiple times
+        if engine_id in self._decompression_count:
+            raise AssertionError("decompress_field must be called only once per compression engine")
+        
+        self._decompression_count[engine_id] = 1
+        self._update_cached_value(data, flags, compression_type)
+        
+        return engine.decompress(compression_utils.CompressionArgs(data = data, flags = flags, type = compression_type))
+        
+    def set_value(self, value: Any):
+        self._field.set_value(value)
+        self._update_cached_value(None, None, None)
+
+    def is_dirty(self) -> bool:
+        # when the field is dirty then the compressed field is always dirty
+        if self._field.is_dirty():
+            return True
+        # when the field is clean and it has NOT been compressed, then it is 
+        # considered dirty because the side effect of serialization 
+        # (eg. updating the history buffer) needs to be done
+        elif len(self._compression_count) == 0:
+            return True
+        # when the field is clean and has been compressed then the field is clean
+        else:
+            return False
+    
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
-        return self._get_field()._deserialize_value(raw_data, offset, serde_context)
+        inflated = self.decompress_field(memoryview(raw_data)[offset:], serde_context)
+        self._field.deserialize_value(inflated, 0, serde_context)
+        return len(raw_data) - offset
     
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
-        return self._get_field().serialize_value(buffer, offset, serde_context)
+        if self._cached_compressed_value is None:
+            raise AssertionError("compress_field must be called before serialize_value")
+        deflated_length = len(self._cached_compressed_value)
+        buffer[offset : offset + deflated_length] = self._cached_compressed_value
+        return deflated_length
+
 
 AutoReinterpretConfig = collections.namedtuple('AutoReinterpretConfig', ['alias_hint', 'factory'])
 AUTO_REINTERPRET_TYPE_ID = TypeVar('AUTO_REINTERPRET_TYPE_ID')
@@ -899,6 +1001,17 @@ class ArrayAutoReinterpret(AutoReinterpretBase):
                 # data_unit.alias_field(item_reinterpret_config.name, '%s.%d.%s' % (self.array_field_to_reinterpret_name, i, self.item_field_to_reinterpret_name))
                 data_unit.alias_field(item_reinterpret_config.name, '%s.%d' % (self.array_field_to_reinterpret_name, i))
 
+class FieldAccessor(object):
+    def __init__(self, data_unit):
+        self._data_unit = data_unit
+    
+    def __getattr__(self, name: str) -> Any:
+        if name in self._data_unit._fields_by_name:
+            return self._data_unit._fields_by_name[name]
+        else:
+            raise AttributeError('Class <%s> does not have a field named: %s' % (self.__class__.__name__, name))
+        
+
 class BaseDataUnit(object):
     def __init__(self, fields, auto_reinterpret_configs = None, use_class_as_pdu_name = False):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})
@@ -931,13 +1044,19 @@ class BaseDataUnit(object):
             f = self._fields_by_name[name]
             f.set_value(value)
 
+    def as_field_objects(self):
+        return FieldAccessor(self)
+
     def has_path(self, path):
         try:
             traverse_object_graph(self, path)
             return True
         except Exception:
             return False
-
+    
+    def get_path(self, path):
+        return traverse_object_graph(self, path)
+        
     def get_length(self):
         total_length = 0
         for f in self._fields:
@@ -953,7 +1072,10 @@ class BaseDataUnit(object):
         return False
     
     def __str__(self):
-        return pprint.pformat(self._as_dict_for_pprint(), width=160)
+        return self.as_str()
+        
+    def as_str(self, depth_remaining = None):
+        return pprint.pformat(self._as_dict_for_pprint(depth_remaining = depth_remaining), width=160)
 
     def get_pdu_name(self, rdp_context):
         types = self.get_pdu_types(rdp_context)
@@ -986,15 +1108,21 @@ class BaseDataUnit(object):
     def _get_pdu_summary_layers(self, rdp_context):
         return []
 
-    def _as_dict_for_pprint(self):
+    def _as_dict_for_pprint(self, depth_remaining = None):
         # HACK for pprint sorting dict in custom order
         # https://stackoverflow.com/a/32188121/561476 for custom ordering
         # https://stackoverflow.com/a/4902870/561476 for simplified code as namedtuple
         ItemKey = collections.namedtuple('ItemKey', ['position', 'name'])
         ItemKey.__repr__ = lambda x: x.name
 
+        if isinstance(depth_remaining, int):
+            if depth_remaining <= 0:
+                return {'__max_depth_reached__': '...'}
+            else:
+                depth_remaining -= 1
+
         result = {}
-        result[ItemKey(-1, '__python_type__')] = self.__class__        
+        result[ItemKey(-1, '__python_type__')] = self.__class__
         for field_index, f in enumerate(self._fields):
             v = f.get_human_readable_value()
             if not isinstance(v, list):
@@ -1003,7 +1131,7 @@ class BaseDataUnit(object):
                 v_list = v[:]
             for value_index, v in enumerate(v_list):
                 if isinstance(v, BaseDataUnit):
-                    v = v._as_dict_for_pprint()
+                    v = v._as_dict_for_pprint(depth_remaining = depth_remaining)
                 elif isinstance(v, (bytes, bytearray, memoryview)):
                     length = len(v)
                     if length < 10:
@@ -1027,6 +1155,7 @@ class BaseDataUnit(object):
         return self
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
+        if DEBUG: print('%s: raw data length %d' % (self.__class__, len(raw_data)))
         offset = orig_offset
         for f in self._fields:
             length = f.deserialize_value(raw_data, offset, serde_context)
@@ -1082,6 +1211,7 @@ class BaseDataUnit(object):
 
     def reinterpret_field(self, name_to_reinterpret, new_field, rdp_context, allow_overwrite = False):
         use_remainder = False
+        is_compressed = False
         if '.' in name_to_reinterpret and not name_to_reinterpret.endswith('.remaining'):
             raise ValueError('Invalid reinterpert suffix: %s' % (name_to_reinterpret))
         if name_to_reinterpret.endswith('.remaining'):
@@ -1098,6 +1228,12 @@ class BaseDataUnit(object):
                 if f.name == name_to_reinterpret:
                     if isinstance(f, ReferenceField):
                         raise ValueError('reinterpreting reference fields is not supported. Reinterpret the field by using the original path: %s' % (f.get_referenced_path()))
+                    # if isinstance(f, CompressedField):
+                    #     compressed_field = f
+                    #     f = compressed_field.get_inner_field()
+                    #     compressed_field._field = new_field
+                    #     new_field = compressed_field
+                    
                     if use_remainder and isinstance(f, RemainingRawField):
                         orig_raw_value = f.orig_raw_value
                         orig_raw_value_offset = f.offset
@@ -1213,6 +1349,7 @@ class ArrayDataUnit(BaseDataUnit):
             self.append(item)
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
+        if DEBUG: print('%s: raw data length %d' % (self.__class__, len(raw_data)))
         consumed = 0
         items_parsed = 0
         

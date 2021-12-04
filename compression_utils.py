@@ -1,7 +1,10 @@
 import array
 import collections
 import enum
+import sys
 from typing import Any, Tuple
+
+from compression_constants import CompressionTypes
 
 DEBUG = False
 # DEBUG = True
@@ -18,7 +21,8 @@ CopyTupleV2 = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_mat
 CopyTupleV3 = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_match', 'history_absolute_offset'])
 HistoryMatch = collections.namedtuple('HistoryMatch', ['data_absolute_offset', 'history_absolute_offset', 'history_relative_offset', 'length'])
 
-CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags'])
+# CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags'])
+CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags', 'type'])
 
 class BitStream(object):
     def __init__(self, packed_bits = [], append_low_to_high = False):
@@ -227,18 +231,21 @@ class BitStream(object):
                 raise ValueError('assumed invalid offset. len(bytes) = %s, i = %s, bit_length = %s' % (len(bytes), i, bit_length))
 
 class CompressionEngine(object):
-    def resetHistory(self):
-        pass
+    # def resetHistory(self):
+    #     pass
 
     def compress(self, data: bytes):
         raise NotImplementedError()
-        return CompressionArgs(data = b'', flags = 0)
+        return CompressionArgs(data = b'', flags = 0, type = CompressionTypes.NO_OP)
 
     def decompress(self, args: CompressionArgs):
         raise NotImplementedError()
         return b''
 
-class EncodingFacotry(object):
+class EncodingFactory(object):
+    def compression_type(self):
+        return CompressionTypes.NO_OP
+    
     def make_encoder(self):
         return Encoder()
     
@@ -293,6 +300,9 @@ class HistoryManager(object):
     def resetHistory(self):
         pass
 
+    def buffer_space_remaining(self):
+        return sys.maxsize
+
     def append_bytes(self, bytes):
         for byte in bytes:
             self.append_byte(byte)
@@ -325,6 +335,9 @@ class BufferOnlyHistoryManager(HistoryManager):
         self.__history.fromlist([0] * self.__historyLength)
         self.__historyOffset = 0
 
+    def buffer_space_remaining(self):
+        return self.__historyLength - self.__historyOffset
+
     def append_bytes(self, data):
         for byte in data:
             self.append_byte(byte)
@@ -353,6 +366,9 @@ class BruteForceHistoryManager(HistoryManager):
         self.__history = array.array('B')
         self.__history.fromlist([0] * self.__historyLength)
         self.__historyOffset = 0
+
+    def buffer_space_remaining(self):
+        return self.__historyLength - self.__historyOffset
 
     def append_bytes(self, bytes):
         for byte in bytes:

@@ -19,9 +19,11 @@ import re
 import queue
 import os
 import socket
+import traceback
 
 from scapy.all import *
 
+import memory_limit
 import credssp
 import mccp
 import stream
@@ -158,8 +160,10 @@ def handler_v2(stream):
         import traceback
         traceback.print_exc()
 
-        
-if __name__ == '__main__':
+
+
+@memory_limit.memory_decorator(percentage=0.8)
+def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='RDP Protocol util')
@@ -181,6 +185,10 @@ if __name__ == '__main__':
                         help='Print only limit number of packets from the packet capture.')
     parser_print.add_argument('-p', '--partial-parsing', dest='partial_parsing', action='store_true',
                         help='allow partial parsing of packets by ignoring errors')
+    parser_print.add_argument('--path', dest='path', type=str, action='store',
+                        help='print only the pdu path elements of the pdu')
+    parser_print.add_argument('--depth', dest='depth', type=int, action='store', default=None,
+                        help='Print at most depth number of DataUnits from the PDU') 
     parser_print.add_argument('-v', '--verbose', dest='verbose', action='count', default=0,
                         help='''Verbosity levels.
                         0: source + layer summaries (good for diffing)
@@ -244,7 +252,7 @@ if __name__ == '__main__':
                         pdu.tpkt.x224.x224_connect.rdpNegRsp.flags.discard(Rdp.Negotiate.DYNVC_GFX_PROTOCOL_SUPPORTED)
                     
         interceptors = [
-            DisableCompressionInterceptor(),
+            # DisableCompressionInterceptor(),
             DisableGfxInterceptor(),
             LoggingInterceptor(),
         ]
@@ -330,6 +338,7 @@ if __name__ == '__main__':
             no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
         ])
         
+        OUTPUTPCAP = 'output.pcap' ; SERVER_PORT = 33986
         # OUTPUTPCAP = 'output.win10.full.rail.pcap' ; SERVER_PORT = 18745
         # offset = 15 # connect initial
         # offset = 42 # first mcs channel msg
@@ -386,8 +395,8 @@ if __name__ == '__main__':
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
-        # OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
-        OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930
+        OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
+        # OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930
         # offset = 180 ; limit = 1 ; # alt-sec err
         
         rdp_context = parser_v2_context.RdpContext()
@@ -402,12 +411,14 @@ if __name__ == '__main__':
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
             pre_parsing_rdp_context = rdp_context.clone()
             try:
-                pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+                pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
             except Exception as e:
-                err = e
-                # print(e)
+                err = RuntimeError('Error while parsing pdu %d' % i)
+                err.__cause__ = e
+                err = traceback.TracebackException.from_exception(err)
                 pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
-            
+            root_pdu = pdu
+
             do_print = False
             if offset <= i and i < offset + limit:
                 include = any([f(pkt,pdu,rdp_context) for f in filters_include])
@@ -416,6 +427,8 @@ if __name__ == '__main__':
                     do_print = False
                 else:
                     do_print = True
+            if err:
+                do_print = True
             if do_print:
                 if args.verbose in (0, 1):
                     with rdp_context.set_pdu_source(pdu_source):
@@ -447,12 +460,24 @@ if __name__ == '__main__':
                     print(repr(pkt))
                     print(utils.as_hex_str(pkt[Raw].load))
                     print(pre_parsing_rdp_context)
-                    print(pdu)
+                    
+                    pdu_inner = pdu
+                    if args.path and pdu.has_path(args.path):
+                        print('Path into PDU: %s' % (args.path,))
+                        pdu_inner = root_pdu.get_path(path)
+                    print(pdu_inner.as_str(args.depth))
                 if args.verbose >= 4:
                     print(utils.as_hex_str(pdu.as_wire_bytes()))
-            
+
             if err:
-                raise err
+                if args.partial_parsing:
+                    print("".join(err.format()))
+                else:
+                    raise err
+            # TODO: this must be skipped because re-running the parsing with the side effects causes an out of memory error
+            # elif ALLOW_PARTIAL_PARSING:
+            #     # TODO this is broken since parsing has side effects on the context which means that parsing a second time will be parsing with an invalid context
+            #     parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context, allow_partial_parsing = False)
             
             if offset + limit <= i: 
                 break
@@ -543,3 +568,5 @@ if __name__ == '__main__':
             / TCP(sport=63, dport=63, flags='PA', seq=1, ack=1))
         tcp.display()
         
+if __name__ == '__main__':
+    main()

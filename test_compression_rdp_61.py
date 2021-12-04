@@ -2,7 +2,7 @@ import unittest
 import binascii
 
 import compression
-from data_model_v2_rdp import Rdp
+import compression_constants
 import test_utils
 from compression_utils import (
     CompressionArgs,
@@ -61,7 +61,7 @@ class TestCompressionRdp61(unittest.TestCase):
         c = compression.CompressionFactory.new_RDP_61()
         d = compression.CompressionFactory.new_RDP_61()
         
-        inflated_1 = d.decompress(CompressionArgs(data = compressed_data[2:], flags = CompressionFlags_61(L1_flags = set(), L2_flags = set())))
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = set(), type = compression_constants.CompressionTypes.RDP_61))
         self.assertEqual(inflated_1, data)
         self.assertEqual(inflated_1.hex(), data.hex())
 
@@ -83,7 +83,7 @@ class TestCompressionRdp61(unittest.TestCase):
 
         c = compression.CompressionFactory.new_RDP_61_L1()
         d = compression.CompressionFactory.new_RDP_61_L1()
-        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = CompressionFlags_61(L1_flags = {Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED}, L2_flags = set())))
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = set(), type = compression_constants.CompressionTypes.RDP_61))
         # self.assertEqual(inflated_1, data)
         # self.assertEqual(inflated_1.hex(), data.hex())
         
@@ -105,10 +105,15 @@ class TestCompressionRdp61(unittest.TestCase):
     
     def test_compress_ISLAND_same_packet_twice(self):
         data = b"""No man is an island entire of itself; every man is a piece of the continent, a part of the main; if a clod be washed away by the sea, Europe is the less, as well as if a promontory were, aswell as any manner of thy friends or of thine own were; any man's death diminishes me, because I am involved in mankind. And therefore never send to know for whom the bell tolls; it tolls for thee."""
-        compressed_data = test_utils.extract_as_bytes('290005000a00040000000900260002f9005002b0019f900300310015f912640029f20080067f28000010006c0075f624f80133f84aa002b7e095f002ff916fbf8258c012fe84b480467f44b48030fd896d0043f912dc0053f825c80231e18972008efe8974002af900600770053f900700810053bf84c08011bf04c180269fc260e0144fb13160070f91319009c7c89967829e18897005e3e84cd40047e45c43e44ce40063f04cebd64fa113a00807d0b3701fa1141003ff900500a30043fec4d1c027dfa2699e9a796229a00d1f8269a00adfc269a00c1f209cde40dac2dc40d2e640d8c2dcc840cadce8d2e4ca40decc40d2e8e6cad8cc7640caeccae4f240e0d2cac6e8d0ca40c6dedc58c2e4e8dac2d2dc7640d2ccc6d8dec840c4ca40eec2e6d0cac840c2eec2f240c4f2e6cac258408aeae4dee0cad8cae6e6e640eecad8d8e0e4dedadeeecae4cac2dcdde128667269656e6473206f206f776e3b27732064656174682064696d696ef271b589958d85d5cd9481248185b481a5b9d9bdb1d9a5b9ada5b990b88105c99599bdb9bc81adb9bddc8081dda1bdb589d1bdb1b1cdd194b8') 
+        compressed_data = test_utils.extract_as_bytes('1121290005000a00040000000900260002f9005002b0019f900300310015f912640029f20080067f28000010006c0075f624f80133f84aa002b7e095f002ff916fbf8258c012fe84b480467f44b48030fd896d0043f912dc0053f825c80231e18972008efe8974002af900600770053f900700810053bf84c08011bf04c180269fc260e0144fb13160070f91319009c7c89967829e18897005e3e84cd40047e45c43e44ce40063f04cebd64fa113a00807d0b3701fa1141003ff900500a30043fec4d1c027dfa2699e9a796229a00d1f8269a00adfc269a00c1f209cde40dac2dc40d2e640d8c2dcc840cadce8d2e4ca40decc40d2e8e6cad8cc7640caeccae4f240e0d2cac6e8d0ca40c6dedc58c2e4e8dac2d2dc7640d2ccc6d8dec840c4ca40eec2e6d0cac840c2eec2f240c4f2e6cac258408aeae4dee0cad8cae6e6e640eecad8d8e0e4dedadeeecae4cac2dcdde128667269656e6473206f206f776e3b27732064656174682064696d696ef271b589958d85d5cd9481248185b481a5b9d9bdb1d9a5b9ada5b990b88105c99599bdb9bc81adb9bddc8081dda1bdb589d1bdb1b1cdd194b8') 
 
         c = compression.CompressionFactory.new_RDP_61()
         d = compression.CompressionFactory.new_RDP_61()
+   
+        # L1 compression flags(L1_COMPRESSED)
+        # 11
+        # L2 compression flags (PACKET_COMPR_TYPE_64K, PACKET_COMPRESSED)
+        # 21
         
         deflated_1 = c.compress(data)
         self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
@@ -122,7 +127,7 @@ class TestCompressionRdp61(unittest.TestCase):
         deflated_2 = c.compress(data)
         # print("data 2    :     ",binascii.hexlify(data))
         # print("deflated 2:     ",binascii.hexlify(deflated_2.data))
-        self.assertEqual(deflated_2.data.hex(), '0100817a55eb0000')
+        self.assertEqual(deflated_2.data.hex(), '11210100817a55eb0000')
 
         inflated_2 = d.decompress(deflated_2)
         # print("inflated 2:     ",binascii.hexlify(inflated_2))

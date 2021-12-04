@@ -1,4 +1,5 @@
 
+import compression_constants
 import compression_utils
 import compression_mppc
 import compression_rdp60
@@ -8,10 +9,25 @@ import compression_rdp61
 class CompressionFactory(object):
     
     @classmethod
+    def new_engine(cls, compression_type):
+        if compression_type == compression_constants.CompressionTypes.NO_OP:
+            return cls.new_NoOp()
+        elif compression_type == compression_constants.CompressionTypes.RDP_40:
+            return cls.new_RDP_40()
+        elif compression_type == compression_constants.CompressionTypes.RDP_50:
+            return cls.new_RDP_50()
+        elif compression_type == compression_constants.CompressionTypes.RDP_60:
+            return cls.new_RDP_60()
+        elif compression_type == compression_constants.CompressionTypes.RDP_61:
+            return cls.new_RDP_61()
+        else:
+            raise AssertionError("Unknown compression type: %s" % compression_type)
+
+    @classmethod
     def new_NoOp(cls):
         class NoOpCompressionEngine(compression_utils.CompressionEngine):
             def compress(self, data):
-                return CompressionArgs(data = data, flags = set())
+                return compression_utils.CompressionArgs(data = data, flags = set())
             
             def decompress(self, compression_args):
                 return compression_args.data

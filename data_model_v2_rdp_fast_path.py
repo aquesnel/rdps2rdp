@@ -12,6 +12,7 @@ from data_model_v2 import (
     OptionalField,
     ConditionallyPresentField,
     PolymophicField,
+    CompressedField,
     
     AutoReinterpret,
     AutoReinterpretConfig,
@@ -42,11 +43,18 @@ from serializers import (
     
     ValueTransformer,
     ValueDependency,
+    ValueDependencyWithSideEffect,
     LengthDependency,
+    
+    SerializationContext,
 )
 
 from data_model_v2_rdp import Rdp
 
+from data_model_v2_rdp_bcgr_output import (
+    Rdp_TS_POINTERATTRIBUTE,
+    Rdp_TS_CACHEDPOINTERATTRIBUTE,
+)
 from data_model_v2_rdp_egdi_primary_order import (
     Rdp_PRIMARY_DRAWING_ORDER,
 )
@@ -61,14 +69,18 @@ class Rdp_TS_FP_HEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_FP_HEADER, self).__init__(fields = [
             UnionField([
-                PrimitiveField('action', BitMaskSerializer(Rdp.FastPath.FASTPATH_ACTIONS_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_ACTION_NAMES)),
+                PrimitiveField('action', 
+                    BitMaskSerializer(Rdp.FastPath.FASTPATH_ACTIONS_MASK, StructEncodedSerializer(UINT_8)), 
+                    to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_ACTION_NAMES)),
                 PrimitiveField('numEvents', 
                     ValueTransformSerializer(
                         BitMaskSerializer(Rdp.FastPath.FASTPATH_NUM_EVENTS_MASK, StructEncodedSerializer(UINT_8)),
                         ValueTransformer(
                             to_serialized = lambda x: x << 2,
                             from_serialized = lambda x: x >> 2))),
-                PrimitiveField('flags', BitFieldEncodedSerializer(UINT_8, Rdp.FastPath.FASTPATH_FLAG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_FLAG_NAMES)),
+                PrimitiveField('flags', 
+                    BitFieldEncodedSerializer(UINT_8, Rdp.FastPath.FASTPATH_FLAG_NAMES.keys()), 
+                    to_human_readable = lookup_name_in(Rdp.FastPath.FASTPATH_FLAG_NAMES)),
             ]),
         ])
 
@@ -101,7 +113,7 @@ class TS_FP_LengthSerializer(BaseSerializer[int]):
         else:
             return 2
         
-    def unpack_from(self, raw_data: bytes, offset: int) -> Tuple[int, int]:
+    def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[int, int]:
         length = 1
         value = raw_data[offset]
         # if value > 0x7fff:
@@ -113,7 +125,7 @@ class TS_FP_LengthSerializer(BaseSerializer[int]):
             length += 1
         return value, length
     
-    def pack_into(self, buffer: bytes, offset: int, value: int) -> None:
+    def pack_into(self, buffer: bytes, offset: int, value: int, serde_context: SerializationContext) -> None:
         if value < 0x80:
             struct.pack_into(UINT_8, buffer, offset, value)
         elif value <= 0x7fff:
@@ -198,20 +210,40 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
             ConditionallyPresentField(
                 lambda:  self.compression == Rdp.FastPath.FASTPATH_OUTPUT_COMPRESSION_USED,
                 # PrimitiveField('compressionFlags', StructEncodedSerializer(UINT_8))),
-                UnionField(name = 'compressionFlags', fields = [ 
-                    PrimitiveField('compressionArgs', BitFieldEncodedSerializer(UINT_8, Rdp.ShareDataHeader.PACKET_ARG_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_ARG_NAMES)),
-                    PrimitiveField('compressionType', BitMaskSerializer(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_MASK, StructEncodedSerializer(UINT_8)), to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_NAMES)),
+                UnionField(name = 'compressionFlags', fields = [
+                    PrimitiveField('compressionArgs', 
+                        DependentValueSerializer(
+                            BitFieldEncodedSerializer(UINT_8, Rdp.ShareDataHeader.PACKET_ARG_NAMES.keys()), 
+                            ValueDependencyWithSideEffect(lambda x, serde_context: Rdp.ShareDataHeader.from_compression_flags(self.as_field_objects().updateData.compress_field(serde_context).flags))),
+                        to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_ARG_NAMES)),
+                    PrimitiveField('compressionType', 
+                        DependentValueSerializer(
+                            BitMaskSerializer(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_MASK, StructEncodedSerializer(UINT_8)), 
+                            ValueDependency(lambda x: Rdp.ShareDataHeader.from_compression_type(self.as_field_objects().updateData.get_compression_type()))),
+                        to_human_readable = lookup_name_in(Rdp.ShareDataHeader.PACKET_COMPR_TYPE_NAMES)),
                 ])),
+            # TODO: is the size field the compressed or uncompressed size? or is it the fragmented re-assembled size
+            # uncompressed size: ValueDependency(lambda x: self.as_field_objects().updateData.get_inner_field().get_length())
             PrimitiveField('size', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('updateData', RawLengthSerializer(LengthDependency(lambda x: self.size))),
-        ],
-        auto_reinterpret_configs = [
-            AutoReinterpret('updateData',
-                type_getter = ValueDependency(lambda x: self.updateCode), 
-                config_by_type = {
-                    Rdp.FastPath.FASTPATH_UPDATETYPE_SURFCMDS: AutoReinterpretConfig('', functools.partial(ArrayDataUnit, Rdp_TS_SURFCMD, length_dependency = LengthDependency(lambda x: self.size))),
-                    Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS: AutoReinterpretConfig('', functools.partial(Rdp_FASTPATH_UPDATETYPE_ORDERS, rdp_context)),
-                }),
+            CompressedField(
+                decompression_type = ValueDependency(lambda x: Rdp.ShareDataHeader.to_compression_type(self.compressionType)),
+                decompression_flags = ValueDependency(lambda x: Rdp.ShareDataHeader.to_compression_flags(self.compressionArgs)),
+                field = PolymophicField('updateData',
+                    type_getter = ValueDependency(lambda x: self.updateCode), 
+                    fields_by_type = {
+                        Rdp.FastPath.FASTPATH_UPDATETYPE_SURFCMDS: 
+                            DataUnitField('updateData_surfaceCmd', 
+                                ArrayDataUnit(Rdp_TS_SURFCMD, 
+                                    length_dependency = LengthDependency(lambda x: self.size))),
+                        Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS: 
+                            DataUnitField('updateData_orders', Rdp_TS_FP_UPDATE_ORDERS(rdp_context)),
+                        Rdp.FastPath.FASTPATH_UPDATETYPE_POINTER:
+                            DataUnitField('updateData_pointer', Rdp_TS_FP_POINTERATTRIBUTE(LengthDependency(lambda x: self.size))),
+                        Rdp.FastPath.FASTPATH_UPDATETYPE_CACHED:
+                            DataUnitField('updateData_cached', Rdp_TS_FP_CACHEDPOINTERATTRIBUTE()),
+                    }
+                )
+            ),
         ])
         
     def get_pdu_types(self, rdp_context):
@@ -234,7 +266,7 @@ class Rdp_TS_SURFCMD(BaseDataUnit):
             PrimitiveField('cmdType', StructEncodedSerializer(UINT_16_LE), to_human_readable = lookup_name_in(Rdp.Surface.CMDTYPE_NAMES)),
             PolymophicField('cmdData',
                 type_getter = ValueDependency(lambda x: self.cmdType), 
-                field_by_type = {
+                fields_by_type = {
                     Rdp.Surface.CMDTYPE_SET_SURFACE_BITS: DataUnitField('cmdData_setSurfaceBits', Rdp_TS_SURFCMD_SET_SURF_BITS()),
                     Rdp.Surface.CMDTYPE_FRAME_MARKER: DataUnitField('cmdData_frameMarker', Rdp_TS_FRAME_MARKER()),
                     Rdp.Surface.CMDTYPE_STREAM_SURFACE_BITS: DataUnitField('cmdData_streamSurfaceBits', Rdp_TS_SURFCMD_STREAM_SURF_BITS()),
@@ -302,9 +334,9 @@ class Rdp_TS_COMPRESSED_BITMAP_HEADER_EX(BaseDataUnit):
             PrimitiveField('tmSeconds', StructEncodedSerializer(UINT_64_LE)),
         ])
 
-class Rdp_FASTPATH_UPDATETYPE_ORDERS(BaseDataUnit):
+class Rdp_TS_FP_UPDATE_ORDERS(BaseDataUnit):
     def __init__(self, rdp_context):
-        super(Rdp_FASTPATH_UPDATETYPE_ORDERS, self).__init__(fields = [
+        super(Rdp_TS_FP_UPDATE_ORDERS, self).__init__(fields = [
             PrimitiveField('numberOrders', StructEncodedSerializer(UINT_16_LE)),
             DataUnitField('orderData',
                 ArrayDataUnit(functools.partial(Rdp_DRAWING_ORDER, rdp_context),
@@ -322,13 +354,6 @@ class Rdp_DRAWING_ORDER(BaseDataUnit):
                     Rdp.DrawingOrders.ORDERS_SECONDARY: DataUnitField('orderSpecificData_secondary', Rdp_SECONDARY_DRAWING_ORDER()),
                     Rdp.DrawingOrders.ORDERS_SECONDARY_ALTERNATE: DataUnitField('orderSpecificData_altSecondary', Rdp_ALT_SECONDARY_DRAWING_ORDER(self)),
                 }),
-        # ],
-        # auto_reinterpret_configs = [
-        #     AutoReinterpret('orderSpecificData',
-        #         type_getter = ValueDependency(lambda x: (self.controlFlags & Rdp.DrawingOrders.ORDERS_MASK)), 
-        #         config_by_type = {
-        #             # Rdp.DrawingOrders.ORDERS_PRIMARY: AutoReinterpretConfig('', functools.partial(Rdp_PRIMARY_DRAWING_ORDER, self)),
-        #         }),
         ])
 
 # This class is a hack to get the header to reinterpret it'self before any of the other fields in the Rdp_DRAWING_ORDER
@@ -374,3 +399,16 @@ class Rdp_DRAWING_ORDER_header(BaseDataUnit):
             return [PduLayerSummary('ALTERNATE_SECONDARY_DRAWING_ORDER', str(self._fields_by_name['controlFlags'].get_human_readable_value()))]
         else:
             return []
+
+
+class Rdp_TS_FP_POINTERATTRIBUTE(BaseDataUnit):
+    def __init__(self, field_size: LengthDependency):
+        super(Rdp_TS_FP_POINTERATTRIBUTE, self).__init__(fields = [
+            DataUnitField('newPointerUpdateData', Rdp_TS_POINTERATTRIBUTE(field_size)),
+        ])
+
+class Rdp_TS_FP_CACHEDPOINTERATTRIBUTE(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_FP_CACHEDPOINTERATTRIBUTE, self).__init__(fields = [
+            DataUnitField('cachedPointerUpdateData', Rdp_TS_CACHEDPOINTERATTRIBUTE()),
+        ])

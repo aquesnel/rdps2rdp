@@ -2,7 +2,7 @@ import unittest
 import binascii
 
 import compression
-from data_model_v2_rdp import Rdp
+import compression_constants
 from compression_utils import (
     CompressionArgs,
 )
@@ -45,7 +45,7 @@ class TestCompressionRdp60(unittest.TestCase):
         c = compression.CompressionFactory.new_RDP_60()
         d = compression.CompressionFactory.new_RDP_60()
         
-        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = {Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED}))
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = {compression_constants.CompressionFlags.COMPRESSED}, type = compression_constants.CompressionTypes.RDP_61))
         self.assertEqual(inflated_1, data)
         self.assertEqual(inflated_1.hex(), data.hex())
         

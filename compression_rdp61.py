@@ -173,8 +173,8 @@ class Rdp61_CompressionEngine(compression_utils.CompressionEngine):
                     type = compression_constants.CompressionTypes.RDP_61)
 
     def decompress(self, compression_args):
-        if compression_args.flags != set():
-            raise AssertionError("Expected the compression flags to RDP_61 to be empty since the compressions flags are embedded in the compressed data. compression flags: %s" % (compression_args,))
+        # if compression_args.flags != set():
+        #     raise AssertionError("Expected the compression flags to RDP_61 to be empty since the compressions flags are embedded in the compressed data. compression flags: %s" % (compression_args,))
         # l1_flags = set()
         # for f in compression_args.flags.L1_flags:
         #     flag = self.L1_FLAG_MAPPING_FROM_61.get(f, None)

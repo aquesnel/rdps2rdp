@@ -346,6 +346,7 @@ class Rdp(object):
         RAIL_CHANNEL_NAME = 'rail'
         MESSAGE_CHANNEL_NAME = 'McsMessageChannel'
         IO_CHANNEL_NAME = 'I/O Channel'
+        GFX_CHANNEL_NAME = 'Microsoft::Windows::RDS::Graphics'
         
         @classmethod
         def replace_compression_flags(cls, old_flags, compression_flags, compression_type):
@@ -898,8 +899,94 @@ class Rdp(object):
             STREAM_BITMAP_END = 0x01
             STREAM_BITMAP_COMPRESSED = 0x02
             STREAM_BITMAP_REV2 = 0x04
+    
+    class GraphicsPipelineExtention(object):
+        @add_constants_names_mapping('PDU_TYPE_', 'PDU_TYPE_NAMES')
+        class PduType(object):
+            PDU_TYPE_COMMANDS = 0x00
+            PDU_TYPE_SEGMENTS = 0xE0
             
+            MASK = 0xE0
+        
+        @add_constants_names_mapping('PIXEL_FORMAT_', 'PIXEL_FORMAT_NAMES')
+        class PixelFormat(object):
+            PIXEL_FORMAT_XRGB_8888 = 0x20
+            PIXEL_FORMAT_ARGB_8888 = 0x21
             
+        @add_constants_names_mapping('RDPGFX_CMDID_', 'RDPGFX_CMDID_NAMES')
+        class Commands(object):
+            RDPGFX_CMDID_WIRETOSURFACE_1 = 0x0001
+            RDPGFX_CMDID_WIRETOSURFACE_2 = 0x0002
+            RDPGFX_CMDID_DELETEENCODINGCONTEXT = 0x0003
+            RDPGFX_CMDID_SOLIDFILL = 0x0004
+            RDPGFX_CMDID_SURFACETOSURFACE = 0x0005
+            RDPGFX_CMDID_SURFACETOCACHE = 0x0006
+            RDPGFX_CMDID_CACHETOSURFACE = 0x0007
+            RDPGFX_CMDID_EVICTCACHEENTRY = 0x0008
+            RDPGFX_CMDID_CREATESURFACE = 0x0009
+            RDPGFX_CMDID_DELETESURFACE = 0x000A
+            RDPGFX_CMDID_STARTFRAME = 0x000B
+            RDPGFX_CMDID_ENDFRAME = 0x000C
+            RDPGFX_CMDID_FRAMEACKNOWLEDGE = 0x000D
+            RDPGFX_CMDID_RESETGRAPHICS = 0x000E
+            RDPGFX_CMDID_MAPSURFACETOOUTPUT = 0x000F
+            RDPGFX_CMDID_CACHEIMPORTOFFER = 0x0010
+            RDPGFX_CMDID_CACHEIMPORTREPLY = 0x0011
+            RDPGFX_CMDID_CAPSADVERTISE = 0x0012
+            RDPGFX_CMDID_CAPSCONFIRM = 0x0013
+            RDPGFX_CMDID_MAPSURFACETOWINDOW = 0x0015
+            RDPGFX_CMDID_QOEFRAMEACKNOWLEDGE = 0x0016
+            RDPGFX_CMDID_MAPSURFACETOSCALEDOUTPUT = 0x0017
+            RDPGFX_CMDID_MAPSURFACETOSCALEDWINDOW = 0x0018
+
+        @add_constants_names_mapping('RDPGFX_CAPVERSION_', 'RDPGFX_CAPVERSION_NAMES')
+        class Versions(object):
+            RDPGFX_CAPVERSION_8 = 0x00080004
+            RDPGFX_CAPVERSION_81 = 0x00080105
+            RDPGFX_CAPVERSION_10 = 0x000A0002
+            RDPGFX_CAPVERSION_101 = 0x000A0100
+            RDPGFX_CAPVERSION_102 = 0x000A0200
+            RDPGFX_CAPVERSION_103 = 0x000A0301
+            RDPGFX_CAPVERSION_104 = 0x000A0400
+            RDPGFX_CAPVERSION_105 = 0x000A0502
+            RDPGFX_CAPVERSION_106 = 0x000A0601
+            
+        @add_constants_names_mapping('DEBLOCK_', 'DEBLOCK_NAMES')
+        class DataPackaging(object):
+            DEBLOCK_SINGLE = 0xE0
+            DEBLOCK_MULTIPART = 0xE1
+            
+            HEADER_MASK = 0xE0
+            
+        @add_constants_names_mapping('PACKET_COMPR_', 'TYPE_NAMES')
+        @add_constants_names_mapping('PACKET_COMPRE', 'FLAG_NAMES')
+        class Compression(object):
+            COMPRESSION_TYPE_MASK  = 0x0F
+            COMPRESSION_FLAGS_MASK = 0xF0
+            
+            PACKET_COMPRESSED = 0x20
+            
+            PACKET_COMPR_TYPE_RDP8 = 0x4
+            
+            @classmethod
+            def to_compression_flags(cls, flags):
+                retval = set()
+                if flags is None:
+                    return retval
+                
+                if cls.PACKET_COMPRESSED in flags:
+                    retval.add(compression_constants.CompressionFlags.COMPRESSED)
+                    
+                return retval
+            
+            @classmethod
+            def from_compression_flags(cls, compression_flags):
+                retval = set()
+                if compression_constants.CompressionFlags.COMPRESSED in compression_flags:
+                    retval.add(cls.PACKET_COMPRESSED)
+                    
+                return retval
+        
 class DataUnitTypes(object):
     X224 = Rdp.FastPath.FASTPATH_ACTION_X224
     FAST_PATH = Rdp.FastPath.FASTPATH_ACTION_FASTPATH

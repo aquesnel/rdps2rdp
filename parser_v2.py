@@ -93,7 +93,10 @@ from data_model_v2_rdp_edyc import (
 from data_model_v2_rdp_erp import (
     Rdp_TS_RAIL_PDU,
 )
-
+from data_model_v2_rdp_egfx import (
+    Rdp_RDP_SEGMENTED_DATA,
+    Rdp_RDPGFX_PDU,
+)
 from parser_v2_context import (
     RdpContext,
     ChannelDef,
@@ -471,8 +474,10 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                                             channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.channel.dyvc_data.ChannelId, NULL_CHANNEL).name
                                             if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
                                                 pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
-    
-                                    
+                                            if channel_name == Rdp.Channel.GFX_CHANNEL_NAME:
+                                                pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_PDU()), rdp_context)
+                                                
+                                                
             elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
                 if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
                     pdu.reinterpret_field('payload', 

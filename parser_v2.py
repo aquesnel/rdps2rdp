@@ -96,6 +96,7 @@ from data_model_v2_rdp_erp import (
 from data_model_v2_rdp_egfx import (
     Rdp_RDP_SEGMENTED_DATA,
     Rdp_RDPGFX_PDU,
+    Rdp_RDPGFX_commands_PDU,
 )
 from parser_v2_context import (
     RdpContext,
@@ -475,8 +476,13 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                                             if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
                                                 pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
                                             if channel_name == Rdp.Channel.GFX_CHANNEL_NAME:
-                                                pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_PDU()), rdp_context)
-                                                
+                                                if rdp_context.rdp_gfx_pre_capability_exchange:
+                                                    pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_commands_PDU()), rdp_context)
+                                                    if pdu.tpkt.mcs.rdp.channel.dyvc_data.GFX_PDU.header.cmdId == Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSADVERTISE:
+                                                        rdp_context.rdp_gfx_pre_capability_exchange = False
+                                                else:
+                                                    pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDP_SEGMENTED_DATA()), rdp_context)
+
                                                 
             elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
                 if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:

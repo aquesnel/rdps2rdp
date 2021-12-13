@@ -4,6 +4,7 @@ import compression_utils
 import compression_mppc
 import compression_rdp60
 import compression_rdp61
+import compression_rdp80
 
 
 class CompressionFactory(object):
@@ -20,6 +21,8 @@ class CompressionFactory(object):
             return cls.new_RDP_60()
         elif compression_type == compression_constants.CompressionTypes.RDP_61:
             return cls.new_RDP_61()
+        elif compression_type == compression_constants.CompressionTypes.RDP_80:
+            return cls.new_RDP_80()
         else:
             raise AssertionError("Unknown compression type: %s" % compression_type)
 
@@ -74,3 +77,12 @@ class CompressionFactory(object):
         # l2_compression = CompressionFactory.new_NoOp()
         
         return compression_rdp61.Rdp61_CompressionEngine(l1_compression, l2_compression)
+
+    @classmethod
+    def new_RDP_80(cls):
+        history_size = 2500000
+        return compression_mppc.MPPC(
+                                    compression_utils.BruteForceHistoryManager(history_size),
+                                    compression_utils.BufferOnlyHistoryManager(history_size),
+                                    compression_rdp80.Rdp80_CompressionEncodingFacotry()
+                                    )

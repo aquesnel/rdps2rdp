@@ -986,6 +986,25 @@ class Rdp(object):
                     retval.add(cls.PACKET_COMPRESSED)
                     
                 return retval
+                
+            @classmethod
+            def to_compression_type(cls, flags):
+                if flags is None:
+                    return compression_constants.CompressionTypes.NO_OP
+                
+                if cls.PACKET_COMPR_TYPE_RDP8 == flags:
+                    return compression_constants.CompressionTypes.RDP_80
+                else:
+                    raise AssertionError("Unknown Compression Type: %s" % flags)
+                
+            @classmethod
+            def from_compression_type(cls, compression_type):
+                if compression_constants.CompressionTypes.RDP_80 == compression_type:
+                    flag = cls.PACKET_COMPR_TYPE_RDP8
+                else:
+                    raise AssertionError("Unknown Compression Type: %s" % compression_type)
+                
+                return {flag}
         
 class DataUnitTypes(object):
     X224 = Rdp.FastPath.FASTPATH_ACTION_X224

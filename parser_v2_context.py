@@ -35,6 +35,7 @@ class RdpContext(object):
         self.encryption_method = None
         self.encrypted_client_random = None
         self.pre_capability_exchange = True
+        self.rdp_gfx_pre_capability_exchange = True
         
         self.auto_logon = False
         self.rail_enabled = False

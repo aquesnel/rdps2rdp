@@ -14,3 +14,4 @@ class CompressionTypes(enum.Enum):
     RDP_50 = 'RDP_50'
     RDP_60 = 'RDP_60'
     RDP_61 = 'RDP_61'
+    RDP_80 = 'RDP_80'

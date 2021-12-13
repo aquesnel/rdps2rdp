@@ -25,9 +25,10 @@ HistoryMatch = collections.namedtuple('HistoryMatch', ['data_absolute_offset', '
 CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags', 'type'])
 
 class BitStream(object):
-    def __init__(self, packed_bits = [], append_low_to_high = False):
+    def __init__(self, packed_bits = [], padding_bit_length = 0, append_low_to_high = False):
         self._bit_offset = 0
         self._bytes = bytearray(packed_bits)
+        self._padding_bit_length = padding_bit_length
         self._append_low_to_high = append_low_to_high
 
     class BitStreamIter(object):
@@ -40,12 +41,14 @@ class BitStream(object):
             for b in self.bit_stream._bytes:
                 mask = 0x80
                 for bit_index in range(7, -1, -1):
+                    if self._remaining == 0:
+                        break
+                    self._remaining -= 1
                     bit = (b & mask) >> bit_index
                     if DEBUG: print('next_bit bit = %s ' % (bit))
                     yield bit 
                     mask >>= 1
-                    self._remaining -= 1
-        
+                    
         def __next__(self):
             return next(self._iter)
             
@@ -53,6 +56,8 @@ class BitStream(object):
             return self.__next__()
             
         def next_int(self, bit_length):
+            if bit_length > self._remaining:
+                raise ValueError('Not enough bits remaining in the stream. Remaining bits: %d, requested bits: %d' % (self._remaining, bit_length))
             retval = 0
             if DEBUG: print('next_int bit_length = %s ' % (bit_length))
             for bit_index in range(bit_length):
@@ -76,12 +81,14 @@ class BitStream(object):
             for b in self.bit_stream._bytes:
                 mask = 0x01
                 for bit_index in range(8):
+                    if self._remaining == 0:
+                        break
+                    self._remaining -= 1
                     bit = (b & mask) >> bit_index
                     if DEBUG: print('next_bit bit = %s ' % (bit))
                     yield bit 
                     mask <<= 1
-                    self._remaining -= 1
-        
+                    
         def __next__(self):
             return next(self._iter)
             
@@ -89,6 +96,8 @@ class BitStream(object):
             return self.__next__()
             
         def next_int(self, bit_length):
+            if bit_length > self._remaining:
+                raise ValueError('Not enough bits remaining in the stream. Remaining bits: %d, requested bits: %d' % (self._remaining, bit_length))
             retval = 0
             if DEBUG: print('next_int bit_length = %s ' % (bit_length))
             for bit_index in range(bit_length):
@@ -112,7 +121,7 @@ class BitStream(object):
         bits_in_last_byte = 8
         if self._bit_offset > 0:
             bits_in_last_byte = self._bit_offset
-        return len(self._bytes) * 8 - (8 - bits_in_last_byte)
+        return len(self._bytes) * 8 - (8 - bits_in_last_byte) - self._padding_bit_length
     
     def iter_low_to_high(self):
         return BitStream.LowToHightBitStreamIter(self)
@@ -137,6 +146,9 @@ class BitStream(object):
     def _verify_bit(cls, bit):
         if bit != 0 and bit != 1:
             raise ValueError('Invalid binary digit "%s"' % bit)
+    
+    def get_available_bits_in_last_byte(self):
+        return 8 - self._bit_offset
     
     def append_bit(self, bit):
         self._verify_bit(bit)

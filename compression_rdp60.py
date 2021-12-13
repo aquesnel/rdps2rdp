@@ -9,6 +9,7 @@ import enum
 import pprint
 
 import compression_constants
+import compression_huffman
 import compression_utils
 from compression_utils import (
     SymbolType,
@@ -20,106 +21,12 @@ DEBUG = False
 
 
 
-EncodingConfig = collections.namedtuple('EncodingConfig', ['min_value', 'prefix', 'value_bit_length'])
-# HuffmanTreeNode = collections.namedtuple('HuffmanTreeNode', ['child_0', 'child_1'])
-HuffmanTreeLeaf = collections.namedtuple('HuffmanTreeLeaf', ['isLeaf', 'index', 'in_path', 'path', 'has_child_0', 'has_child_1'])
-
-class HuffmanTreeNode(object):
-    def __init__(self, huffman_index = None, child_0=None, child_1=None, path=''):
-        self._children = [child_0, child_1]
-        self._huffman_index = huffman_index
-        self._path = path
-    
-    def __str__(self):
-        return "HuffmanTreeNode(has_child_0=%5s, has_child_1=%5s, index=%4s, in_path=%-10s)" % (
-            self._children[0] is not None, 
-            self._children[1] is not None,
-            self._huffman_index, 
-            self._path)
-        
-    def tree_to_str(self):
-        # return pprint.pformat(self.as_dict())
-        return pprint.pformat(["HuffmanTreeLeaf(isLeaf=%5s, index=%3d, in_path=%-10s, path=%-10s)" % (n.isLeaf, n.index, n.in_path, n.path)
-            for n in sorted(self.as_tuples(), key=lambda x: x.index)], width=100)
-        
-    def as_dict(self):
-        return {
-            'huffman_index': self._huffman_index,
-            'child_0': None if self._children[0] is None else self._children[0].as_dict(),
-            'child_1': None if self._children[1] is None else self._children[1].as_dict(),
-        }
-        
-    def as_tuples(self, prefix=''):
-        retval = []
-        if self._huffman_index is not None:
-            retval.append(HuffmanTreeLeaf(self.is_leaf(), self._huffman_index, self._path, prefix, self._children[0] is not None, self._children[1] is not None))
-        
-        if self._children[0]:
-            retval.extend(self._children[0].as_tuples(prefix + '0'))
-        if self._children[1]:
-            retval.extend(self._children[1].as_tuples(prefix + '1'))
-            
-        return retval
-    
-    def get_huffman_index(self):
-        if not self.is_leaf():
-            raise ValueError('Invalid node. A non-leaf node does not have a huffman_index. %s' % self)
-        if self._huffman_index is None:
-            raise ValueError('Invalid node. This leaf node does not have a huffman_index. %s' % self)
-        return self._huffman_index
-
-    def next_huffman_index_from(self, bits_iter):
-        tree_node = self
-        while not tree_node.is_leaf():
-            tree_node = tree_node.get_child(bits_iter.next())
-        return tree_node.get_huffman_index()
-
-    def has_children(self):
-        return (self._children[0] is not None) or (self._children[1] is not None)
-    
-    def is_leaf(self):
-        return (self._huffman_index is not None) and not self.has_children()
-        
-    def get_child(self, digit):
-        if digit != 0 and digit != 1:
-            raise ValueError('Invalid binary digit "%s"' % digit)
-        return self._children[digit]
-            
-    def add_child(self, huffman_index, digits, index = 0):
-        if len(digits) <= index:
-            if self.has_children():
-                raise ValueError('Invalid node. A Node must have children or have a value but not both. %s' % self)
-            self._huffman_index = huffman_index
-            if DEBUG: print('Adding child: huff_index=%3d, digit=N/A to %s' % (huffman_index, self))
-            return
-        digit = digits[index]
-        if digit != 0 and digit != 1:
-            raise ValueError('Invalid binary digit "%s"' % digit)
-        if self._children[digit] is None:
-            self._children[digit] = HuffmanTreeNode(path=''.join(('%s' % d for d in digits[:index+1])))
-        if self._children[digit].is_leaf():
-            raise ValueError('Invalid operation: add_child. A Node must have children or have a value but not both. %s, huff_index=%s, digit_index=%s, digits=%s' % (self._children[digit], huffman_index, index + 1, digits))
-        
-        if DEBUG: print('Adding child: huff_index=%3d, digit=%-3s to %s' % (huffman_index, digits[index], self))
-        self._children[digit].add_child(huffman_index, digits, index + 1)
-
 def build_huffman_tree(codes, lengths):
-    root = HuffmanTreeNode()
-    try:
-        for code, length, huffman_index in zip(codes, lengths, range(len(codes))):
-            digits = []
-            for i in range(length):
-                digits.append(code & 0x01)
-                code >>= 1
-            # digits = digits[::-1]
-            if DEBUG: print('Adding to Tree: huff_index=%3d, digits=%s' % (huffman_index, digits))
-            root.add_child(huffman_index, digits)
-    except Exception as e:
-        print(root.tree_to_str())
-        raise e
-        
+    root = compression_huffman.HuffmanTreeNode()
+    for code, length, huffman_index in zip(codes, lengths, range(len(codes))):
+        root.add_child(huffman_index, code, length, digits_low_to_high = True)
     return root
-    
+
 class Rdp60CompressionHuffanConstants(object):
 
         
@@ -345,7 +252,7 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         self._bitstream_src_iter = iter(compression_utils.BitStream(data, append_low_to_high = True))
     
     def decode_LEC_huffman_code(self, bits_iter):
-        return Rdp60CompressionHuffanConstants.HuffTreeLEC.next_huffman_index_from(bits_iter)
+        return Rdp60CompressionHuffanConstants.HuffTreeLEC.next_value_from(bits_iter)
 
     def decode_next(self): # Tuple[SymbolType, Any]
         bits_iter = self._bitstream_src_iter
@@ -381,7 +288,7 @@ class Rdp60CompressionDecoder(compression_utils.Decoder):
         
     def decode_length_of_match(self, bits_iter):
         # decode LengthOfMatch
-        LUTIndex = Rdp60CompressionHuffanConstants.HuffTreeL.next_huffman_index_from(bits_iter)
+        LUTIndex = Rdp60CompressionHuffanConstants.HuffTreeL.next_value_from(bits_iter)
         BaseLUT = Rdp60CompressionHuffanConstants.LoMBaseLUT[LUTIndex]
         BitsLUT = Rdp60CompressionHuffanConstants.LoMBitsLUT[LUTIndex]
         

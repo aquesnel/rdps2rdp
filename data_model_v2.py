@@ -871,7 +871,7 @@ class CompressedField(BaseField):
         return self._compression_type
     
     def compress_field(self, serde_context: SerializationContext):
-        engine = serde_context.get_rdp_context().get_compression_engine()
+        engine = serde_context.get_rdp_context().get_compression_engine(self._compression_type)
         engine_id = id(engine)
         # Note: this method has side-effects (updating the compression history buffer) 
         # and is therefore not safe to call multiple times

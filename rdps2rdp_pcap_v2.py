@@ -485,7 +485,7 @@ def main():
                 else:
                     raise err
 
-            if offset + limit <= i: 
+            if offset + limit - 1 <= i: 
                 break
             i += 1
 

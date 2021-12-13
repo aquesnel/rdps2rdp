@@ -164,6 +164,7 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
       
 
+    @unittest.skip("invalid data because MSTSC can't parse the data, therefore the test should error")
     def test_parse_unknown_2(self):
         # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegdi/b69a751e-34df-4326-b4e1-0e582ff7ea97
         # data captured from an MSTSC session with a Win10 datacenter RDP 10? server

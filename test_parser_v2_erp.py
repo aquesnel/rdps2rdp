@@ -46,14 +46,14 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.channel.header.length, 14)
         self.assertEqual(pdu.tpkt.mcs.rdp.channel.header.flags, {Rdp.Channel.CHANNEL_FLAG_FIRST, Rdp.Channel.CHANNEL_FLAG_LAST})
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_header.cbId, 0)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_header.Pri, 1)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd, Rdp.DynamicVirtualChannels.COMMAND_DATA)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.header.cbId, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.header.Pri, 1)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd, Rdp.DynamicVirtualChannels.COMMAND_DATA)
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_data.TS_RAIL_PDU.header.orderType, Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE_EX)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_data.TS_RAIL_PDU.header.orderLength, 12)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_data.TS_RAIL_PDU.payload.buildNumber, 0)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_data.TS_RAIL_PDU.payload.railHandshakeFlags, {Rdp.Rail.TS_RAIL_HANDSHAKE_EX_FLAGS_HIDEF, Rdp.Rail.TS_RAIL_HANDSHAKE_EX_FLAGS_EXTENDED_SPI_SUPPORTED, Rdp.Rail.TS_RAIL_HANDSHAKE_EX_FLAGS_SNAP_ARRANGE_SUPPORTED})
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.data.TS_RAIL_PDU.header.orderType, Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE_EX)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.data.TS_RAIL_PDU.header.orderLength, 12)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.data.TS_RAIL_PDU.payload.buildNumber, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.data.TS_RAIL_PDU.payload.railHandshakeFlags, {Rdp.Rail.TS_RAIL_HANDSHAKE_EX_FLAGS_HIDEF, Rdp.Rail.TS_RAIL_HANDSHAKE_EX_FLAGS_EXTENDED_SPI_SUPPORTED, Rdp.Rail.TS_RAIL_HANDSHAKE_EX_FLAGS_SNAP_ARRANGE_SUPPORTED})
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         

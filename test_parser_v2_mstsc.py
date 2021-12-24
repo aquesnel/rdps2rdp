@@ -171,6 +171,7 @@ class TestParsing(unittest.TestCase):
 
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         
+    @unittest.skip("invalid data because the channel header length says that the PDU has size 1708204032, therefore the test should error")
     def test_parse_RDP_BW_RESULTS_ex_2(self):
         # data captured from an MSTSC session with a Win10 datacenter RDP 10? server
         # pdu from client

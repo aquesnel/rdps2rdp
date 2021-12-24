@@ -81,26 +81,28 @@ from data_model_v2_rdp_fast_path import (
 )
 
 from data_model_v2_rdp_edyc import (
-    Rdp_DYNVC_Header,
-    Rdp_DYNVC_CAPS_VERSION,
-    Rdp_DYNVC_CAPS_RSP,
-    Rdp_DYNVC_CREATE_REQ,
-    Rdp_DYNVC_CREATE_RSP,
-    Rdp_DYNVC_DATA_FIRST,
-    Rdp_DYNVC_DATA,
-    Rdp_DYNVC_CLOSE,
+    Rdp_DYNVC_PDU,
+    # Rdp_DYNVC_Header,
+    # Rdp_DYNVC_CAPS_VERSION,
+    # Rdp_DYNVC_CAPS_RSP,
+    # Rdp_DYNVC_CREATE_REQ,
+    # Rdp_DYNVC_CREATE_RSP,
+    # Rdp_DYNVC_DATA_FIRST,
+    # Rdp_DYNVC_DATA,
+    # Rdp_DYNVC_CLOSE,
 )
 from data_model_v2_rdp_erp import (
     Rdp_TS_RAIL_PDU,
 )
 from data_model_v2_rdp_egfx import (
     Rdp_RDP_SEGMENTED_DATA,
-    Rdp_RDPGFX_PDU,
+    # Rdp_RDPGFX_PDU,
     Rdp_RDPGFX_commands_PDU,
 )
 from parser_v2_context import (
     RdpContext,
     ChannelDef,
+    DataChunk,
 )
 import mccp
 
@@ -415,73 +417,71 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                             
                         else: # all other channels
                             pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('channel', Rdp_CHANNEL_PDU()), rdp_context)
-                            is_payload_compressed = False
-                            # pdu.tpkt.mcs.rdp.reinterpret_field('payload', DataUnitField('CHANNEL_PDU_HEADER', Rdp_CHANNEL_PDU_HEADER()), rdp_context)
-                            # is_payload_compressed = Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags
-                            # if is_payload_compressed and rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
-                            #     # TODO: reset compression history if the flag is set in the PDU or maybe if the data to decompress is too big
-                            #     decompressed_payload = rdp_context.compression_virtual_chan_cs_encoder.decompress(pdu.tpkt.mcs.rdp.payload)
-                            #     pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload_compressed', RawLengthSerializer()), rdp_context)
-                            #     pdu.tpkt.mcs.rdp.reinterpret_field('payload', PrimitiveField('payload', RawLengthSerializer()), rdp_context, allow_overwrite = True)
-                            #     pdu.tpkt.mcs.rdp.payload = decompressed_payload
-                            #     is_payload_compressed = False
+                            channel_id = pdu.tpkt.mcs.mcs_user_data.channelId
+                            
+                            if Rdp.Channel.CHANNEL_FLAG_FIRST in pdu.tpkt.mcs.rdp.channel.header.flags:
+                                rdp_context.set_channel_chunk(channel_id, chunk = DataChunk(pdu.tpkt.mcs.rdp.channel.header.length))
+                            data_chunk = rdp_context.get_channel_chunk(channel_id)
+                            data_chunk.append_data(pdu.tpkt.mcs.rdp.channel.payload)
+                            
+                            if Rdp.Channel.CHANNEL_FLAG_LAST in pdu.tpkt.mcs.rdp.channel.header.flags:
+                                pdu.tpkt.mcs.rdp.channel.payload = data_chunk.get_data()
                                 
-                            if not is_payload_compressed:
-                                channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId, NULL_CHANNEL).name
-                                if channel_name == Rdp.Channel.DRDYNVC_CHANNEL_NAME:
-                                    pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_header', Rdp_DYNVC_Header()), rdp_context)
-                                    if pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CREATE:
-                                        if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
-                                            pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_create_response', Rdp_DYNVC_CREATE_RSP(pdu.tpkt.mcs.rdp.channel.dyvc_header)), rdp_context)
-                                            # if pdu.tpkt.mcs.rdp.dyvc_create_response.CreationStatus != Rdp.HResult.HRESULT_ERROR_SUCCESS:
-                                            #     raise NotImplementedError("Dynamic virtual channel creation failure not supported (because the channel was commited on creation and we don't support an 'undo' capability). CreateStatus: %d" % (pdu.tpkt.mcs.rdp.channel.dyvc_create_response.CreationStatus))
-                                        elif rdp_context.pdu_source == RdpContext.PduSource.SERVER:
-                                            pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_create_request', Rdp_DYNVC_CREATE_REQ(pdu.tpkt.mcs.rdp.channel.dyvc_header)), rdp_context)
-                                            channel_name = pdu.tpkt.mcs.rdp.channel.dyvc_create_request.ChannelName
-                                            channel_id = pdu.tpkt.mcs.rdp.channel.dyvc_create_request.ChannelId
-                                            if channel_name in rdp_context.get_channel_names():
-                                                channel = rdp_context.get_channel_by_name(channel_name)
-                                                channel.options = Rdp.DynamicVirtualChannels.DYNAMIC_VIRTUAL_CHANNEL_OPTIONS
-                                                channel.type = Rdp.Channel.ChannelType.DYNAMIC
-                                                channel.channel_id = channel_id
-                                            else:
-                                                channel = ChannelDef(channel_name, Rdp.DynamicVirtualChannels.DYNAMIC_VIRTUAL_CHANNEL_OPTIONS, Rdp.Channel.ChannelType.DYNAMIC, channel_id)
-                                                rdp_context.channel_defs.append(channel)
-        
-                                    elif pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CAPABILITIES:
-                                        if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:
-                                            pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_capabilities_response', Rdp_DYNVC_CAPS_RSP()), rdp_context)
-                                        elif rdp_context.pdu_source == RdpContext.PduSource.SERVER:
-                                            pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_capabilities', Rdp_DYNVC_CAPS_VERSION()), rdp_context)
-        
-                                    elif pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CLOSE:
-                                        pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_close', Rdp_DYNVC_CLOSE(pdu.tpkt.mcs.rdp.channel.dyvc_header)), rdp_context)
-                                        channel_id = pdu.tpkt.mcs.rdp.channel.dyvc_close.ChannelId
+                                channel_name = rdp_context.get_channel_by_id(channel_id, NULL_CHANNEL).name
+                                if channel_name == Rdp.Channel.DRDYNVC_CHANNEL_NAME: 
+                                    pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc', Rdp_DYNVC_PDU(rdp_context.pdu_source)), rdp_context)
+                                    if (pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CREATE
+                                            and rdp_context.pdu_source == RdpContext.PduSource.SERVER):
+                                        channel_name = pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelName
+                                        channel_id = pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId
+                                        if channel_name in rdp_context.get_channel_names():
+                                            channel = rdp_context.get_channel_by_name(channel_name)
+                                            channel.options = Rdp.DynamicVirtualChannels.DYNAMIC_VIRTUAL_CHANNEL_OPTIONS
+                                            channel.type = Rdp.Channel.ChannelType.DYNAMIC
+                                            channel.channel_id = channel_id
+                                        else:
+                                            channel = ChannelDef(channel_name, Rdp.DynamicVirtualChannels.DYNAMIC_VIRTUAL_CHANNEL_OPTIONS, Rdp.Channel.ChannelType.DYNAMIC, channel_id)
+                                            rdp_context.channel_defs.append(channel)
+                                    
+                                    elif pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CLOSE:
+                                        channel_id = pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId
                                         rdp_context.remove_channel_by_id(channel_id)
+                                    
+                                    elif pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd in {
+                                                Rdp.DynamicVirtualChannels.COMMAND_DATA_FIRST,
+                                                Rdp.DynamicVirtualChannels.COMMAND_DATA,
+                                                # Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA_FIRST,
+                                                # Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA,
+                                            }:
                                         
-                                    else:
-                                        DYVC_FACTORY_BY_TYPE = {
-                                            Rdp.DynamicVirtualChannels.COMMAND_DATA_FIRST: Rdp_DYNVC_DATA_FIRST,
-                                            Rdp.DynamicVirtualChannels.COMMAND_DATA: Rdp_DYNVC_DATA,
-                                            Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA_FIRST: Rdp_DYNVC_DATA_FIRST,
-                                            Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA: Rdp_DYNVC_DATA,
-                                            # Rdp.DynamicVirtualChannels.COMMAND_SOFT_SYNC_REQUEST: NotImplemented
-                                            # Rdp.DynamicVirtualChannels.COMMAND_SOFT_SYNC_RESPONSE: NotImplemented
-                                        }
-                                        if pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd in DYVC_FACTORY_BY_TYPE:
-                                            dyvc_pdu_factory = functools.partial(DYVC_FACTORY_BY_TYPE[pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd], pdu.tpkt.mcs.rdp.channel.dyvc_header)
-                                            pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc_data', dyvc_pdu_factory()), rdp_context)
+                                        if pdu.tpkt.mcs.rdp.channel.dyvc.has_path('data_first'):
+                                            pdu.tpkt.mcs.rdp.channel.dyvc.alias_field('data', 'data_first')
+                                        
+                                        channel_id = pdu.tpkt.mcs.rdp.channel.dyvc.data.ChannelId
+                                        if pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd in {
+                                                    Rdp.DynamicVirtualChannels.COMMAND_DATA_FIRST,
+                                                    Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA_FIRST,
+                                                }:
+                                            rdp_context.set_channel_chunk(channel_id, chunk = DataChunk(pdu.tpkt.mcs.rdp.channel.dyvc.data_first.Length))
+                                        elif not rdp_context.has_channel_chunk(channel_id):
+                                            rdp_context.set_channel_chunk(channel_id, chunk = DataChunk(len(pdu.tpkt.mcs.rdp.channel.dyvc.data.Data)))
+                                        data_chunk = rdp_context.get_channel_chunk(channel_id)
+                                        data_chunk.append_data(pdu.tpkt.mcs.rdp.channel.dyvc.data.Data)
+                                        
+                                        if data_chunk.is_full():
+                                            rdp_context.set_channel_chunk(channel_id, chunk = None)
+                                            pdu.tpkt.mcs.rdp.channel.dyvc.data.Data = data_chunk.get_data()
                                             
-                                            channel_name = rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.channel.dyvc_data.ChannelId, NULL_CHANNEL).name
+                                            channel_name = rdp_context.get_channel_by_id(channel_id, NULL_CHANNEL).name
                                             if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
-                                                pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
+                                                pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
                                             if channel_name == Rdp.Channel.GFX_CHANNEL_NAME:
                                                 if rdp_context.rdp_gfx_pre_capability_exchange:
-                                                    pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_commands_PDU()), rdp_context)
-                                                    if pdu.tpkt.mcs.rdp.channel.dyvc_data.GFX_PDU.header.cmdId == Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSADVERTISE:
+                                                    pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_commands_PDU()), rdp_context)
+                                                    if pdu.tpkt.mcs.rdp.channel.dyvc.data.GFX_PDU.header.cmdId == Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSADVERTISE:
                                                         rdp_context.rdp_gfx_pre_capability_exchange = False
                                                 else:
-                                                    pdu.tpkt.mcs.rdp.channel.dyvc_data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDP_SEGMENTED_DATA()), rdp_context)
+                                                    pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDP_SEGMENTED_DATA()), rdp_context)
 
                                                 
             elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:

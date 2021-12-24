@@ -49,15 +49,15 @@ class TestParsing(unittest.TestCase):
         self.assertEqual(pdu.tpkt.mcs.rdp.channel.header.length, 12)
         self.assertEqual(pdu.tpkt.mcs.rdp.channel.header.flags, {Rdp.Channel.CHANNEL_FLAG_FIRST, Rdp.Channel.CHANNEL_FLAG_LAST})
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_header.cbId, 0)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_header.Pri, 0)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_header.Cmd, Rdp.DynamicVirtualChannels.COMMAND_CAPABILITIES)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.header.cbId, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.header.Pri, 0)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd, Rdp.DynamicVirtualChannels.COMMAND_CAPABILITIES)
         
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_capabilities.Version, 3)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_capabilities.PriorityCharge0, 0x3333)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_capabilities.PriorityCharge1, 0x1111)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_capabilities.PriorityCharge2, 0x0a3d)
-        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc_capabilities.PriorityCharge3, 0x04a7)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.capabilities_request.Version, 3)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.capabilities_request.PriorityCharge0, 0x3333)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.capabilities_request.PriorityCharge1, 0x1111)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.capabilities_request.PriorityCharge2, 0x0a3d)
+        self.assertEqual(pdu.tpkt.mcs.rdp.channel.dyvc.capabilities_request.PriorityCharge3, 0x04a7)
         
         self.assertEqual(bytes(pdu.as_wire_bytes()), data)
         

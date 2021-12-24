@@ -1030,6 +1030,8 @@ class BaseDataUnit(object):
         self._raw_value = None
 
     def __getattr__(self, name: str) -> Any:
+        if name == '_fields_by_name':
+            raise ValueError('The special field "_fields_by_name" does not yet exist for class Class <%s>. Class.__dict__: %s' % (self.__class__.__name__, self.__dict__))
         if name in self._fields_by_name:
             f = self._fields_by_name[name]
             if isinstance(f, ReferenceField):
@@ -1161,6 +1163,8 @@ class BaseDataUnit(object):
         for f in self._fields:
             length = f.deserialize_value(raw_data, offset, serde_context)
             offset += length
+            if isinstance(f, PolymophicField):
+                self.alias_field(f._get_field().name, f.name)
         for config in self._auto_reinterpret_configs:
             config.auto_reinterpret(self, serde_context)
         self.apply_context(serde_context)

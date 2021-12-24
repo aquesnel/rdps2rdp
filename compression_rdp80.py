@@ -1,6 +1,7 @@
 import collections
 import sorted_collection
 
+import utils
 import compression_huffman
 import compression_utils
 from data_model_v2_rdp import Rdp
@@ -171,8 +172,8 @@ class Rdp80_CompressionDecoder(compression_utils.Decoder):
         return next(self.__iter)
     
     def decode_iter(self, data): # Tuple[SymbolType, Any]
-        padding_bit_length = data[-1]
-        if padding_bit_length > 7:
+        padding_bit_length = data[-1] & 0x07
+        if padding_bit_length > 7: # this is now redundant with the mask applied above
             raise ValueError('Invalid padding bit length checksum: %d' % padding_bit_length)
         data_without_padding_checksum = memoryview(data)[:-1]
         bits_iter = iter(compression_utils.BitStream(data_without_padding_checksum, padding_bit_length))
@@ -180,9 +181,9 @@ class Rdp80_CompressionDecoder(compression_utils.Decoder):
         while bits_iter.remaining() > 0:
             if DEBUG: print('bits remaining: %s' % (bits_iter.remaining(),))
             encoding_token = Rdp80CompressionConstants.TOKENS_HUFFMAN_TREE.next_value_from(bits_iter)
-            value = bits_iter.next_int(encoding_token.value_bit_length) + encoding_token.offset
-            
             if DEBUG: print('decoding token: %s' % (encoding_token,))
+            
+            value = bits_iter.next_int(encoding_token.value_bit_length) + encoding_token.offset
             if encoding_token.token_type == SymbolType.LITERAL:
                 if DEBUG: print('decoding literal: %d -> %s' % (value, chr(value)))
                 yield (SymbolType.LITERAL, value.to_bytes(1,'little'))
@@ -190,9 +191,16 @@ class Rdp80_CompressionDecoder(compression_utils.Decoder):
             elif encoding_token.token_type == SymbolType.COPY_OFFSET:
                 copy_offset = value
                 length_of_match = self.decode_length_of_match(bits_iter)
-                copy_tuple = CopyTupleV2(copy_offset, length_of_match, is_relative_offset = True)
-                if DEBUG: print('decoding copy_tuple: copy_tuple = %s' % (str(copy_tuple)))
-                yield (SymbolType.COPY_OFFSET, copy_tuple)
+                if copy_offset == 0:
+                    literals = bytearray()
+                    for i in range(length_of_match):
+                        literals.append(bits_iter.next_int(8))
+                    if DEBUG: print('decoding literals: %s -> %s' % (utils.as_hex_str(literals), ''.join(chr(value) for value in literals)))
+                    yield (SymbolType.LITERAL, literals)
+                else:
+                    copy_tuple = CopyTupleV2(copy_offset, length_of_match, is_relative_offset = True)
+                    if DEBUG: print('decoding copy_tuple: copy_tuple = %s' % (str(copy_tuple)))
+                    yield (SymbolType.COPY_OFFSET, copy_tuple)
         
         if DEBUG: print('decoding end-of-stream')
         yield (SymbolType.END_OF_STREAM, None)

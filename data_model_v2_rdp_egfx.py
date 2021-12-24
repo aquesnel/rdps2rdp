@@ -116,7 +116,7 @@ class Rdp_RDP_SEGMENTED_DATA(BaseDataUnit):
 class Rdp_RDP_DATA_SEGMENT(BaseDataUnit):
     def __init__(self):
         super(Rdp_RDP_DATA_SEGMENT, self).__init__(fields = [
-            PrimitiveField('size', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('size', StructEncodedSerializer(UINT_32_LE)), # compressed size
             DataUnitField('bulkData', 
                 Rdp_RDP8_BULK_ENCODED_DATA(LengthDependency(lambda x: self.size))),
         ])
@@ -135,6 +135,7 @@ class Rdp_RDP8_BULK_ENCODED_DATA(BaseDataUnit):
             CompressedField(
                 decompression_type = ValueDependency(lambda x: Rdp.GraphicsPipelineExtention.Compression.to_compression_type(self.header_CompressionType)),
                 decompression_flags = ValueDependency(lambda x: Rdp.GraphicsPipelineExtention.Compression.to_compression_flags(self.header_CompressionFlags)),
+                decompression_length = data_length_dependency,
                 field = DataUnitField('data', Rdp_RDPGFX_commands_PDU())),
         ])
 

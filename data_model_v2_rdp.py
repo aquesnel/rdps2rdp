@@ -1478,7 +1478,7 @@ class Rdp_CHANNEL_PDU(BaseDataUnit):
         super(Rdp_CHANNEL_PDU, self).__init__(fields = [
             DataUnitField('header', 
                 Rdp_CHANNEL_PDU_HEADER(
-                    payload_length = ValueDependency(lambda x: self.as_field_objects().payload.get_inner_field().get_length()),
+                    payload_length = ValueDependency(lambda x: self.as_field_objects().payload.get_decompressed_field().get_length()),
                     do_compression = ValueDependencyWithSideEffect(lambda x, serde_context: self.as_field_objects().payload.compress_field(serde_context).flags))),
             CompressedField(
                 decompression_type = ValueDependency(lambda x: Rdp.Channel.to_compression_type(self.header.flags)),

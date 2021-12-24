@@ -224,10 +224,12 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
                 ])),
             # TODO: is the size field the compressed or uncompressed size? or is it the fragmented re-assembled size
             # uncompressed size: ValueDependency(lambda x: self.as_field_objects().updateData.get_inner_field().get_length())
+            # looks like size is the compressed size
             PrimitiveField('size', StructEncodedSerializer(UINT_16_LE)),
             CompressedField(
                 decompression_type = ValueDependency(lambda x: Rdp.ShareDataHeader.to_compression_type(self.compressionType)),
                 decompression_flags = ValueDependency(lambda x: Rdp.ShareDataHeader.to_compression_flags(self.compressionArgs)),
+                decompression_length = LengthDependency(lambda x: self.size),
                 field = PolymophicField('updateData',
                     type_getter = ValueDependency(lambda x: self.updateCode), 
                     fields_by_type = {

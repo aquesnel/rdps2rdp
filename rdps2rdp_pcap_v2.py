@@ -398,11 +398,11 @@ def main():
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
-        # OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
+        OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
         # OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930
         # offset = 180 ; limit = 1 ; # alt-sec err
         
-        OUTPUTPCAP = 'output.win10.rail.no-gfx.fail.pcap'; SERVER_PORT = 33994
+        # OUTPUTPCAP = 'output.win10.rail.no-gfx.fail.pcap'; SERVER_PORT = 33994
         
         rdp_context = parser_v2_context.RdpContext()
         i = 0
@@ -436,44 +436,44 @@ def main():
             if err:
                 do_print = True
             if do_print:
-                if args.verbose in (0, 1):
-                    with rdp_context.set_pdu_source(pdu_source):
+                with rdp_context.set_pdu_source(pdu_source):
+                    if args.verbose in (0, 1):
                         pdu_summary = pdu.get_pdu_summary(rdp_context)
-                    pdu_summary.sequence_id = i
-                    pdu_summary.timestamp = pkt.time
-                    if not pdu_summary.layers:
-                        pdu_summary.layers.append(data_model_v2.PduLayerSummary('Unknown', 'Unknown'))
-                    pdu_summary.layers = [l for l in pdu_summary.layers if any([f(l) for f in layer_filters_include]) or not any([f(l) for f in layer_filters_exclude])]
-                    if args.verbose == 0:
-                        print('%s%s%s' % (
-                                pdu_summary.source.name, 
-                                '\n    ' if pdu_summary.layers else '',
-                                '\n    '.join([str(l) for l in pdu_summary.layers]),
-                                ))
-                    else:
-                        print('%3d %s %s - len %4d%s%s' % (
-                                pdu_summary.sequence_id, 
-                                datetime.fromtimestamp(pdu_summary.timestamp).strftime('%H:%M:%S.%f')[:-3], 
-                                pdu_summary.source.name, 
-                                pdu_summary.length,
-                                '\n    ' if pdu_summary.layers else '',
-                                '\n    '.join([str(l) for l in pdu_summary.layers]),
-                                ))
-                if args.verbose >= 2:
-                    print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
-                
-                if args.verbose >= 3:
-                    print(repr(pkt))
-                    print(utils.as_hex_str(pkt[Raw].load))
-                    print(pre_parsing_rdp_context)
+                        pdu_summary.sequence_id = i
+                        pdu_summary.timestamp = pkt.time
+                        if not pdu_summary.layers:
+                            pdu_summary.layers.append(data_model_v2.PduLayerSummary('Unknown', 'Unknown'))
+                        pdu_summary.layers = [l for l in pdu_summary.layers if any([f(l) for f in layer_filters_include]) or not any([f(l) for f in layer_filters_exclude])]
+                        if args.verbose == 0:
+                            print('%s%s%s' % (
+                                    pdu_summary.source.name, 
+                                    '\n    ' if pdu_summary.layers else '',
+                                    '\n    '.join([str(l) for l in pdu_summary.layers]),
+                                    ))
+                        else:
+                            print('%3d %s %s - len %4d%s%s' % (
+                                    pdu_summary.sequence_id, 
+                                    datetime.fromtimestamp(pdu_summary.timestamp).strftime('%H:%M:%S.%f')[:-3], 
+                                    pdu_summary.source.name, 
+                                    pdu_summary.length,
+                                    '\n    ' if pdu_summary.layers else '',
+                                    '\n    '.join([str(l) for l in pdu_summary.layers]),
+                                    ))
+                    if args.verbose >= 2:
+                        print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
                     
-                    pdu_inner = pdu
-                    if args.path and pdu.has_path(args.path):
-                        print('Path into PDU: %s' % (args.path,))
-                        pdu_inner = root_pdu.get_path(path)
-                    print(pdu_inner.as_str(args.depth))
-                if args.verbose >= 4:
-                    print(utils.as_hex_str(pdu.as_wire_bytes()))
+                    if args.verbose >= 3:
+                        print(repr(pkt))
+                        print(utils.as_hex_str(pkt[Raw].load))
+                        print(pre_parsing_rdp_context)
+                        
+                        pdu_inner = pdu
+                        if args.path and pdu.has_path(args.path):
+                            print('Path into PDU: %s' % (args.path,))
+                            pdu_inner = root_pdu.get_path(path)
+                        print(pdu_inner.as_str(args.depth))
+                    if args.verbose >= 4:
+                        print(utils.as_hex_str(pdu.as_wire_bytes()))
 
             if err:
                 e = err

@@ -103,7 +103,7 @@ class Rdp_RDP_SEGMENTED_DATA(BaseDataUnit):
                 PrimitiveField('segmentCount', StructEncodedSerializer(UINT_16_LE))),
             ConditionallyPresentField(
                 lambda: self.descriptor == Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_MULTIPART,
-                PrimitiveField('uncompressedSize', StructEncodedSerializer(UINT_32_LE))),3
+                PrimitiveField('uncompressedSize', StructEncodedSerializer(UINT_32_LE))),
             ConditionallyPresentField(  
                 lambda: self.descriptor == Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_MULTIPART,
                 DataUnitField('segmentArray', 

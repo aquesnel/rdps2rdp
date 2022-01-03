@@ -8,6 +8,7 @@ import bisect
 import enum
 import itertools
 
+import utils
 import sorted_collection
 import compression_constants
 import compression_utils
@@ -200,30 +201,34 @@ class MppcEncodingFacotry(compression_utils.EncodingFactory):
             return MccpCompressionDecoder(self._config, compression_args.data)
         else:
             return compression_utils.NoOpDecoder(compression_args.data)
-    
 
+def MPCC_filter_funct(path):
+    if DEBUG: print('MPCC_filter_funct: split path = %s' % (path.split('.'),))
+    return path.split('.')[-1] not in {'_encoder_factory'}
+
+@utils.json_serializable(filter_funct = MPCC_filter_funct)
 class MPPC(compression_utils.CompressionEngine):
-
-    def __init__(self, compression_history_manager, decompression_history_manager, encoder_factory):
+    def __init__(self, compression_type, compression_history_manager, decompression_history_manager, encoder_factory, **kwargs):
+        super(MPPC, self).__init__(compression_type)
         self._encoder_factory = encoder_factory
-        self._decompressionHistoryManager = decompression_history_manager
-        self._compressionHistoryManager = compression_history_manager
+        self._decompression_history_manager = decompression_history_manager
+        self._compression_history_manager = compression_history_manager
 
     # def resetHistory(self):
-    #     self._decompressionHistoryManager.resetHistory()
-    #     self._compressionHistoryManager.resetHistory()
+    #     self._decompression_history_manager.resetHistory()
+    #     self._compression_history_manager.resetHistory()
 
     def compress(self, data):
         encoder = self._encoder_factory.make_encoder()
         flags = {compression_constants.CompressionFlags.COMPRESSED}
         
-        if self._compressionHistoryManager.buffer_space_remaining() < len(data):
-            self._compressionHistoryManager.resetHistory()
+        if self._compression_history_manager.buffer_space_remaining() < len(data):
+            self._compression_history_manager.resetHistory()
             flags.add(compression_constants.CompressionFlags.AT_FRONT)
             flags.add(compression_constants.CompressionFlags.FLUSHED)
 
         inByteOffset = 0
-        for history_match in itertools.chain(self._compressionHistoryManager.append_and_find_matches(data), 
+        for history_match in itertools.chain(self._compression_history_manager.append_and_find_matches(data), 
                                             [compression_utils.HistoryMatch(data_absolute_offset=len(data), history_absolute_offset=None, history_relative_offset=None, length=0)]):
             if history_match.data_absolute_offset > inByteOffset:
                 non_match_length = history_match.data_absolute_offset - inByteOffset
@@ -242,7 +247,7 @@ class MPPC(compression_utils.CompressionEngine):
         
         if (compression_constants.CompressionFlags.FLUSHED in compression_args.flags
                 or compression_constants.CompressionFlags.AT_FRONT in compression_args.flags):
-            self._decompressionHistoryManager.resetHistory()
+            self._decompression_history_manager.resetHistory()
         
         if compression_constants.CompressionFlags.COMPRESSED not in compression_args.flags:
             return compression_args.data
@@ -262,20 +267,20 @@ class MPPC(compression_utils.CompressionEngine):
                 # if value > b'\xff':
                 #     raise ValueError("Byte must be less than or equal to 0xff, got: ", hex(value))
                 # dest.append(value)
-                self._decompressionHistoryManager.append_bytes(value)
+                self._decompression_history_manager.append_bytes(value)
                 output_length += len(value)
                 if DEBUG: print('decoding literal: %s' % (value,))
-                #if DEBUG: print("Push bytes to output: %s = %s, dest = ...%s" % (' '.join([hex(v) for v in value]), bytes(value), self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True).tobytes()[-10:]))
+                #if DEBUG: print("Push bytes to output: %s = %s, dest = ...%s" % (' '.join([hex(v) for v in value]), bytes(value), self._decompression_history_manager.get_bytes(output_length, output_length, relative = True).tobytes()[-10:]))
             elif type == SymbolType.COPY_OFFSET:
-                match_data = self._decompressionHistoryManager.get_bytes(value.copy_offset, value.length_of_match, relative = value.is_relative_offset)
+                match_data = self._decompression_history_manager.get_bytes(value.copy_offset, value.length_of_match, relative = value.is_relative_offset)
                 if DEBUG: print("decoding copy_tuple: %s, match_data = [...]%s" % (value, bytes(match_data)[-10:]))
                 # dest.extend(match_data)
-                self._decompressionHistoryManager.append_bytes(match_data)
+                self._decompression_history_manager.append_bytes(match_data)
                 output_length += value.length_of_match
                 
             else:
                 raise ValueError('unknown SymbolType: %s' % type)
-        retval = self._decompressionHistoryManager.get_bytes(output_length, output_length, relative = True)
+        retval = self._decompression_history_manager.get_bytes(output_length, output_length, relative = True)
         # import utils
         # utils.assertEqual(len(retval), output_length)
         retval = retval.tobytes()

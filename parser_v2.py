@@ -249,18 +249,18 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                         
                         pdu.tpkt.mcs.alias_field('rdp', 'connect_payload.userData.payload.gcc_userData.payload')
                         if hasattr(pdu.tpkt.mcs.rdp, 'clientNetworkData'):
-                            for channel_def in pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray:
-                                rdp_context.channel_defs.append(ChannelDef(channel_def.name, channel_def.options, Rdp.Channel.ChannelType.STATIC))
+                            for i, channel_def in enumerate(pdu.tpkt.mcs.rdp.clientNetworkData.payload.channelDefArray):
+                                rdp_context.add_channel(ChannelDef(channel_def.name, channel_def.options, Rdp.Channel.ChannelType.STATIC, channel_index = i))
                         if hasattr(pdu.tpkt.mcs.rdp, 'serverNetworkData'):
-                            for channel_def, id in zip(rdp_context.channel_defs, pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray):
+                            for channel_def, id in zip(rdp_context.get_channels_by_index(), pdu.tpkt.mcs.rdp.serverNetworkData.payload.channelIdArray):
                                 channel_def.channel_id = id
                             channel_id = pdu.tpkt.mcs.rdp.serverNetworkData.payload.MCSChannelId
-                            channel_def = ChannelDef(Rdp.Channel.IO_CHANNEL_NAME, 0, Rdp.Channel.ChannelType.STATIC, channel_id)
-                            rdp_context.channel_defs.append(channel_def)
+                            mcs_channel_def = ChannelDef(Rdp.Channel.IO_CHANNEL_NAME, 0, Rdp.Channel.ChannelType.STATIC, channel_id)
+                            rdp_context.add_channel(mcs_channel_def)
                         if hasattr(pdu.tpkt.mcs.rdp, 'serverMessageChannelData'):
                             channel_id = pdu.tpkt.mcs.rdp.serverMessageChannelData.payload.MCSChannelId
-                            channel_def = ChannelDef(Rdp.Channel.MESSAGE_CHANNEL_NAME, 0, Rdp.Channel.ChannelType.STATIC, channel_id)
-                            rdp_context.channel_defs.append(channel_def)
+                            mcs_channel_def = ChannelDef(Rdp.Channel.MESSAGE_CHANNEL_NAME, 0, Rdp.Channel.ChannelType.STATIC, channel_id)
+                            rdp_context.add_channel(mcs_channel_def)
                         
                         if hasattr(pdu.tpkt.mcs.rdp, 'serverSecurityData'):
                             rdp_context.encryption_level = pdu.tpkt.mcs.rdp.serverSecurityData.payload.encryptionLevel
@@ -441,7 +441,7 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                                             channel.channel_id = channel_id
                                         else:
                                             channel = ChannelDef(channel_name, Rdp.DynamicVirtualChannels.DYNAMIC_VIRTUAL_CHANNEL_OPTIONS, Rdp.Channel.ChannelType.DYNAMIC, channel_id)
-                                            rdp_context.channel_defs.append(channel)
+                                            rdp_context.add_channel(channel)
                                     
                                     elif pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CLOSE:
                                         channel_id = pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId

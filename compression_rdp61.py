@@ -1,7 +1,8 @@
+import compression_constants
 import compression_utils
 from data_model_v2_rdp import Rdp
 import data_model_v2_rdp_egdi
-import compression_constants
+import utils
 
 from compression_utils import (
     SymbolType,
@@ -113,6 +114,7 @@ class Rdp61_L1_CompressionEncodingFacotry(compression_utils.EncodingFactory):
             return compression_utils.NoOpDecoder(compression_args.data)
     
     
+@utils.json_serializable()
 class Rdp61_CompressionEngine(compression_utils.CompressionEngine):
     # L1_FLAG_MAPPING_TO_61 = {
     #         compression_constants.CompressionFlags.COMPRESSED: Rdp.Compression61.L1_COMPRESSED,

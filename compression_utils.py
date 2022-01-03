@@ -5,6 +5,7 @@ import sys
 from typing import Any, Tuple
 
 from compression_constants import CompressionTypes
+import utils
 
 DEBUG = False
 # DEBUG = True
@@ -242,7 +243,16 @@ class BitStream(object):
             except Exception:
                 raise ValueError('assumed invalid offset. len(bytes) = %s, i = %s, bit_length = %s' % (len(bytes), i, bit_length))
 
+def CompressionEngine_from_json_factory(compression_type, **kwargs):
+    compression_type = utils.from_json_value(CompressionTypes, compression_type)
+    import compression
+    return compression.CompressionFactory.new_engine(compression_type, **kwargs)
+
+@utils.json_serializable(factory = CompressionEngine_from_json_factory)
 class CompressionEngine(object):
+    def __init__(self, compression_type):
+        self._compression_type = compression_type
+    
     # def resetHistory(self):
     #     pass
 
@@ -337,13 +347,15 @@ class HistoryManager(object):
         #     yield HistoryMatch(data_absolute_offset=0, history_absolute_offset=0, history_relative_offset=0, length=0)
         return iter([])
 
+@utils.json_serializable()
 class BufferOnlyHistoryManager(HistoryManager):
-    def __init__(self, size):
-        self.__historyLength = size
-        self.resetHistory()
+    def __init__(self, _historyLength, **kwargs):
+        self.__historyLength = _historyLength
+        self.__history = array.array('B')
+        self.__history.fromlist(kwargs.get('__history', [0] * self.__historyLength))
+        self.__historyOffset = kwargs.get('__historyOffset', 0)
     
     def resetHistory(self):
-        self.__history = array.array('B')
         self.__history.fromlist([0] * self.__historyLength)
         self.__historyOffset = 0
 
@@ -368,14 +380,15 @@ class BufferOnlyHistoryManager(HistoryManager):
     def append_and_find_matches(self, data):
         raise NotImplementedError()
 
-
+@utils.json_serializable()
 class BruteForceHistoryManager(HistoryManager):
-    def __init__(self, size):
-        self.__historyLength = size
-        self.resetHistory()
+    def __init__(self, _historyLength, **kwargs):
+        self.__historyLength = _historyLength
+        self.__history = array.array('B')
+        self.__history.fromlist(kwargs.get('__history', [0] * self.__historyLength))
+        self.__historyOffset = kwargs.get('__historyOffset', 0)
 
     def resetHistory(self):
-        self.__history = array.array('B')
         self.__history.fromlist([0] * self.__historyLength)
         self.__historyOffset = 0
 

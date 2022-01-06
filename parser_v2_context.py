@@ -154,7 +154,7 @@ class RdpContext(object):
         return self._channel_data_chunk_by_id_and_source[DataChunkKey(id, pdu_source)]
     
     def set_channel_chunk(self, id, chunk, pdu_source = None):
-        if not isinstance(chunk, DataChunk):
+        if not isinstance(chunk, DataChunk) and not chunk is None:
             raise ValueError('chunk must be of type DataChunk. Found: %s' % chunk.__class__.__name__)
         if pdu_source is None:
             pdu_source = self.pdu_source

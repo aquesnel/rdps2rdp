@@ -350,32 +350,44 @@ class HistoryManager(object):
 @utils.json_serializable()
 class BufferOnlyHistoryManager(HistoryManager):
     def __init__(self, _historyLength, **kwargs):
-        self.__historyLength = _historyLength
-        self.__history = array.array('B')
-        self.__history.fromlist(kwargs.get('__history', [0] * self.__historyLength))
-        self.__historyOffset = kwargs.get('__historyOffset', 0)
+        self._historyLength = _historyLength
+        self._historyOffset = kwargs.get('_historyOffset', 0)
+        
+        temp_history = kwargs.get('_history', [0] * self._historyLength)
+        if len(temp_history) != self._historyLength:
+            temp_buffer = [0] * self._historyLength
+            temp_buffer[:self._historyOffset] = temp_history
+            temp_history = temp_buffer
+        self._history = array.array('B')
+        self._history.fromlist(temp_history)
+        
     
     def resetHistory(self):
-        self.__history.fromlist([0] * self.__historyLength)
-        self.__historyOffset = 0
+        self._history.fromlist([0] * self._historyLength)
+        self._historyOffset = 0
+
+    def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True):
+        d = utils.to_dict(self, is_recursive = is_recursive, path = path, field_filter = field_filter)
+        d['_history'] = d['_history'][:self._historyOffset]
+        return d
 
     def buffer_space_remaining(self):
-        return self.__historyLength - self.__historyOffset
+        return self._historyLength - self._historyOffset
 
     def append_bytes(self, data):
         for byte in data:
             self.append_byte(byte)
 
     def append_byte(self, byte):
-        self.__history[self.__historyOffset] = byte
-        self.__historyOffset += 1
+        self._history[self._historyOffset] = byte
+        self._historyOffset += 1
     
     def get_bytes(self, offset_from_end, length, relative=True):
         if relative:
-            offset = self.__historyOffset - offset_from_end
+            offset = self._historyOffset - offset_from_end
         else:
             offset = offset_from_end
-        return memoryview(self.__history)[offset : offset + length]
+        return memoryview(self._history)[offset : offset + length]
     
     def append_and_find_matches(self, data):
         raise NotImplementedError()
@@ -383,38 +395,49 @@ class BufferOnlyHistoryManager(HistoryManager):
 @utils.json_serializable()
 class BruteForceHistoryManager(HistoryManager):
     def __init__(self, _historyLength, **kwargs):
-        self.__historyLength = _historyLength
-        self.__history = array.array('B')
-        self.__history.fromlist(kwargs.get('__history', [0] * self.__historyLength))
-        self.__historyOffset = kwargs.get('__historyOffset', 0)
-
+        self._historyLength = _historyLength
+        self._historyOffset = kwargs.get('_historyOffset', 0)
+        
+        temp_history = kwargs.get('_history', [0] * self._historyLength)
+        if len(temp_history) != self._historyLength:
+            temp_buffer = [0] * self._historyLength
+            temp_buffer[:self._historyOffset] = temp_history
+            temp_history = temp_buffer
+        self._history = array.array('B')
+        self._history.fromlist(temp_history)
+        
     def resetHistory(self):
-        self.__history.fromlist([0] * self.__historyLength)
-        self.__historyOffset = 0
+        self._history.fromlist([0] * self._historyLength)
+        self._historyOffset = 0
+
+    def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True):
+        d = utils.to_dict(self, is_recursive = is_recursive, path = path, field_filter = field_filter)
+        d['_history'] = d['_history'][:self._historyOffset]
+        return d
 
     def buffer_space_remaining(self):
-        return self.__historyLength - self.__historyOffset
+        return self._historyLength - self._historyOffset
 
     def append_bytes(self, bytes):
         for byte in bytes:
             self.append_byte(byte)
 
     def append_byte(self, byte):
-        self.__history[self.__historyOffset] = byte
-        self.__historyOffset += 1
+        self._history[self.__historyOffset] = byte
+        self._historyOffset += 1
 
     def get_bytes(self, offset, length):
-        if offset + length > self.__historyOffset:
+        if offset + length > self._historyOffset:
             raise ValueError('index out of history range')
-        return memoryview(self.__history)[offset : offset + length]
+        return memoryview(self._history)[offset : offset + length]
 
     def get_byte(self, index):
-        if index > self.__historyOffset:
+        if index > self._historyOffset:
             raise ValueError('index out of history range')
-        return self.__history[index]
+        return self._history[index]
         
     def get_history_offset(self):
-        return self.__historyOffset
+        return self._historyOffset
 
     def append_and_find_matches(self, data):
         self.append_bytes(data)
@@ -435,10 +458,10 @@ class BruteForceHistoryManager(HistoryManager):
 
             longestLen = 0
             longestOffset = 0
-            history_end = (self.__historyOffset 
+            history_end = (self._historyOffset 
                 - (len(data) - inByteOffset)) # remove trailing data that is not entered the dest history buffer yet
 
-            hstr = self.__history.tobytes()[:history_end]
+            hstr = self._history.tobytes()[:history_end]
             if DEBUG: print("comparing: history = %s, data = %s" % (hstr, istring))
             
             # min match length = 3

@@ -21,15 +21,18 @@ else:
     assertEqual = noop
     assertLessEqual = noop
     
+def log(value, do_print = False, name = ''):
+    if do_print: print('%s%s%s' % (name, ': ' if name else '', value))
+    return value
 
-def to_dict(self, is_recursive = True, path = '$', filter = lambda x: True):
+def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True):
     d = {}
     for k,v in self.__dict__.items():
         path_k = '%s.%s' % (path, k)
         if DEBUG: print('to_dict: path_k = %s' % path_k)
         if callable(v):
             continue
-        elif not filter(path_k):
+        elif not field_filter(path_k):
             continue
         
         if is_recursive:
@@ -108,15 +111,6 @@ def to_json(self):
     d = to_json_dict(self.to_dict())
     return json.dumps(d)
 
-# def re_init_from_json_dict(self, d):
-#     for k,v in d.items():
-#         if k not in self.__dict__:
-#             raise ValueError('%s does not have an attribute %s' % (self.__class__.__name__, k))
-#         if hasattr(self.__dict__[k], 're_init_from_json_dict'):
-#             v = self.__dict__[k].re_init_from_json_dict(v)
-#         self.__dict__[k] = v
-#     return self
-    
 @classmethod
 def get_field_from_json_dict(cls, field_name, json_dict, default = None, factory = None):
     if factory is None:
@@ -167,67 +161,30 @@ def from_json_cls(cls, json_str, factory = None):
     
     return factory(**d)
 
-# @classmethod
-# def from_json_cls(cls, json_str, factory = None):
-#     if isinstance(json_str, collections.abc.Mapping):
-#         d = json_str
-#     else:
-#         d = json.loads(json_str)
-    
-#     if factory is None:
-#         factory = cls
-    
-#     # # un-mangle the naming convention of private fields to match the init parameters if there is a matching parameter
-#     # init_sig = inspect.signature(factory)
-#     # for name, v in d.items():
-#     #     if name in init_sig.parameters:
-#     #         continue
-#     #     elif name.startswith('_') and name[1:] in init_sig.parameters:
-#     #         d[name[1:]] = d[name]
-#     #         del d[name]
-    
-#     obj = factory()
-#     obj.from_json(d)
-#     return obj
-    
-def repr_from_dict(self, filter = lambda x: True):
+def repr_from_dict(self, field_filter = lambda x: True):
     if not hasattr(self, 'to_dict'):
         raise ValueError('repr_from_json: class %s does not have the method to_dict()' % (self.__class__.__name__))
-    # return '%s(%s)' % (self.__class__.__name__, {k:v for k,v in self.to_dict(is_recursive = False, filter = filter).items()})
-    return '%s(%s)' % (self.__class__.__name__, self.to_dict(is_recursive = False, filter = filter))
+    return '%s(%s)' % (self.__class__.__name__, self.to_dict(is_recursive = False, field_filter = field_filter))
 
-def eq_from_dict(self, other, filter = lambda x: True):
+def eq_from_dict(self, other, field_filter = lambda x: True):
     # return self.__dict__ == other.__dict__
     
     return (
-        {k:v for k,v in self.__dict__.items() if filter(k)}
+        {k:v for k,v in self.__dict__.items() if field_filter(k)}
         ==
-        {k:v for k,v in other.__dict__.items() if filter(k)}
+        {k:v for k,v in other.__dict__.items() if field_filter(k)}
         )
 
-def json_serializable(factory = None, filter_funct = lambda x: True):
+def json_serializable(factory = None, field_filter = lambda x: True):
     def class_decorator(cls):
+        if not hasattr(cls, 'to_dict'):
+            setattr(cls, 'to_dict', functools.partialmethod(to_dict, field_filter = field_filter))
+        
         setattr(cls, 'from_json', functools.partialmethod(from_json_cls, factory = factory))
-        # setattr(cls, 'from_json_cls', functools.partialmethod(from_json_cls, factory = factory))
-        # setattr(cls, 'from_json', from_json_obj)
         setattr(cls, 'get_field_from_json', functools.partialmethod(get_field_from_json_dict, factory = factory))
-        setattr(cls, 'to_dict', functools.partialmethod(to_dict, filter = filter_funct))
-        # setattr(cls, 'to_json', functools.partialmethod(to_json, filter = filter_funct))
         setattr(cls, 'to_json', to_json)
-        setattr(cls, '__repr__', functools.partialmethod(repr_from_dict, filter = filter_funct))
+        setattr(cls, '__repr__', functools.partialmethod(repr_from_dict, field_filter = field_filter))
         # setattr(cls, '__str__', repr_from_dict)
-        setattr(cls, '__eq__', functools.partialmethod(eq_from_dict, filter = filter_funct))
+        setattr(cls, '__eq__', functools.partialmethod(eq_from_dict, field_filter = field_filter))
         return cls
     return class_decorator
-    
-# def json_serializableclass_decorator(cls):
-#     filter_funct = lambda x: True
-    
-#     # setattr(cls, 'from_json', functools.partial(from_json_cls, factory = factory_funct))
-#     setattr(cls, 'from_json', from_json_obj)
-#     setattr(cls, 'to_dict', functools.partial(to_dict, filter = filter_funct))
-#     setattr(cls, 'to_json', functools.partial(to_json, filter = filter_funct))
-#     setattr(cls, '__repr__', functools.partial(repr_from_dict, filter = filter_funct))
-#     # setattr(cls, '__str__', repr_from_dict)
-#     setattr(cls, '__eq__', eq_from_dict)
-#     return cls

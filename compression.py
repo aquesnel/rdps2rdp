@@ -29,7 +29,7 @@ class CompressionFactory(object):
 
     @classmethod
     def new_NoOp(cls, **kwargs):
-        @utils.json_serializable
+        @utils.json_serializable()
         class NoOpCompressionEngine(compression_utils.CompressionEngine):
             def __init__(self, **kwargs):
                 self._compression_type = compression_constants.CompressionTypes.NO_OP

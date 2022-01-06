@@ -202,11 +202,11 @@ class MppcEncodingFacotry(compression_utils.EncodingFactory):
         else:
             return compression_utils.NoOpDecoder(compression_args.data)
 
-def MPCC_filter_funct(path):
-    if DEBUG: print('MPCC_filter_funct: split path = %s' % (path.split('.'),))
+def MPCC_field_filter(path):
+    if DEBUG: print('MPCC_field_filter: split path = %s' % (path.split('.'),))
     return path.split('.')[-1] not in {'_encoder_factory'}
 
-@utils.json_serializable(filter_funct = MPCC_filter_funct)
+@utils.json_serializable(field_filter = MPCC_field_filter)
 class MPPC(compression_utils.CompressionEngine):
     def __init__(self, compression_type, compression_history_manager, decompression_history_manager, encoder_factory, **kwargs):
         super(MPPC, self).__init__(compression_type)

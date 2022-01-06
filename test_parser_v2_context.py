@@ -1,6 +1,7 @@
 import unittest
 
 import compression_constants
+import data_model_v2_rdp
 import parser_v2_context
 
 class TestParsingContext(unittest.TestCase):
@@ -42,28 +43,26 @@ class TestParsingContext(unittest.TestCase):
     def test_parsing_context_serialization_withCompressionEngine(self):
         rdp_context = parser_v2_context.RdpContext()
         
-        import array
-        a1 = array.array('B')
-        a1.fromlist([0] * 2)
-        a2 = array.array('B')
-        a2.fromlist([0] * 2)
-        self.assertEqual(a1, a2)
-        
-        import compression_utils
-        self.assertEqual(compression_utils.BufferOnlyHistoryManager(3), compression_utils.BufferOnlyHistoryManager(3))
-        
-        import compression
-        self.assertEqual(compression.CompressionFactory.new_RDP_40(), compression.CompressionFactory.new_RDP_40())
-        
         rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_40)
 
         serialized_rdp_context = rdp_context.to_json()
         rdp_context_2 = parser_v2_context.RdpContext.from_json(serialized_rdp_context)
-        print(rdp_context)
-        print(serialized_rdp_context)
-        print(rdp_context_2)
+        # print(rdp_context)
+        # print(serialized_rdp_context)
+        # print(rdp_context_2)
         self.assertEqual(rdp_context, rdp_context_2)
         
+    def test_parsing_context_serialization_withPrimaryDrawingOrders(self):
+        rdp_context = parser_v2_context.RdpContext()
+        
+        rdp_context.previous_primary_drawing_orders['order_type'] = data_model_v2_rdp.Rdp.DrawingOrders.PrimaryOrderTypes.TS_ENC_PATBLT_ORDER
+
+        serialized_rdp_context = rdp_context.to_json()
+        rdp_context_2 = parser_v2_context.RdpContext.from_json(serialized_rdp_context)
+        # print(rdp_context)
+        # print(serialized_rdp_context)
+        print(rdp_context_2)
+        self.assertEqual(rdp_context, rdp_context_2)
 
 if __name__ == '__main__':
     unittest.main()

@@ -14,18 +14,6 @@ from compression_utils import (
 DEBUG=False
 # DEBUG=True
 
-class CompressionFlags_61(object):
-    def __init__(self, L1_flags, L2_flags):
-        self.L1_flags = L1_flags
-        self.L2_flags = L2_flags
-    
-    def __contains__(self, value):
-        return (
-            value in self.L1_flags
-            or
-            value in self.L2_flags
-            )
-
 class Rdp61_L1_CompressionEncoder(compression_utils.Encoder):
 
     def __init__(self):
@@ -116,50 +104,14 @@ class Rdp61_L1_CompressionEncodingFacotry(compression_utils.EncodingFactory):
     
 @utils.json_serializable()
 class Rdp61_CompressionEngine(compression_utils.CompressionEngine):
-    # L1_FLAG_MAPPING_TO_61 = {
-    #         compression_constants.CompressionFlags.COMPRESSED: Rdp.Compression61.L1_COMPRESSED,
-    #         compression_constants.CompressionFlags.AT_FRONT: Rdp.Compression61.L1_PACKET_AT_FRONT,
-    #         # Rdp.ShareDataHeader.PACKET_ARG_FLUSHED: Rdp.Compression61.,
-    #     }
-    # L1_FLAG_MAPPING_FROM_61 = {
-    #         Rdp.Compression61.L1_COMPRESSED: compression_constants.CompressionFlags.COMPRESSED,
-    #         Rdp.Compression61.L1_PACKET_AT_FRONT: compression_constants.CompressionFlags.AT_FRONT,
-    #         # Rdp.ShareDataHeader.PACKET_ARG_FLUSHED: Rdp.Compression61.,
-    #     }
-    # L2_FLAG_MAPPING_TO_61 = {
-    #         compression_constants.CompressionFlags.COMPRESSED: Rdp.Compression61.PACKET_COMPRESSED,
-    #         compression_constants.CompressionFlags.AT_FRONT: Rdp.Compression61.PACKET_AT_FRONT,
-    #         compression_constants.CompressionFlags.FLUSHED: Rdp.Compression61.PACKET_FLUSHED,
-    #     }
-    # L2_FLAG_MAPPING_FROM_61 = {
-    #         Rdp.Compression61.PACKET_COMPRESSED: compression_constants.CompressionFlags.COMPRESSED,
-    #         Rdp.Compression61.PACKET_AT_FRONT: compression_constants.CompressionFlags.AT_FRONT,
-    #         Rdp.Compression61.PACKET_FLUSHED: compression_constants.CompressionFlags.FLUSHED,
-    #     }
 
     def __init__(self, l1_compression_engine, l2_compression_engine):
         self._l1_compression_engine = l1_compression_engine
         self._l2_compression_engine = l2_compression_engine
     
-    
-    # def resetHistory(self):
-    #     self._l1_compression_engine.resetHistory()
-    #     self._l2_compression_engine.resetHistory()
-
     def compress(self, data):
         compression_args_l1 = self._l1_compression_engine.compress(data)
         compression_args_l2 = self._l2_compression_engine.compress(compression_args_l1.data)
-        
-        # # convert from the standard compression flags to 6.1 compression flags
-        # l1_flags = set()
-        # for f in compression_args_l1.flags:
-        #     l1_flags.add(self.L1_FLAG_MAPPING_TO_61[f])
-        # if compression_constants.CompressionFlags.COMPRESSED in compression_args_l2.flags:
-        #     l1_flags.add(compression_constants.CompressionFlags.INNER_COMPRESSION)
-        
-        # l2_flags = set()
-        # for f in compression_args_l2.flags:
-        #     l2_flags.add(self.L2_FLAG_MAPPING_TO_61[f])
         
         if compression_constants.CompressionFlags.COMPRESSED in compression_args_l2.flags:
             compression_args_l1.flags.add(compression_constants.CompressionFlags.INNER_COMPRESSION)
@@ -175,18 +127,6 @@ class Rdp61_CompressionEngine(compression_utils.CompressionEngine):
                     type = compression_constants.CompressionTypes.RDP_61)
 
     def decompress(self, compression_args):
-        # if compression_args.flags != set():
-        #     raise AssertionError("Expected the compression flags to RDP_61 to be empty since the compressions flags are embedded in the compressed data. compression flags: %s" % (compression_args,))
-        # l1_flags = set()
-        # for f in compression_args.flags.L1_flags:
-        #     flag = self.L1_FLAG_MAPPING_FROM_61.get(f, None)
-        #     if flag:
-        #         l1_flags.add(flag)
-            
-        # l2_flags = set()
-        # for f in compression_args.flags.L2_flags:
-        #     l2_flags.add(self.L2_FLAG_MAPPING_FROM_61[f])
-        
         compressed_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(compression_args.data)
         L1_flags = Rdp.Compression61.to_L1_compression_flags(compressed_struct.header.Level1ComprFlags)
         L2_flags = Rdp.Compression61.to_L2_compression_flags(compressed_struct.header.Level2ComprFlags)

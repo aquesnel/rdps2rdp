@@ -79,6 +79,7 @@ class SerializationContext(object):
         self._debug_field_path = []
         self._force_dirty = False
         self._rdp_context = None
+        self._print_debug = False
         
     def get_operation(self):
         return self._operation
@@ -125,6 +126,18 @@ class SerializationContext(object):
     def get_rdp_context(self):
         return self._rdp_context
 
+    @contextlib.contextmanager
+    def print_debug(self, print_debug):
+        orig_print_debug = self._print_debug
+        self._print_debug = print_debug
+        try:
+            yield self
+        finally:
+            self._print_debug = orig_print_debug
+
+    def get_print_debug(self):
+        return self._print_debug
+        
 class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
     """
     Serialization/deserialization unit for a value. Can be a single unnamed value, or a structure with named values.

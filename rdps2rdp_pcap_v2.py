@@ -460,8 +460,8 @@ def main():
                                         '\n    ' if pdu_summary.layers else '',
                                         '\n    '.join([str(l) for l in pdu_summary.layers]),
                                         ))
-                        # if args.verbose >= 2:
-                        #     print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
+                        if args.verbose >= 2:
+                            print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
                         
                         if args.verbose >= 3:
                             print(repr(pkt))

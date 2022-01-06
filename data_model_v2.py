@@ -218,6 +218,9 @@ class PrimitiveField(BaseField):
         self.is_value_dirty = True
         self._deserialize_value_snapshot = None
 
+    to_dict = utils.to_dict
+    __repr__ = utils.repr_from_dict
+
     def __str__(self):
         return '<PrimitiveField(name=%s, serializer=%s)>' % (
             self.name, self.serializer)
@@ -767,8 +770,8 @@ class PolymophicField(BaseField):
     
     def get_sub_fields(self):
         retval = []
-        for f in self._fields_by_type.values():
-            retval.extend(f.get_sub_fields())
+        for field_type, field in self._fields_by_type.items():
+            retval.extend([ConditionallyPresentWrapperField(lambda: field_type == self._type_getter.get_value(None)) for f in field.get_sub_fields()])
         return retval
         
     def get_value(self) -> Any:
@@ -893,6 +896,7 @@ class CompressedField(BaseField):
         return deflated
         
     def decompress_field(self, data: bytes, serde_context: SerializationContext):
+        if DEBUG: print('Decompressing field: %s' % (self.name,))
         flags = self._decompression_flags_getter.get_value(None)
         compression_type = self._decompression_type_getter.get_value(None)
         engine = serde_context.get_rdp_context().get_compression_engine(compression_type)
@@ -930,6 +934,7 @@ class CompressedField(BaseField):
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         length = self._decompression_length.get_length(raw_data)
         inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
+        if DEBUG: print('Decompressing complete, deserializing field: %s' % (self._field.name,))
         self._field.deserialize_value(inflated, 0, serde_context)
         return length
     
@@ -1019,7 +1024,6 @@ class FieldAccessor(object):
         else:
             raise AttributeError('Class <%s> does not have a field named: %s' % (self.__class__.__name__, name))
         
-
 class BaseDataUnit(object):
     def __init__(self, fields, auto_reinterpret_configs = None, use_class_as_pdu_name = False):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})
@@ -1130,10 +1134,11 @@ class BaseDataUnit(object):
                 return {'__max_depth_reached__': '...'}
             else:
                 depth_remaining -= 1
-
+        
         result = {}
         result[ItemKey(-1, '__python_type__')] = self.__class__
         for field_index, f in enumerate(self._fields):
+            if DEBUG: print('getting dict for field: %s' % (f.name,))
             v = f.get_human_readable_value()
             if not isinstance(v, list):
                 v_list = [v]

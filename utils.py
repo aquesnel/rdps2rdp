@@ -52,6 +52,9 @@ def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True
         d[k] = v
     return d
 
+def to_json_value(v):
+    return to_json_dict(v)
+
 def to_json_dict(d):
     if isinstance(d, collections.abc.Mapping):
         temp = {}
@@ -147,7 +150,7 @@ def from_json_cls(cls, json_str, factory = None):
     
     # un-mangle the naming convention of private fields to match the init parameters if there is a matching parameter
     init_sig = inspect.signature(factory)
-    for name, v in d.items():
+    for name in list(d.keys()):
         if name in init_sig.parameters:
             continue
         elif name.startswith('_') and name[1:] in init_sig.parameters:
@@ -177,8 +180,11 @@ def eq_from_dict(self, other, field_filter = lambda x: True):
 
 def json_serializable(factory = None, field_filter = lambda x: True):
     def class_decorator(cls):
-        if not hasattr(cls, 'to_dict'):
-            setattr(cls, 'to_dict', functools.partialmethod(to_dict, field_filter = field_filter))
+        if hasattr(cls, 'to_dict'):
+            to_dict_local = getattr(cls, 'to_dict')
+        else:
+            to_dict_local = to_dict
+        setattr(cls, 'to_dict', functools.partialmethod(to_dict_local, field_filter = field_filter))
         
         setattr(cls, 'from_json', functools.partialmethod(from_json_cls, factory = factory))
         setattr(cls, 'get_field_from_json', functools.partialmethod(get_field_from_json_dict, factory = factory))

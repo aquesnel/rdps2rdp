@@ -20,6 +20,7 @@ import queue
 import os
 import socket
 import traceback
+import json
 
 from scapy.all import *
 
@@ -30,12 +31,19 @@ import stream
 from data_model_v2_rdp import Rdp
 import parser_v2
 import parser_v2_context
+import pcap_utils
 import utils
 import data_model_v2
+import data_model_v2_x224
 
+# for python3 < 3.8
 # import sslkeylog
 # sslkeylog.set_keylog(os.environ.get('SSLKEYLOGFILE'))  # Or directly specify a path
 # sslkeylog.set_keylog('/home/rsa-key-20171202-gcp-aws-cloud9/aws-cloud9-root/rdps2rdp/rdps2rdp/SSLKEYLOGFILE.key')  # Or directly specify a path
+
+# for python3 >= 3.8
+# import ssl
+# ssl.SSLContext.keylog_filename = os.environ.get('SSLKEYLOGFILE')  # Or directly specify a path
 
 # the NON_DH_CHIPHERS was generated using: `openssl ciphers | tr : '\n' | grep -v DH | paste -d: -s`
 NON_DH_CIPHERS = "RSA-PSK-AES256-GCM-SHA384:RSA-PSK-CHACHA20-POLY1305:AES256-GCM-SHA384:PSK-AES256-GCM-SHA384:PSK-CHACHA20-POLY1305:RSA-PSK-AES128-GCM-SHA256:AES128-GCM-SHA256:PSK-AES128-GCM-SHA256:AES256-SHA256:AES128-SHA256:SRP-RSA-AES-256-CBC-SHA:SRP-AES-256-CBC-SHA:RSA-PSK-AES256-CBC-SHA384:RSA-PSK-AES256-CBC-SHA:AES256-SHA:PSK-AES256-CBC-SHA384:PSK-AES256-CBC-SHA:SRP-RSA-AES-128-CBC-SHA:SRP-AES-128-CBC-SHA:RSA-PSK-AES128-CBC-SHA256:RSA-PSK-AES128-CBC-SHA:AES128-SHA:PSK-AES128-CBC-SHA256:PSK-AES128-CBC-SHA"
@@ -174,11 +182,19 @@ def main():
     parser_capture.set_defaults(cmd_name='capture-as-mitm')
     parser_capture.add_argument('-hp', '--host-port', dest='host_port', type=str, action='store', default='127.0.0.1:3390',
                         help='The host and port of the RDP server to proxy.') 
+    parser_capture.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
+                        help='The PCAP file to write to.') 
+    parser_capture.add_argument('--overwrite', dest='overwrite', action='store_true',
+                        help='overwrite the capture file, it if exists')
     
     
     parser_print = subparsers.add_parser('print', aliases=['p'], 
                         help='Print the content of a captured RDP connection in sequential order.')
     parser_print.set_defaults(cmd_name='print')
+    parser_print.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
+                        help='The PCAP file to read. The file must contain the PCAP trace for an RDP session') 
+    parser_print.add_argument('-sp', '--server-port', dest='server_port', type=int, action='store', default=None,
+                        help="The RDP server's port for the packet trace. Default to auto-detect based on the first PDU being an X224.TPDU_CONNECTION_REQUEST") 
     parser_print.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
                         help='Skip offset number of packets from the packet capture.') 
     parser_print.add_argument('-l', '--limit', dest='limit', type=int, action='store', default=9999,
@@ -198,18 +214,40 @@ def main():
                         4: sequence + timestamp + source + length + pdu summary + raw packet dump + rdp context + parsed pdu + re-serialized pdu
                         ''')
     
+
+    parser_print_context = subparsers.add_parser('print-context', aliases=['pc'], 
+                        help='')
+    parser_print_context.set_defaults(cmd_name='print-context')
+    parser_print_context.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
+                        help='The PCAP file to read. The file must contain the PCAP trace for an RDP session') 
+    parser_print_context.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
+                        help='Skip offset number of packets from the packet capture.') 
+    parser_print_context.add_argument('-sp', '--server-port', dest='server_port', type=int, action='store', default=None,
+                        help="The RDP server's port for the packet trace. Default to auto-detect based on the first PDU being an X224.TPDU_CONNECTION_REQUEST") 
+    
+
+    parser_read_context = subparsers.add_parser('read-context', aliases=['rc'], 
+                        help='')
+    parser_read_context.set_defaults(cmd_name='read-context')
+    parser_read_context.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
+                        help='The json file to read. The file must contain the json rdp_context for an RDP session') 
+    
+
     True
     False
     global OUTPUTPCAP
 
     args = parser.parse_args()
-    print("command = %s" % args.cmd_name)
+    print("command = %s" % args.cmd_name, file=sys.stderr)
     if args.cmd_name == 'capture-as-mitm': # MITM
-        print('deleting old pcap file: ', OUTPUTPCAP)
-        try:
-            os.remove(OUTPUTPCAP)
-        except FileNotFoundError:
-            pass
+        if args.overwrite:
+            print('deleting old pcap file: ', args.pcap_file)
+            try:
+                os.remove(args.pcap_file)
+            except FileNotFoundError:
+                pass
+        elif os.path.exists(args.pcap_file):
+            raise ValueError('The destination pcap file already exists. Pcap file: %s' % (args.pcap_file))
         
         class LoggingInterceptor(stream.InterceptorBase):
             def _log_packet(self, buffer, pdu_source, stream_context):
@@ -219,7 +257,7 @@ def main():
                     source_peer = stream_context.stream.client
                 pkt = stream_context.make_tcp_packet(source_peer, buffer)
                 # s = hexdump(pkt, dump=True)
-                wrpcap(OUTPUTPCAP, pkt, append=True)
+                wrpcap(args.pcap_file, pkt, append=True)
                 print('%s %s - len %4d' % (datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load)))
                 
                 
@@ -279,7 +317,7 @@ def main():
             # destsock.setblocking(1)
             print('...connected to:', host_port)
             rdp_stream = stream.TcpStream_v2(destsock,clientsock, interceptors)
-            # rdp_stream.stream_context.pcap_file_name = OUTPUTPCAP
+            # rdp_stream.stream_context.pcap_file_name = args.pcap_file
             rdp_stream.stream_context.rdp_context = parser_v2.RdpContext()
             
             if True: # intercept and decrypt MITM
@@ -404,16 +442,21 @@ def main():
         
         # OUTPUTPCAP = 'output.win10.rail.no-gfx.fail.pcap'; SERVER_PORT = 33994
         
+        server_port = args.server_port
         rdp_context = parser_v2_context.RdpContext()
         i = 0
-        pkt_list = rdpcap(OUTPUTPCAP)
+        pkt_list = rdpcap(args.pcap_file)
         pdu = None
         for pkt in pkt_list:
             err = None
-            if pkt[TCP].sport == SERVER_PORT:
-                pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
-            else:
+            if server_port is None:
+                # assume that the first packet is the client connection request PDU
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
+            else:
+                if pkt[TCP].sport == server_port:
+                    pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
+                else:
+                    pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
             pre_parsing_rdp_context = rdp_context.clone()
             try:
                 pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
@@ -425,6 +468,13 @@ def main():
                 pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
             root_pdu = pdu
 
+            if server_port is None:
+                if pdu.has_path('tpkt.x224.type') and pdu.tpkt.x224.type == data_model_v2_x224.X224.TPDU_CONNECTION_REQUEST:
+                    server_port = pkt[TCP].dport
+                    pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
+                else:
+                    raise ValueError('The PDU is not a known PDU type')
+            
             do_print = False
             if offset <= i and i < offset + limit:
                 include = any([f(pkt,pdu,rdp_context) for f in filters_include])
@@ -461,7 +511,7 @@ def main():
                                         '\n    '.join([str(l) for l in pdu_summary.layers]),
                                         ))
                         if args.verbose >= 2:
-                            print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(pkt.time).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
+                            print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(int(pkt.time)).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
                         
                         if args.verbose >= 3:
                             print(repr(pkt))
@@ -496,6 +546,26 @@ def main():
                 break
             i += 1
 
+    if args.cmd_name == 'print-context': # read/print pcap file
+        i = 0
+        for pdu_source, rdp_context, raw_pdu in pcap_utils.parse_packets_as_raw(args.pcap_file, args.server_port):
+            if i == args.offset:
+                print('{"pdu_source": "%s", "pdu_bytes_hex": "%s", "rdp_context": %s}' % (utils.to_json_value(pdu_source), binascii.hexlify(raw_pdu.as_wire_bytes()).decode('ascii'), rdp_context.to_json(),))
+                break
+            i += 1
+
+    if args.cmd_name == 'read-context': # read/print rdp_context.json file
+
+        with open(args.pcap_file, 'r') as f:
+            json_dict = json.load(f)
+            pdu_source = utils.from_json_value(parser_v2_context.RdpContext.PduSource, json_dict["pdu_source"])
+            pdu_bytes_hex = bytes.fromhex(json_dict["pdu_bytes_hex"])
+            rdp_context = parser_v2_context.RdpContext.from_json(json_dict["rdp_context"])
+
+        print('{"pdu_source": "%s", "pdu_bytes_hex": "%s", "rdp_context": %s}' % (pdu_source, pdu_bytes_hex, rdp_context,))
+        pdu = parser_v2.parse(pdu_source, pdu_bytes_hex, rdp_context)
+        print(pdu)
+        
     
     if False: # connect as client
         serversock = socket.socket(AF_INET, SOCK_STREAM)
@@ -582,4 +652,6 @@ def main():
         tcp.display()
         
 if __name__ == '__main__':
+#    if len(sys.argv) == 1:
+#        sys.argv =["self.py", "print-context", "-f", "/home/ubuntu/dev/rdps2rdp/rdps2rdp/output.win10.rail.no-compression.success.pcap", "-o", "215"]
     main()

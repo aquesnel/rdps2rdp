@@ -30,7 +30,7 @@ class ChannelDef(object):
         self.channel_id = channel_id
 
 DataChunkKey = collections.namedtuple('DataChunkKey', ['channel_id', 'pdu_source'])
-DataChunkKey.to_json_key = lambda self: '%s__%s' % self
+DataChunkKey.to_json_key = lambda self: '%s__%s' % (self.channel_id, utils.to_json_value(self.pdu_source))
 DataChunkKey.from_json_key = staticmethod(lambda s: DataChunkKey(*[cast(v) for cast,v in zip((int, lambda x: utils.from_json_value(RdpContext.PduSource, x)), s.split('__'))]))
 
 @utils.json_serializable()

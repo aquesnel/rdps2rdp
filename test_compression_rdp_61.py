@@ -7,9 +7,6 @@ import test_utils
 from compression_utils import (
     CompressionArgs,
 )
-from compression_rdp61 import (
-    CompressionFlags_61,
-)
 
 # test data copied from https://github.com/FreeRDP/FreeRDP/blob/master/libfreerdp/codec/test/TestFreeRDPCodecXCrush.c
 # limitations of that test data:

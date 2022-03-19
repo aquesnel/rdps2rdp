@@ -10,4 +10,4 @@ def extract_as_bytes(data):
     return bytes.fromhex(result)
 
 def extract_as_context(values):
-    return RdpContext.from_repr(values)
+    return RdpContext(**values)

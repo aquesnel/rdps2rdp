@@ -48,11 +48,13 @@ class CompressionFactory(object):
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_40,
                                     compression_history_manager = 
-                                        compression_utils.BruteForceHistoryManager(compression_config.history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {})),
+                                        compression_utils.BruteForceHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                                                **{'historyLength': compression_config.history_size}}),
                                     decompression_history_manager = 
-                                        compression_utils.BufferOnlyHistoryManager(compression_config.history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {})),
+                                        compression_utils.BufferOnlyHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                                                **{'historyLength': compression_config.history_size}}),
                                     encoder_factory = compression_mppc.MppcEncodingFacotry(compression_config),
                                     **kwargs
                                     )
@@ -77,11 +79,13 @@ class CompressionFactory(object):
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_50,
                                     compression_history_manager = 
-                                        compression_utils.BruteForceHistoryManager(compression_config.history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {})),
+                                        compression_utils.BruteForceHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                                                **{'historyLength': compression_config.history_size}}),
                                     decompression_history_manager = 
-                                        compression_utils.BufferOnlyHistoryManager(compression_config.history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {})),
+                                        compression_utils.BufferOnlyHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                                                **{'historyLength': compression_config.history_size}}),
                                     encoder_factory = compression_mppc.MppcEncodingFacotry(compression_config),
                                     **kwargs
                                     )
@@ -92,11 +96,13 @@ class CompressionFactory(object):
         return compression_mppc.MPPC(#TODO: change this to use the RDP 6.0 slide-back-by-half reset behaviour
                                     compression_constants.CompressionTypes.RDP_60,
                                     compression_history_manager = 
-                                        compression_utils.BruteForceHistoryManager(history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {})),
+                                        compression_utils.BruteForceHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                                                **{'historyLength': history_size}}),
                                     decompression_history_manager = 
-                                        compression_utils.BufferOnlyHistoryManager(history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {})),
+                                        compression_utils.BufferOnlyHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                                                **{'historyLength': history_size}}),
                                     encoder_factory = compression_rdp60.Rdp60CompressionEncodingFacotry(),
                                     **kwargs
                                     )
@@ -107,11 +113,13 @@ class CompressionFactory(object):
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_61,
                                     compression_history_manager = 
-                                        compression_utils.BruteForceHistoryManager(history_size_l1,
-                                            **compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {})),
+                                        compression_utils.BruteForceHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                                                **{'historyLength': history_size_l1}}),
                                     decompression_history_manager = 
-                                        compression_utils.BufferOnlyHistoryManager(history_size_l1,
-                                            **compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {})),
+                                        compression_utils.BufferOnlyHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                                                **{'historyLength': history_size_l1}}),
                                     encoder_factory = compression_rdp61.Rdp61_L1_CompressionEncodingFacotry(),
                                     **kwargs
                                     )
@@ -134,11 +142,13 @@ class CompressionFactory(object):
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_80,
                                     compression_history_manager = 
-                                        compression_utils.BruteForceHistoryManager(history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {})),
+                                        compression_utils.BruteForceHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                                                **{'historyLength': history_size}}),
                                     decompression_history_manager = 
-                                        compression_utils.BufferOnlyHistoryManager(history_size,
-                                            **compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {})),
+                                        compression_utils.BufferOnlyHistoryManager(
+                                            **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                                                **{'historyLength': history_size}}),
                                     encoder_factory = compression_rdp80.Rdp80_CompressionEncodingFacotry(),
                                     **kwargs
                                     )

@@ -188,11 +188,16 @@ def main():
                         help='overwrite the capture file, it if exists')
     
     
+    print_input_file_formats = ['pcap', 'snapshot']
     parser_print = subparsers.add_parser('print', aliases=['p'], 
                         help='Print the content of a captured RDP connection in sequential order.')
     parser_print.set_defaults(cmd_name='print')
-    parser_print.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
-                        help='The PCAP file to read. The file must contain the PCAP trace for an RDP session') 
+    parser_print.add_argument('-i', '--input-file', dest='input_file', type=str, action='store', default='output.pcap',
+                        help='The file to read.') 
+    parser_print.add_argument('-if', '--input-format', dest='file_format', type=str, action='store', default='pcap',
+                        help='The file format to read. Options: %s. The file format pcap must contain the PCAP trace for an RDP session' % (print_input_file_formats,)) 
+    parser_print.add_argument('-of', '--output-format', dest='output_format', type=str, action='store', default='text',
+                        help='The output format to write. Options: text, snapshot.') 
     parser_print.add_argument('-sp', '--server-port', dest='server_port', type=int, action='store', default=None,
                         help="The RDP server's port for the packet trace. Default to auto-detect based on the first PDU being an X224.TPDU_CONNECTION_REQUEST") 
     parser_print.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
@@ -213,24 +218,6 @@ def main():
                         3: sequence + timestamp + source + length + pdu summary + raw packet dump + rdp context + parsed pdu
                         4: sequence + timestamp + source + length + pdu summary + raw packet dump + rdp context + parsed pdu + re-serialized pdu
                         ''')
-    
-
-    parser_print_context = subparsers.add_parser('print-context', aliases=['pc'], 
-                        help='')
-    parser_print_context.set_defaults(cmd_name='print-context')
-    parser_print_context.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
-                        help='The PCAP file to read. The file must contain the PCAP trace for an RDP session') 
-    parser_print_context.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
-                        help='Skip offset number of packets from the packet capture.') 
-    parser_print_context.add_argument('-sp', '--server-port', dest='server_port', type=int, action='store', default=None,
-                        help="The RDP server's port for the packet trace. Default to auto-detect based on the first PDU being an X224.TPDU_CONNECTION_REQUEST") 
-    
-
-    parser_read_context = subparsers.add_parser('read-context', aliases=['rc'], 
-                        help='')
-    parser_read_context.set_defaults(cmd_name='read-context')
-    parser_read_context.add_argument('-f', '--file', dest='pcap_file', type=str, action='store', default='output.pcap',
-                        help='The json file to read. The file must contain the json rdp_context for an RDP session') 
     
 
     True
@@ -375,8 +362,8 @@ def main():
         ]
         
         filters_exclude.extend([
-            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
-            no_throw(lambda pkt,pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
         ])
         
         OUTPUTPCAP = 'output.pcap' ; SERVER_PORT = 33986
@@ -386,18 +373,18 @@ def main():
         # offset = 43 ; limit = 3 # demand active + confirm active
         # offset = 55 # post-setup
         # filters_include.extend([
-            # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_request), # existance check only
-            # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_response), # existance check only
-            # no_throw(lambda pkt,pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_close), # existance check only 
+            # no_throw(lambda pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_request), # existance check only
+            # no_throw(lambda pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_create_response), # existance check only
+            # no_throw(lambda pdu,rdp_context: pdu.tpkt.mcs.rdp.dyvc_close), # existance check only 
         # ])
         # offset = 62 # first compressed
         # offset = 328 # first RAIL = TS_RAIL_ORDER_HANDSHAKE_EX
         # offset = 340 # TS_RAIL_ORDER_EXEC
         # offset = 370 # suspected compressed server TS_RAIL_ORDER_EXEC_RESULT
         filters_include.extend([
-            # no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
-            # no_throw(lambda pkt,pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
-            # no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
+            # no_throw(lambda pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
+            # no_throw(lambda pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
+            # no_throw(lambda pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
         ])
 
         # search for calc.exe
@@ -406,8 +393,8 @@ def main():
         # ])
         # search for compressed packets
         # filters_include.extend([
-        #     no_throw(lambda pkt,pdu,rdp_context: Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in pdu.tpkt.mcs.rdp.TS_SHAREDATAHEADER.compressionArgs), 
-        #     no_throw(lambda pkt,pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
+        #     no_throw(lambda pdu,rdp_context: Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in pdu.tpkt.mcs.rdp.TS_SHAREDATAHEADER.compressionArgs), 
+        #     no_throw(lambda pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
         # ])
         
         # OUTPUTPCAP = 'output.win10.rail.no-client-compression.pcap' ; SERVER_PORT = 14259
@@ -445,40 +432,37 @@ def main():
         server_port = args.server_port
         rdp_context = parser_v2_context.RdpContext()
         i = 0
-        pkt_list = rdpcap(args.pcap_file)
+        if args.file_format == 'pcap':
+            file_parser = pcap_utils.parse_packets_as_raw(args.input_file, args.server_port)
+        elif args.file_format == 'snapshot':
+            file_parser = []
+            with open(args.input_file, 'r') as f:
+                for line in f:
+                    snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.loads(line))
+                    file_parser.append(snapshot)
+        else:
+            raise ValueError('Unknown file format: %s' % args.file_format)
+
         pdu = None
-        for pkt in pkt_list:
+        for rdp_stream_snapshot in file_parser:
+            pdu_source = rdp_stream_snapshot.pdu_source
+            rdp_context = rdp_stream_snapshot.rdp_context
             err = None
-            if server_port is None:
-                # assume that the first packet is the client connection request PDU
-                pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
-            else:
-                if pkt[TCP].sport == server_port:
-                    pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
-                else:
-                    pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
             pre_parsing_rdp_context = rdp_context.clone()
             try:
-                pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+                pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
             except parser_v2.ParserException as e:
                 err = e.__cause__
                 pdu = e.pdu
             except Exception as e:
                 err = e
-                pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
+                pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
             root_pdu = pdu
 
-            if server_port is None:
-                if pdu.has_path('tpkt.x224.type') and pdu.tpkt.x224.type == data_model_v2_x224.X224.TPDU_CONNECTION_REQUEST:
-                    server_port = pkt[TCP].dport
-                    pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
-                else:
-                    raise ValueError('The PDU is not a known PDU type')
-            
             do_print = False
             if offset <= i and i < offset + limit:
-                include = any([f(pkt,pdu,rdp_context) for f in filters_include])
-                exclude = any([f(pkt,pdu,rdp_context) for f in filters_exclude])
+                include = any([f(pdu,rdp_context) for f in filters_include])
+                exclude = any([f(pdu,rdp_context) for f in filters_exclude])
                 if (not include) and exclude:
                     do_print = False
                 else:
@@ -488,43 +472,47 @@ def main():
             if do_print:
                 with rdp_context.set_pdu_source(pdu_source):
                     try:
-                        if args.verbose in (0, 1):
-                            pdu_summary = pdu.get_pdu_summary(rdp_context)
-                            pdu_summary.sequence_id = i
-                            pdu_summary.timestamp = pkt.time
-                            if not pdu_summary.layers:
-                                pdu_summary.layers.append(data_model_v2.PduLayerSummary('Unknown', 'Unknown'))
-                            pdu_summary.layers = [l for l in pdu_summary.layers if any([f(l) for f in layer_filters_include]) or not any([f(l) for f in layer_filters_exclude])]
-                            if args.verbose == 0:
-                                print('%s%s%s' % (
-                                        pdu_summary.source.name, 
-                                        '\n    ' if pdu_summary.layers else '',
-                                        '\n    '.join([str(l) for l in pdu_summary.layers]),
-                                        ))
-                            else:
-                                print('%3d %s %s - len %4d%s%s' % (
-                                        pdu_summary.sequence_id, 
-                                        datetime.fromtimestamp(pdu_summary.timestamp).strftime('%H:%M:%S.%f')[:-3], 
-                                        pdu_summary.source.name, 
-                                        pdu_summary.length,
-                                        '\n    ' if pdu_summary.layers else '',
-                                        '\n    '.join([str(l) for l in pdu_summary.layers]),
-                                        ))
-                        if args.verbose >= 2:
-                            print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(int(pkt.time)).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(pkt[Raw].load), pdu.get_pdu_name(rdp_context)))
-                        
-                        if args.verbose >= 3:
-                            print(repr(pkt))
-                            print(utils.as_hex_str(pkt[Raw].load))
-                            print(pre_parsing_rdp_context)
+                        if args.output_format == 'snapshot':
+                            print(rdp_stream_snapshot.to_json())
+                        elif args.output_format == 'text':
+                            if args.verbose in (0, 1):
+                                pdu_summary = pdu.get_pdu_summary(rdp_context)
+                                pdu_summary.sequence_id = i
+                                pdu_summary.timestamp = rdp_stream_snapshot.pdu_timestamp
+                                if not pdu_summary.layers:
+                                    pdu_summary.layers.append(data_model_v2.PduLayerSummary('Unknown', 'Unknown'))
+                                pdu_summary.layers = [l for l in pdu_summary.layers if any([f(l) for f in layer_filters_include]) or not any([f(l) for f in layer_filters_exclude])]
+                                if args.verbose == 0:
+                                    print('%s%s%s' % (
+                                            pdu_summary.source.name, 
+                                            '\n    ' if pdu_summary.layers else '',
+                                            '\n    '.join([str(l) for l in pdu_summary.layers]),
+                                            ))
+                                else:
+                                    print('%3d %s %s - len %4d%s%s' % (
+                                            pdu_summary.sequence_id, 
+                                            datetime.fromtimestamp(pdu_summary.timestamp).strftime('%H:%M:%S.%f')[:-3], 
+                                            pdu_summary.source.name, 
+                                            pdu_summary.length,
+                                            '\n    ' if pdu_summary.layers else '',
+                                            '\n    '.join([str(l) for l in pdu_summary.layers]),
+                                            ))
+                            if args.verbose >= 2:
+                                print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(int(rdp_stream_snapshot.pdu_timestamp)).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(rdp_stream_snapshot.pdu_bytes), pdu.get_pdu_name(rdp_context)))
                             
-                            pdu_inner = pdu
-                            if args.path and pdu.has_path(args.path):
-                                print('Path into PDU: %s' % (args.path,))
-                                pdu_inner = root_pdu.get_path(path)
-                            print(pdu_inner.as_str(args.depth))
-                        if args.verbose >= 4:
-                            print(utils.as_hex_str(pdu.as_wire_bytes()))
+                            if args.verbose >= 3:
+                                print(pre_parsing_rdp_context)
+                                print(utils.as_hex_str(rdp_stream_snapshot.pdu_bytes))
+                                print(utils.as_hex_str(pdu.as_wire_bytes()))
+
+                                pdu_inner = pdu
+                                if args.path and pdu.has_path(args.path):
+                                    print('Path into PDU: %s' % (args.path,))
+                                    pdu_inner = root_pdu.get_path(path)
+                                print(pdu_inner.as_str(args.depth))
+                                
+                        else:
+                            raise ValueError('Unknown output format: %s, Supported formats are: %s' % (args.output_format, print_input_file_formats))
                     except Exception as e:
                         if err:
                             # don't print the exception that was thrown during printing
@@ -546,26 +534,6 @@ def main():
                 break
             i += 1
 
-    if args.cmd_name == 'print-context': # read/print pcap file
-        i = 0
-        for pdu_source, rdp_context, raw_pdu in pcap_utils.parse_packets_as_raw(args.pcap_file, args.server_port):
-            if i == args.offset:
-                print('{"pdu_source": "%s", "pdu_bytes_hex": "%s", "rdp_context": %s}' % (utils.to_json_value(pdu_source), binascii.hexlify(raw_pdu.as_wire_bytes()).decode('ascii'), rdp_context.to_json(),))
-                break
-            i += 1
-
-    if args.cmd_name == 'read-context': # read/print rdp_context.json file
-
-        with open(args.pcap_file, 'r') as f:
-            json_dict = json.load(f)
-            pdu_source = utils.from_json_value(parser_v2_context.RdpContext.PduSource, json_dict["pdu_source"])
-            pdu_bytes_hex = bytes.fromhex(json_dict["pdu_bytes_hex"])
-            rdp_context = parser_v2_context.RdpContext.from_json(json_dict["rdp_context"])
-
-        print('{"pdu_source": "%s", "pdu_bytes_hex": "%s", "rdp_context": %s}' % (pdu_source, pdu_bytes_hex, rdp_context,))
-        pdu = parser_v2.parse(pdu_source, pdu_bytes_hex, rdp_context)
-        print(pdu)
-        
     
     if False: # connect as client
         serversock = socket.socket(AF_INET, SOCK_STREAM)

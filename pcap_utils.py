@@ -11,6 +11,7 @@ from scapy.all import (
 def parse_packets_as_raw(pcap_file, server_port = None):
     rdp_context = parser_v2_context.RdpContext()
     pkt_list = rdpcap(pcap_file)
+    i = 0
     for pkt in pkt_list:
         if server_port is None:
             # assume that the first packet is the client connection request PDU
@@ -20,9 +21,16 @@ def parse_packets_as_raw(pcap_file, server_port = None):
                 pdu_source = parser_v2_context.RdpContext.PduSource.SERVER
             else:
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
-
+        
         raw_pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
-        yield pdu_source, rdp_context, raw_pdu
+        # yield pdu_source, rdp_context, raw_pdu
+        yield parser_v2_context.RdpStreamSnapshot(
+                    pdu_source, 
+                    pdu_bytes = pkt[Raw].load,
+                    pdu_timestamp = float(pkt.time), 
+                    pdu_sequence_id = i,
+                    rdp_context = rdp_context
+                )
         
         pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)
         
@@ -31,4 +39,5 @@ def parse_packets_as_raw(pcap_file, server_port = None):
                 server_port = pkt[TCP].dport
             else:
                 raise ValueError('The PDU is not a known PDU type')
+        i += 1
             

@@ -1,4 +1,5 @@
 import ast
+import binascii
 import collections
 import collections.abc
 import contextlib
@@ -66,13 +67,14 @@ class DataChunk(object):
             raise ValueError('The data chunk is not the expected size. Expected %d, acctual %d' % (self._expected_total_len, len(self._data)))
         return self._data
 
+@unique
+class PduSource(Enum):
+    CLIENT = 'Client'
+    SERVER = 'Server'
+    
 @utils.json_serializable()
 class RdpContext(object):
-    @unique
-    class PduSource(Enum):
-        CLIENT = 'Client'
-        SERVER = 'Server'
-        
+    PduSource = PduSource
     def __init__(self, **kwargs):
         self.allow_partial_parsing = kwargs.get('allow_partial_parsing', False) # hack, this should be in SerializationContext
         
@@ -181,3 +183,24 @@ class RdpContext(object):
         if compression_type not in self._compression_engines:
             self._compression_engines[compression_type] = compression.CompressionFactory.new_engine(compression_type)
         return self._compression_engines[compression_type]
+
+@utils.json_serializable(field_filter = lambda path: path.split('.')[-1] not in {'pdu_bytes'})
+class RdpStreamSnapshot(object):
+    def __init__(self, pdu_source: PduSource, pdu_bytes: bytes = None, pdu_timestamp = None, pdu_sequence_id = None, rdp_context: RdpContext = None, pdu_bytes_hex: str = None):
+        self.pdu_source = utils.from_json_value(RdpContext.PduSource, pdu_source)
+        self.pdu_bytes = pdu_bytes
+        self.pdu_bytes_hex = pdu_bytes_hex
+        self.rdp_context = utils.from_json_value(RdpContext, rdp_context, RdpContext())
+        self.pdu_timestamp = pdu_timestamp
+        self.pdu_sequence_id = pdu_sequence_id
+        
+        if self.pdu_bytes is None:
+            if pdu_bytes_hex is None:
+                raise ValueError('Either pdu_bytes or pdu_bytes_hex must be non-null')
+            self.pdu_bytes = bytes.fromhex(pdu_bytes_hex)
+        else:
+            if pdu_bytes_hex is None:
+                self.pdu_bytes_hex = binascii.hexlify(self.pdu_bytes).decode('ascii')
+            else:
+                if bytes.fromhex(self.pdu_bytes_hex) != self.pdu_bytes:
+                    raise ValueError('pdu_bytes_hex must be equal to pdu_bytes. pdu_bytes_hex: %s, pdu_bytes = %s' % (bytes.fromhex(self.pdu_bytes_hex), self.pdu_bytes))

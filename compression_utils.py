@@ -349,8 +349,8 @@ class HistoryManager(object):
 
 @utils.json_serializable()
 class BufferOnlyHistoryManager(HistoryManager):
-    def __init__(self, _historyLength, **kwargs):
-        self._historyLength = _historyLength
+    def __init__(self, historyLength, **kwargs):
+        self._historyLength = historyLength
         self._historyOffset = kwargs.get('_historyOffset', 0)
         
         temp_history = kwargs.get('_history', [0] * self._historyLength)
@@ -394,8 +394,8 @@ class BufferOnlyHistoryManager(HistoryManager):
 
 @utils.json_serializable()
 class BruteForceHistoryManager(HistoryManager):
-    def __init__(self, _historyLength, **kwargs):
-        self._historyLength = _historyLength
+    def __init__(self, historyLength, **kwargs):
+        self._historyLength = historyLength
         self._historyOffset = kwargs.get('_historyOffset', 0)
         
         temp_history = kwargs.get('_history', [0] * self._historyLength)
@@ -423,7 +423,7 @@ class BruteForceHistoryManager(HistoryManager):
             self.append_byte(byte)
 
     def append_byte(self, byte):
-        self._history[self.__historyOffset] = byte
+        self._history[self._historyOffset] = byte
         self._historyOffset += 1
 
     def get_bytes(self, offset, length):

@@ -73,8 +73,22 @@ def to_json_dict(d):
         d = [to_json_dict(e) for e in d]
     return d
 
-def from_json_value(value_cls, d):
-    return from_json_dict(None, value_cls, d)
+def from_json_value(value_cls, d, default = None):
+    if d is None and default is not None:
+        d = default
+    elif isinstance(d, value_cls):
+        pass
+    elif isinstance(d, collections.abc.Mapping):
+        d = value_cls.from_json(d)
+    elif isinstance(d, str):
+        if DEBUG: print('from_json_dict: d = %s' % d)
+        if issubclass(value_cls, enum.Enum):
+            if d in (None, 'None'):
+                d = None
+            else:
+                d = value_cls[d]
+
+    return d
     
 def from_json_list(value_cls, d):
     return from_json_dict(None, value_cls, d)
@@ -124,6 +138,7 @@ def get_field_from_json_dict(cls, field_name, json_dict, default = None, factory
     if field_name in init_sig.parameters:
         pass
     elif field_name.startswith('_') and field_name[1:] in init_sig.parameters:
+        if DEBUG: print('Removing leading underscore from field name to match the factory parameter: %s' % field_name)
         field_name = field_name[1:]
     else:
         raise ValueError('Unknown field name: %s' % field_name)
@@ -131,11 +146,16 @@ def get_field_from_json_dict(cls, field_name, json_dict, default = None, factory
     if field_name in json_dict:
         return json_dict[field_name]
     
+    if ('_%s' % field_name) in json_dict:
+        if DEBUG: print('Adding leading underscore from field name to match the json_dict: %s' % field_name)
+        return json_dict['_%s' % field_name]
+    
     # mangle the naming convention of private fields to match the key name in json
     mangled_field_name = '_%s__%s' % (cls.__name__, field_name)
     if mangled_field_name in json_dict:
         return json_dict[mangled_field_name]
     else:
+        if DEBUG: print('Field name not found in json_dict: %s' % field_name)
         return default
 
 @classmethod

@@ -133,5 +133,27 @@ class TestCompressionMppc(unittest.TestCase):
                                             """))
         self.assertEqual(inflated_2, data)
 
+    def test_MPPC_json_serializable(self):
+        # from: https://datatracker.ietf.org/doc/html/rfc2118#section-4
+
+        data = b"for whom the bell tolls, the bell tolls for thee.\xA6\x80"
+        c = compression.CompressionFactory.new_RDP_40()
+        d = compression.CompressionFactory.new_RDP_40()
+        
+        deflated_1 = c.compress(data)
+        c_serialized_round_trip = compression_utils.CompressionEngine.from_json(c.to_json())
+        # print(c)
+        # print(c.to_json())
+        # print(c_serialized_round_trip)
+        self.assertEqual(c, c_serialized_round_trip)
+        
+        inflated_1 = d.decompress(deflated_1)
+        d_serialized_round_trip = compression_utils.CompressionEngine.from_json(d.to_json())
+        # print(d)
+        # print(d.to_json())
+        # print(d_serialized_round_trip)
+        self.assertEqual(d, d_serialized_round_trip)
+        
+
 if __name__ == '__main__':
     unittest.main()

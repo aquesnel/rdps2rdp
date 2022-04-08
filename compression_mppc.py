@@ -276,10 +276,20 @@ class MPPC(compression_utils.CompressionEngine):
                 if DEBUG: print('decoding literal: %s' % (value,))
                 #if DEBUG: print("Push bytes to output: %s = %s, dest = ...%s" % (' '.join([hex(v) for v in value]), bytes(value), self._decompression_history_manager.get_bytes(output_length, output_length, relative = True).tobytes()[-10:]))
             elif type == SymbolType.COPY_OFFSET:
-                match_data = self._decompression_history_manager.get_bytes(value.copy_offset, value.length_of_match, relative = value.is_relative_offset)
-                if DEBUG: print("decoding copy_tuple: %s, match_data = [...]%s" % (value, bytes(match_data)[-10:]))
+                # import binascii
+                # if DEBUG: print("history:        ",binascii.hexlify(self._decompression_history_manager._history[-1 * value.copy_offset:self._decompression_history_manager._historyOffset]))
+                # match_data = self._decompression_history_manager.get_bytes(value.copy_offset, value.length_of_match, relative = value.is_relative_offset)
+                match_data = bytearray(value.length_of_match)
+                for i in range(value.length_of_match):
+                    if value.is_relative_offset:
+                        copy_offset = value.copy_offset
+                    else:
+                        copy_offset = value.copy_offset + i
+                    match_data[i] = self._decompression_history_manager.get_bytes(copy_offset, 1, relative = value.is_relative_offset)[0]
+                    self._decompression_history_manager.append_byte(match_data[i])
+                # if DEBUG: print("decoding copy_tuple: %s, match_data = [...]%s" % (value, bytes(match_data)[-10:]))
                 # dest.extend(match_data)
-                self._decompression_history_manager.append_bytes(match_data)
+                # self._decompression_history_manager.append_bytes(match_data)
                 output_length += value.length_of_match
                 
             else:

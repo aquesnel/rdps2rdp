@@ -1511,7 +1511,7 @@ class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
     def get_pdu_types(self, rdp_context):
         retval = []
         if Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in self.flags:
-            retval.append('(compressed)')
+            retval.append('(compressed %s)' % lookup_name_in(Rdp.Channel.CHANNEL_FLAG_NAMES)(Rdp.Channel.to_compression_type(self.flags)))
         retval.extend(super(Rdp_CHANNEL_PDU_HEADER, self).get_pdu_types(rdp_context))
         return retval
 

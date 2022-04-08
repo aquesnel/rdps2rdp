@@ -117,7 +117,7 @@ class Rdp80_CompressionEncoder(compression_utils.Encoder):
         encoding_tuples = []
         if symbol_type == SymbolType.LITERAL:
             encoding_tuples = self.encode_literal(value)
-            if DEBUG: print('encoding literal: %s' % (chr(value)))
+            if DEBUG: print('encoding literal: %d -> %s' % (value, (chr(value) if value != 0 else '')))
             
         elif symbol_type == SymbolType.COPY_OFFSET:
             if DEBUG: print('encoding copy_tuple: %s' % (value,))
@@ -172,9 +172,12 @@ class Rdp80_CompressionDecoder(compression_utils.Decoder):
         return next(self.__iter)
     
     def decode_iter(self, data): # Tuple[SymbolType, Any]
+        # from: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegfx/4c26b84a-fa5e-42d0-bcf4-3eee8fac2d3f
+        # """The five high-order bits in the last byte of the compressed segment are reserved."""
         padding_bit_length = data[-1] & 0x07
         if padding_bit_length > 7: # this is now redundant with the mask applied above
             raise ValueError('Invalid padding bit length checksum: %d' % padding_bit_length)
+        if DEBUG: print('padding bits removed: %s' % (padding_bit_length,))
         data_without_padding_checksum = memoryview(data)[:-1]
         bits_iter = iter(compression_utils.BitStream(data_without_padding_checksum, padding_bit_length))
         
@@ -185,19 +188,26 @@ class Rdp80_CompressionDecoder(compression_utils.Decoder):
             
             value = bits_iter.next_int(encoding_token.value_bit_length) + encoding_token.offset
             if encoding_token.token_type == SymbolType.LITERAL:
-                if DEBUG: print('decoding literal: %d -> %s' % (value, chr(value)))
+                if DEBUG: print('decoding literal: %d -> %s' % (value, (chr(value) if value != 0 else '')))
                 yield (SymbolType.LITERAL, value.to_bytes(1,'little'))
                 
             elif encoding_token.token_type == SymbolType.COPY_OFFSET:
                 copy_offset = value
-                length_of_match = self.decode_length_of_match(bits_iter)
                 if copy_offset == 0:
+                    # from: https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpegfx/4c26b84a-fa5e-42d0-bcf4-3eee8fac2d3f
+                    # """
+                    # A match distance of zero is a special case, which indicates that an unencoded run of bytes follows. The count of bytes is encoded as a 15-bit value, most significant bit first. After decoding this count, any bits remaining in the current input byte are ignored, and the unencoded run will begin on a whole-byte boundary.
+                    # """
                     literals = bytearray()
+                    length_of_match = bits_iter.next_int(15)
+                    byte_alignment_padding_length = self._bitstream_dest.get_available_bits_in_last_byte()
+                    _ = bits_iter.next_int(byte_alignment_padding_length)
                     for i in range(length_of_match):
                         literals.append(bits_iter.next_int(8))
-                    if DEBUG: print('decoding literals: %s -> %s' % (utils.as_hex_str(literals), ''.join(chr(value) for value in literals)))
+                    if DEBUG: print('decoding literals: %s -> %s' % (utils.as_hex_str(literals), ''.join((chr(value) if value != 0 else '') for value in literals)))
                     yield (SymbolType.LITERAL, literals)
                 else:
+                    length_of_match = self.decode_length_of_match(bits_iter)
                     copy_tuple = CopyTupleV2(copy_offset, length_of_match, is_relative_offset = True)
                     if DEBUG: print('decoding copy_tuple: copy_tuple = %s' % (str(copy_tuple)))
                     yield (SymbolType.COPY_OFFSET, copy_tuple)

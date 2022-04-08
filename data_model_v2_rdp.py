@@ -143,6 +143,7 @@ class Rdp(object):
         CS_CORE = 0xC001
         CS_SECURITY = 0xC002
         CS_NET = 0xC003
+        CS_MONITOR = 0xC005
         
         SC_CORE = 0x0C01
         SC_SECURITY = 0x0C02
@@ -153,6 +154,7 @@ class Rdp(object):
             CS_CORE: 'CS_CORE',
             CS_SECURITY: 'CS_SECURITY',
             CS_NET: 'CS_NET',
+            CS_MONITOR: 'CS_MONITOR',
             
             SC_CORE: 'SC_CORE',
             SC_SECURITY: 'SC_SECURITY',
@@ -540,11 +542,16 @@ class Rdp(object):
         CAPSTYPE_RAIL = 0x0017
         CAPSTYPE_WINDOW = 0x0018
         
+        
         @add_constants_names_mapping('VCCAPS_', 'VCCAPS_NAMES')
         class VirtualChannel(object):
             VCCAPS_NO_COMPR = 0x00000000
             VCCAPS_COMPR_SC = 0x00000001
             VCCAPS_COMPR_CS_8K = 0x00000002
+
+        @add_constants_names_mapping('TS_MONITOR_', 'TS_MONITOR_NAMES')
+        class Monitor(object):
+            TS_MONITOR_PRIMARY = 0x00000001
 
     @add_constants_names_mapping('TS_RAIL_ORDER_', 'TS_RAIL_ORDER_NAMES')
     @add_constants_names_mapping('TS_RAIL_EXEC_FLAG_', 'TS_RAIL_EXEC_FLAG_NAMES')
@@ -1069,6 +1076,7 @@ class RdpUserDataBlock(BaseDataUnit):
                     Rdp.UserData.CS_CORE: AutoReinterpretConfig('', Rdp_TS_UD_CS_CORE),
                     Rdp.UserData.CS_SECURITY: AutoReinterpretConfig('', Rdp_TS_UD_CS_SEC),
                     Rdp.UserData.CS_NET: AutoReinterpretConfig('', Rdp_TS_UD_CS_NET),
+                    Rdp.UserData.CS_MONITOR: AutoReinterpretConfig('', Rdp_TS_UD_CS_MONITOR),
                     
                     Rdp.UserData.SC_CORE: AutoReinterpretConfig('', Rdp_TS_UD_SC_CORE),
                     Rdp.UserData.SC_NET: AutoReinterpretConfig('', Rdp_TS_UD_SC_NET),
@@ -1158,6 +1166,28 @@ class Rdp_CHANNEL_DEF(BaseDataUnit):
         super(Rdp_CHANNEL_DEF, self).__init__(fields = [
             PrimitiveField('name', FixedLengthEncodedStringSerializer(EncodedStringSerializer.ASCII, 8)),
             PrimitiveField('options', BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_OPTION_NAMES.keys()), to_human_readable = lookup_name_in(Rdp.Channel.CHANNEL_OPTION_NAMES)),
+        ])
+
+class Rdp_TS_UD_CS_MONITOR(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_UD_CS_MONITOR, self).__init__(fields = [
+            PrimitiveField('flags', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('monitorCount', StructEncodedSerializer(UINT_32_LE)),
+            DataUnitField('monitorDefArray',
+                ArrayDataUnit(Rdp_TS_MONITOR_DEF,
+                    item_count_dependency = ValueDependency(lambda x: self.monitorCount))),
+        ])
+
+class Rdp_TS_MONITOR_DEF(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_MONITOR_DEF, self).__init__(fields = [
+            PrimitiveField('left', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('top', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('right', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('bottom', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('flags', 
+                BitFieldEncodedSerializer(UINT_32_LE, Rdp.Capabilities.Monitor.TS_MONITOR_NAMES.keys()), 
+                to_human_readable = lookup_name_in(Rdp.Capabilities.Monitor.TS_MONITOR_NAMES)),
         ])
 
 class Rdp_TS_UD_SC_CORE(BaseDataUnit):

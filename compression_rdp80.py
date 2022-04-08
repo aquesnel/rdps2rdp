@@ -100,7 +100,7 @@ class Rdp80CompressionConstants(object):
         encoding_token.offset: encoding_token
         for encoding_token 
             in TOKEN_ENCODINGS 
-            if encoding_token.token_type == SymbolType.LITERAL and encoding_token.prefix_length == 0
+            if encoding_token.token_type == SymbolType.LITERAL and encoding_token.value_bit_length == 0
     }
 
 

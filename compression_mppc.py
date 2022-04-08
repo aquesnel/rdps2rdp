@@ -208,11 +208,12 @@ def MPCC_field_filter(path):
 
 @utils.json_serializable(field_filter = MPCC_field_filter)
 class MPPC(compression_utils.CompressionEngine):
-    def __init__(self, compression_type, compression_history_manager, decompression_history_manager, encoder_factory, **kwargs):
+    def __init__(self, compression_type, compression_history_manager, decompression_history_manager, encoder_factory, add_non_compressed_data_to_history, **kwargs):
         super(MPPC, self).__init__(compression_type)
         self._encoder_factory = encoder_factory
         self._decompression_history_manager = decompression_history_manager
         self._compression_history_manager = compression_history_manager
+        self._add_non_compressed_data_to_history = add_non_compressed_data_to_history
 
     # def resetHistory(self):
     #     self._decompression_history_manager.resetHistory()
@@ -250,6 +251,9 @@ class MPPC(compression_utils.CompressionEngine):
             self._decompression_history_manager.resetHistory()
         
         if compression_constants.CompressionFlags.COMPRESSED not in compression_args.flags:
+            if self._add_non_compressed_data_to_history:
+                self._decompression_history_manager.append_bytes(compression_args.data)
+            if DEBUG: print("decoder the Data is not compressed, returning raw data")
             return compression_args.data
         
         decoder = self._encoder_factory.make_decoder(compression_args)

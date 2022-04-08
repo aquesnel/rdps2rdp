@@ -56,6 +56,7 @@ class CompressionFactory(object):
                                             **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
                                                 **{'historyLength': compression_config.history_size}}),
                                     encoder_factory = compression_mppc.MppcEncodingFacotry(compression_config),
+                                    add_non_compressed_data_to_history = False,
                                     **kwargs
                                     )
     
@@ -87,6 +88,7 @@ class CompressionFactory(object):
                                             **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
                                                 **{'historyLength': compression_config.history_size}}),
                                     encoder_factory = compression_mppc.MppcEncodingFacotry(compression_config),
+                                    add_non_compressed_data_to_history = False,
                                     **kwargs
                                     )
     
@@ -104,6 +106,7 @@ class CompressionFactory(object):
                                             **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
                                                 **{'historyLength': history_size}}),
                                     encoder_factory = compression_rdp60.Rdp60CompressionEncodingFacotry(),
+                                    add_non_compressed_data_to_history = False,
                                     **kwargs
                                     )
 
@@ -121,6 +124,7 @@ class CompressionFactory(object):
                                             **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
                                                 **{'historyLength': history_size_l1}}),
                                     encoder_factory = compression_rdp61.Rdp61_L1_CompressionEncodingFacotry(),
+                                    add_non_compressed_data_to_history = False,
                                     **kwargs
                                     )
     
@@ -150,5 +154,6 @@ class CompressionFactory(object):
                                             **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
                                                 **{'historyLength': history_size}}),
                                     encoder_factory = compression_rdp80.Rdp80_CompressionEncodingFacotry(),
+                                    add_non_compressed_data_to_history = True,
                                     **kwargs
                                     )

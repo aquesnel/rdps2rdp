@@ -1,4 +1,5 @@
 import array
+import binascii
 import collections
 import enum
 import sys
@@ -387,6 +388,9 @@ class BufferOnlyHistoryManager(HistoryManager):
             offset = self._historyOffset - offset_from_end
         else:
             offset = offset_from_end
+        if DEBUG: print("history size = %d, offset_from_end = %d, length = %d, relative = %s, get bytes = [%d-%d], history = %s" % (self._historyOffset, offset_from_end, length, relative, offset, offset + length, binascii.hexlify(self._history[:self._historyOffset])))
+        if offset < 0 or self._historyOffset < offset + length:
+            raise ValueError("Getting bytes that are outside the history's range of bytes. Actual range: 0-%d, Requested range: %d-%d" % (self._historyOffset, offset, offset + length))
         return memoryview(self._history)[offset : offset + length]
     
     def append_and_find_matches(self, data):

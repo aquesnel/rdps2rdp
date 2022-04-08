@@ -736,6 +736,46 @@ class UnionWrapperField(BaseField):
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         return 0
 
+class PeekField(BaseField):
+    def __init__(self, field):
+        self._field = field
+
+    @property
+    def name(self):
+        return self._field.name
+        
+    def get_human_readable_value(self):
+        return self._field.get_human_readable_value()
+
+    def get_pdu_types(self, rdp_context):
+        return self._field.get_pdu_types(rdp_context)
+
+    def get_pdu_summary_layers(self, rdp_context):
+        return self._field.get_pdu_summary_layers(rdp_context)
+    
+    def get_sub_fields(self):
+        return self._field.get_sub_fields()
+
+    def get_length(self):
+        return 0
+
+    def get_value(self) -> Any:
+        return self._field.get_value()
+        
+    def set_value(self, value: Any):
+        self._field.set_value(value)
+        
+    def is_dirty(self) -> bool:
+        return self._field.is_dirty()
+    
+    def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
+        self._field.deserialize_value(raw_data, offset, serde_context)
+        return 0
+    
+    def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
+        return 0
+
+
 POLYMORPHIC_TYPE_ID = TypeVar('POLYMORPHIC_TYPE_ID')
 class PolymophicField(BaseField):
     NULL_FIELD = PrimitiveField('null_field', RawLengthSerializer(LengthDependency(lambda x: 0)))

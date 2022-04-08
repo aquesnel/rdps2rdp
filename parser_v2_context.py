@@ -160,10 +160,11 @@ class RdpContext(object):
             raise ValueError('chunk must be of type DataChunk. Found: %s' % chunk.__class__.__name__)
         if pdu_source is None:
             pdu_source = self.pdu_source
-        if chunk is not None:
+        if chunk is None: # this means remove the chuck
+            if DataChunkKey(id, pdu_source) in self._channel_data_chunk_by_id_and_source:
+                del self._channel_data_chunk_by_id_and_source[DataChunkKey(id, pdu_source)]
+        else:
             self._channel_data_chunk_by_id_and_source[DataChunkKey(id, pdu_source)] = chunk
-        elif DataChunkKey(id, pdu_source) in self._channel_data_chunk_by_id_and_source:
-            del self._channel_data_chunk_by_id_and_source[DataChunkKey(id, pdu_source)]
     
     
     @contextlib.contextmanager

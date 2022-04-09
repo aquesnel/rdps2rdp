@@ -83,7 +83,6 @@ class RdpContext(object):
         self.encryption_method = kwargs.get('encryption_method', None)
         self.encrypted_client_random = kwargs.get('encrypted_client_random', None)
         self.pre_capability_exchange = kwargs.get('pre_capability_exchange', True)
-        self.rdp_gfx_pre_capability_exchange = kwargs.get('rdp_gfx_pre_capability_exchange', True)
         
         self.auto_logon = kwargs.get('auto_logon', False)
         self.rail_enabled = kwargs.get('rail_enabled', False)

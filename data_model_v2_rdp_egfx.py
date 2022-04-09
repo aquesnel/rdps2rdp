@@ -8,6 +8,7 @@ from data_model_v2 import (
     UnionField,
     OptionalField,
     ConditionallyPresentField,
+    PeekField,
     PolymophicField,
     CompressedField,
     
@@ -45,50 +46,35 @@ from serializers import (
     LengthDependency,
 )
 
-from data_model_v2_rdp import Rdp
+from data_model_v2_rdp import (
+    Rdp,
+    Rdp_TS_MONITOR_DEF,
+)
 
-
-# class Rdp_RDPGFX_PDU(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_RDPGFX_PDU, self).__init__(fields = [
-#             DataUnitField('type_header', Rdp_RDPGFX_PDU_header()),
-#             ConditionallyPresentField(
-#                 lambda: self.type_header.pdu_type == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS,
-#                 DataUnitField('commands', Rdp_RDPGFX_commands_PDU())),
-#             ConditionallyPresentField(
-#                 lambda: self.type_header.pdu_type == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS,
-#                 DataUnitField('segments', Rdp_RDP_SEGMENTED_DATA(ValueDependency(lambda x: self.type_header.RDP_SEGMENTED_DATA_descriptor)))),
-#         ])
-        
-# class Rdp_RDPGFX_PDU_header(BaseDataUnit):
-#     def __init__(self):
-#         super(Rdp_RDPGFX_PDU_header, self).__init__(fields = [
-#             UnionField([
-#                 # Note: since the RDP_SEGMENTED_DATA.descriptor and the 
-#                 # first byte of RDPGFX_HEADER.cmdId do not overlap, we can use 
-#                 # this first byte to determine which type of PDU this is.
-#                 # Also, since the RDPGFX_HEADER.cmdId values are all less 
-#                 # than 255, the high byte of the RDPGFX_HEADER.cmdId can be 
-#                 # ignored
-#                 PrimitiveField('pdu_type', 
-#                     ValueTransformSerializer(
-#                         BitMaskSerializer(Rdp.GraphicsPipelineExtention.PduType.MASK, StructEncodedSerializer(UINT_8)),
-#                         ValueTransformer(
-#                             to_serialized = lambda x: x if x else 0,
-#                             from_serialized = lambda x: x if x == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS else Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS)),
-#                     to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_NAMES)),
-#                 ConditionallyPresentField(
-#                     lambda: self.pdu_type == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS,
-#                     PrimitiveField('RDP_SEGMENTED_DATA_descriptor', 
-#                         StructEncodedSerializer(UINT_8),
-#                         to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_NAMES))),
-#                 ConditionallyPresentField(
-#                     lambda: self.pdu_type == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS,
-#                     PrimitiveField('header_cmdId_low', 
-#                         StructEncodedSerializer(UINT_8),
-#                         to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_NAMES))),
-#             ]),
-#         ])
+class Rdp_RDPGFX_PDU(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDPGFX_PDU, self).__init__(fields = [
+            # Note: since the RDP_SEGMENTED_DATA.descriptor and the 
+            # first byte of RDPGFX_HEADER.cmdId do not overlap, we can use 
+            # this first byte to determine which type of PDU this is.
+            # Also, since the RDPGFX_HEADER.cmdId values are all less 
+            # than 255, the high byte of the RDPGFX_HEADER.cmdId can be 
+            # ignored
+            PeekField(PrimitiveField('pdu_type', 
+                    ValueTransformSerializer(
+                        BitMaskSerializer(Rdp.GraphicsPipelineExtention.PduType.MASK, StructEncodedSerializer(UINT_8)),
+                        ValueTransformer(
+                            to_serialized = lambda x: 0,
+                            from_serialized = lambda x: x if x == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS else Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS)),
+                    to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_NAMES))),
+            PolymophicField('payload',
+                type_getter = ValueDependency(lambda x: self.pdu_type),
+                fields_by_type = {
+                    # TODO: the Rdp_RDP_SEGMENTED_DATA field needs to be changed so that the segmented data structure is embeded inside the compression engine (like rdp60/61 compression) other wise multi block segments will not be able to skip compression correctly
+                    Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS: DataUnitField('segments', Rdp_RDP_SEGMENTED_DATA()),
+                    Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS: DataUnitField('commands', Rdp_RDPGFX_commands_PDU()),
+                }),
+        ])
 
 class Rdp_RDP_SEGMENTED_DATA(BaseDataUnit):
     def __init__(self):
@@ -110,7 +96,6 @@ class Rdp_RDP_SEGMENTED_DATA(BaseDataUnit):
                     ArrayDataUnit(Rdp_RDP_DATA_SEGMENT,
                         item_count_dependency = ValueDependency(lambda x: self.segmentCount)))),
         ])
-
 
 
 class Rdp_RDP_DATA_SEGMENT(BaseDataUnit):
@@ -136,25 +121,24 @@ class Rdp_RDP8_BULK_ENCODED_DATA(BaseDataUnit):
                 decompression_type = ValueDependency(lambda x: Rdp.GraphicsPipelineExtention.Compression.to_compression_type(self.header_CompressionType)),
                 decompression_flags = ValueDependency(lambda x: Rdp.GraphicsPipelineExtention.Compression.to_compression_flags(self.header_CompressionFlags)),
                 decompression_length = data_length_dependency,
-                field = DataUnitField('data', Rdp_RDPGFX_commands_PDU())),
+                field = 
+                    DataUnitField('data', 
+                        ArrayDataUnit(Rdp_RDPGFX_commands_PDU, 
+                            length_dependency = data_length_dependency))),
         ])
 
+    def get_pdu_types(self, rdp_context):
+        retval = []
+        if Rdp.GraphicsPipelineExtention.Compression.PACKET_COMPRESSED in self.header_CompressionFlags:
+            retval.append('(compressed %s)' % self.as_field_objects().header_CompressionType.get_human_readable_value())
+        retval.extend(super(Rdp_RDP8_BULK_ENCODED_DATA, self).get_pdu_types(rdp_context))
+        return retval
 
-class Rdp_RDPGFX_commands_PDU(BaseDataUnit):
-    def __init__(self):
-        super(Rdp_RDPGFX_commands_PDU, self).__init__(fields = [
-            DataUnitField('header', 
-                Rdp_RDPGFX_HEADER(
-                    ValueDependency(lambda x: self.as_field_objects().payload.get_length()))),
-            PrimitiveField('payload', 
-                RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
-        ])
 
-class Rdp_RDPGFX_HEADER(BaseDataUnit):
+class Rdp_RDPGFX_commands_HEADER(BaseDataUnit):
     def __init__(self, pdu_length_dependency):
-        super(Rdp_RDPGFX_HEADER, self).__init__(fields = [
+        super(Rdp_RDPGFX_commands_HEADER, self).__init__(fields = [
             PrimitiveField('cmdId', 
-                # StructEncodedSerializer(UINT_8),
                 StructEncodedSerializer(UINT_16_LE),
                 to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_NAMES)),
             PrimitiveField('flags', BitFieldEncodedSerializer(UINT_16_LE, set())),
@@ -167,12 +151,50 @@ class Rdp_RDPGFX_HEADER(BaseDataUnit):
     def get_pdu_types(self, rdp_context):
         retval = []
         retval.append(self.as_field_objects().cmdId.get_human_readable_value())
-        retval.extend(super(Rdp_RDPGFX_HEADER, self).get_pdu_types(rdp_context))
+        retval.extend(super(Rdp_RDPGFX_commands_HEADER, self).get_pdu_types(rdp_context))
         return retval
 
     def _get_pdu_summary_layers(self, rdp_context):
-        
         return [PduLayerSummary('RDP-GFX', self.as_field_objects().cmdId.get_human_readable_value())]
+
+class Rdp_RDPGFX_commands_PDU(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_RDPGFX_commands_PDU, self).__init__(fields = [
+            DataUnitField('header', 
+                Rdp_RDPGFX_commands_HEADER(
+                    ValueDependency(lambda x: self.as_field_objects().payload.get_length()))),
+            PolymophicField('payload',
+                type_getter = ValueDependency(lambda x: self.header.cmdId),
+                fields_by_type = {
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_RESETGRAPHICS: DataUnitField('reset_graphics', Rdp_RDPGFX_RESET_GRAPHICS(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSCONFIRM: DataUnitField('caps_confirm', Rdp_RDPGFX_CAPSET()),
+                    
+                    # TODO: replace the placeholder fields with real fields
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_WIRETOSURFACE_1: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_WIRETOSURFACE_2: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_DELETEENCODINGCONTEXT: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_SOLIDFILL: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_SURFACETOSURFACE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_SURFACETOCACHE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CACHETOSURFACE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_EVICTCACHEENTRY: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CREATESURFACE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_DELETESURFACE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_STARTFRAME: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_ENDFRAME: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_FRAMEACKNOWLEDGE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    #Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_RESETGRAPHICS: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_MAPSURFACETOOUTPUT: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CACHEIMPORTOFFER: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CACHEIMPORTREPLY: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSADVERTISE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    #Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSCONFIRM: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_MAPSURFACETOWINDOW: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_QOEFRAMEACKNOWLEDGE: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_MAPSURFACETOSCALEDOUTPUT: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                    Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_MAPSURFACETOSCALEDWINDOW: PrimitiveField('TODO_payload', RawLengthSerializer(LengthDependency(lambda x: self.header.pduLength - self.as_field_objects().header.get_length()))),
+                }),
+        ])
 
 class Rdp_RDPGFX_POINT16(BaseDataUnit):
     def __init__(self):
@@ -211,7 +233,7 @@ class Rdp_RDPGFX_CAPSET(BaseDataUnit):
     def __init__(self):
         super(Rdp_RDPGFX_CAPSET, self).__init__(fields = [
             PrimitiveField('version', 
-                StructEncodedSerializer(UINT_16_LE),
+                StructEncodedSerializer(UINT_32_LE),
                 to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.Versions.RDPGFX_CAPVERSION_NAMES)),
             PrimitiveField('capsDataLength', 
                 DependentValueSerializer(
@@ -219,5 +241,22 @@ class Rdp_RDPGFX_CAPSET(BaseDataUnit):
                     ValueDependency(lambda x: self.as_field_objects().capsData.get_length()))),
             PrimitiveField('capsData', 
                 RawLengthSerializer(LengthDependency(lambda x: self.capsDataLength))),
+        ])
+
+class Rdp_RDPGFX_RESET_GRAPHICS(BaseDataUnit):
+    def __init__(self, pdu_length):
+        super(Rdp_RDPGFX_RESET_GRAPHICS, self).__init__(fields = [
+            PrimitiveField('width', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('height', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('monitorCount', StructEncodedSerializer(UINT_32_LE)),
+            DataUnitField('monitorDefArray',
+                ArrayDataUnit(Rdp_TS_MONITOR_DEF,
+                    item_count_dependency = ValueDependency(lambda x: self.monitorCount))),
+            PrimitiveField('pad', 
+                RawLengthSerializer(LengthDependency(lambda x: pdu_length.get_length(None)
+                                                                - self.as_field_objects().width.get_length()
+                                                                - self.as_field_objects().height.get_length()
+                                                                - self.as_field_objects().monitorCount.get_length()
+                                                                - self.as_field_objects().monitorDefArray.get_length()))),
         ])
 

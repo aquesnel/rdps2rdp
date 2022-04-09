@@ -95,9 +95,9 @@ from data_model_v2_rdp_erp import (
     Rdp_TS_RAIL_PDU,
 )
 from data_model_v2_rdp_egfx import (
-    Rdp_RDP_SEGMENTED_DATA,
-    # Rdp_RDPGFX_PDU,
-    Rdp_RDPGFX_commands_PDU,
+    # Rdp_RDP_SEGMENTED_DATA,
+    Rdp_RDPGFX_PDU,
+    # Rdp_RDPGFX_commands_PDU,
 )
 from parser_v2_context import (
     RdpContext,
@@ -425,6 +425,9 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                             data_chunk.append_data(pdu.tpkt.mcs.rdp.channel.payload)
                             
                             if Rdp.Channel.CHANNEL_FLAG_LAST in pdu.tpkt.mcs.rdp.channel.header.flags:
+                                if not data_chunk.is_full():
+                                    raise ValueError("The DataChunk is expected to be full because we got the last chunk flag but the chunk is not full. %s" % (data_chunk,))
+                                rdp_context.set_channel_chunk(channel_id, chunk = None)
                                 pdu.tpkt.mcs.rdp.channel.payload = data_chunk.get_data()
                                 
                                 channel_name = rdp_context.get_channel_by_id(channel_id, NULL_CHANNEL).name
@@ -476,13 +479,8 @@ def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
                                             if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
                                                 pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
                                             if channel_name == Rdp.Channel.GFX_CHANNEL_NAME:
-                                                if rdp_context.rdp_gfx_pre_capability_exchange:
-                                                    pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_commands_PDU()), rdp_context)
-                                                    if pdu.tpkt.mcs.rdp.channel.dyvc.data.GFX_PDU.header.cmdId == Rdp.GraphicsPipelineExtention.Commands.RDPGFX_CMDID_CAPSADVERTISE:
-                                                        rdp_context.rdp_gfx_pre_capability_exchange = False
-                                                else:
-                                                    pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDP_SEGMENTED_DATA()), rdp_context)
-
+                                                pdu.tpkt.mcs.rdp.channel.dyvc.data.reinterpret_field('Data', DataUnitField('GFX_PDU', Rdp_RDPGFX_PDU()), rdp_context)
+                                                
                                                 
             elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
                 if rdp_context.pdu_source == RdpContext.PduSource.CLIENT:

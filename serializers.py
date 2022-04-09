@@ -83,7 +83,7 @@ class SerializationContext(object):
         
     def get_operation(self):
         return self._operation
-        
+
     def get_allow_partial_parsing(self):
         if self._rdp_context:
             return self._rdp_context.allow_partial_parsing
@@ -137,7 +137,10 @@ class SerializationContext(object):
 
     def get_print_debug(self):
         return self._print_debug
-        
+
+    def get_compression_enabled(self):
+        return self._rdp_context.compression_enabled
+
 class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
     """
     Serialization/deserialization unit for a value. Can be a single unnamed value, or a structure with named values.

@@ -95,6 +95,9 @@ class RdpContext(object):
         self.working_dir = kwargs.get('working_dir', None)
         self.pdu_source = kwargs.get('pdu_source', None)
         
+        # HACK: this is a parsing setting not a rdp context value, but I don't have another place to put it at the moment
+        self.compression_enabled = kwargs.get('compression_enabled', True)
+
         self._compression_engines = utils.from_json_dict(compression_constants.CompressionTypes, compression_utils.CompressionEngine, kwargs.get('_compression_engines', {}))
         self.previous_primary_drawing_orders = kwargs.get('previous_primary_drawing_orders', {})
         self._channel_defs = utils.from_json_list(ChannelDef, kwargs.get('_channel_defs', []))

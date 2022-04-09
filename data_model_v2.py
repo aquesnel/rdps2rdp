@@ -853,6 +853,7 @@ class CompressedField(BaseField):
         self._compression_flags = None
         self._compression_type = None
         self._field = field
+        self._field_valid = False
 
         # HACK! this field is just to be able to show the compression headers when printing the field
         self._cached_wrapper_rdp61_struct = ConditionallyPresentWrapperField(
@@ -890,7 +891,9 @@ class CompressedField(BaseField):
         return len(self._cached_compressed_value)
 
     def get_value(self) -> Any:
-        return self._field.get_value()
+        if self._field_valid:
+            return self._field.get_value()
+        return self._cached_compressed_value
     
     def get_decompressed_field(self) -> BaseField:
         return self._field
@@ -918,40 +921,53 @@ class CompressedField(BaseField):
         return self._compression_type
     
     def compress_field(self, serde_context: SerializationContext):
-        engine = serde_context.get_rdp_context().get_compression_engine(self._compression_type)
-        engine_id = id(engine)
-        # Note: this method has side-effects (updating the compression history buffer) 
-        # and is therefore not safe to call multiple times
-        if engine_id in self._compression_count:
-            raise AssertionError("compress_field must be called only once per compression engine")
+        try:
+            engine = serde_context.get_rdp_context().get_compression_engine(self._compression_type)
+            engine_id = id(engine)
+            # Note: this method has side-effects (updating the compression history buffer) 
+            # and is therefore not safe to call multiple times
+            if engine_id in self._compression_count:
+                raise AssertionError("compress_field must be called only once per compression engine")
+            
+            self._compression_count[engine_id] = 1
+            
+            inflated_buffer = bytearray()
+            inflated_length = self._field.serialize_value(inflated_buffer, 0, serde_context)
+            deflated = engine.compress(inflated_buffer[:inflated_length])
+            
+            self._update_cached_value(deflated.data, deflated.flags, deflated.type)
+            
+            return deflated
+        except Exception as e:
+            raise SerializationException(
+                'Error compressing with type %s ' % (self._compression_type)
+                ) from e
         
-        self._compression_count[engine_id] = 1
-        
-        inflated_buffer = bytearray()
-        inflated_length = self._field.serialize_value(inflated_buffer, 0, serde_context)
-        deflated = engine.compress(inflated_buffer[:inflated_length])
-        
-        self._update_cached_value(deflated.data, deflated.flags, deflated.type)
-        
-        return deflated
         
     def decompress_field(self, data: bytes, serde_context: SerializationContext):
-        if DEBUG: print('Decompressing field: %s' % (self.name,))
-        flags = self._decompression_flags_getter.get_value(None)
-        compression_type = self._decompression_type_getter.get_value(None)
-        engine = serde_context.get_rdp_context().get_compression_engine(compression_type)
-        engine_id = id(engine)
-        
-        # Note: this method has side-effects (updating the compression history buffer) 
-        # and is therefore not safe to call multiple times
-        if engine_id in self._decompression_count:
-            raise AssertionError("decompress_field must be called only once per compression engine")
-        
-        self._decompression_count[engine_id] = 1
-        self._update_cached_value(data, flags, compression_type)
-        
-        return engine.decompress(compression_utils.CompressionArgs(data = data, flags = flags, type = compression_type))
-        
+        flags = None
+        compression_type = None
+        try:
+            if DEBUG: print('Decompressing field: %s' % (self.name,))
+            flags = self._decompression_flags_getter.get_value(None)
+            compression_type = self._decompression_type_getter.get_value(None)
+            engine = serde_context.get_rdp_context().get_compression_engine(compression_type)
+            engine_id = id(engine)
+            
+            # Note: this method has side-effects (updating the compression history buffer) 
+            # and is therefore not safe to call multiple times
+            if engine_id in self._decompression_count:
+                raise AssertionError("decompress_field must be called only once per compression engine")
+            
+            self._decompression_count[engine_id] = 1
+            self._update_cached_value(data, flags, compression_type)
+            
+            return engine.decompress(compression_utils.CompressionArgs(data = data, flags = flags, type = compression_type))
+        except Exception as e:
+            raise SerializationException(
+                'Error decompressing with type: %s, flags: %s' % (compression_type, flags)
+                ) from e
+
     def set_value(self, value: Any):
         self._field.set_value(value)
         buffer = bytearray()
@@ -973,9 +989,19 @@ class CompressedField(BaseField):
     
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         length = self._decompression_length.get_length(raw_data)
-        inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
-        if DEBUG: print('Decompressing complete, deserializing field: %s' % (self._field.name,))
-        self._field.deserialize_value(inflated, 0, serde_context)
+        if serde_context.get_compression_enabled():
+            inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
+            if DEBUG: print('Decompressing complete, deserializing field: %s' % (self._field.name,))
+            inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
+            self._field_valid = True
+            if inner_length_consumed != len(inflated):
+                raise ValueError('The field %s was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, len(inflated), inner_length_consumed))
+        else:
+            # flags = self._decompression_flags_getter.get_value(None)
+            # compression_type = self._decompression_type_getter.get_value(None)
+            # self._update_cached_value(memoryview(raw_data)[offset : offset + length], flags, compression_type)
+            self._update_cached_value(memoryview(raw_data)[offset : offset + length], set(), compression_constants.CompressionTypes.NO_OP)
+            
         return length
     
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
@@ -1241,8 +1267,8 @@ class BaseDataUnit(object):
         serde_context = SerializationContext(SerializationContext.Operation.SERIALIZE)
         with serde_context.rdp_context(rdp_context):
             length = self.serialize_value(memoryview(buffer), 0, serde_context)
-        if length != len(buffer):
-            raise ValueError('Unexpected serialized length: expected %d, got %d' % (len(buffer), length))
+        # if length != len(buffer):
+        #     raise ValueError('Unexpected serialized length: expected %d, got %d' % (len(buffer), length))
         return buffer
 
     def apply_context(self, serde_context: SerializationContext) -> None:

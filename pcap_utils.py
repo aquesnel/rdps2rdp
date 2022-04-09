@@ -29,7 +29,7 @@ def parse_packets_as_raw(pcap_file, server_port = None):
                     pdu_bytes = pkt[Raw].load,
                     pdu_timestamp = float(pkt.time), 
                     pdu_sequence_id = i,
-                    rdp_context = rdp_context
+                    rdp_context = rdp_context.clone()
                 )
         
         pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)

@@ -14,6 +14,7 @@ import ssl
 import threading
 import binascii
 import datetime
+import functools
 import time
 import re
 import queue
@@ -35,6 +36,7 @@ import pcap_utils
 import utils
 import data_model_v2
 import data_model_v2_x224
+import compression_constants
 
 # for python3 < 3.8
 # import sslkeylog
@@ -65,7 +67,7 @@ SERVER_USER_NAME = (
         )
 SERVER_PASSWORD = "P@ssw0rd!"
 
-
+DEBUG = False
 
 
 def negotiate_credssp_as_server(sock):
@@ -210,6 +212,8 @@ def main():
                         help='print only the pdu path elements of the pdu')
     parser_print.add_argument('--depth', dest='depth', type=int, action='store', default=None,
                         help='Print at most depth number of DataUnits from the PDU') 
+    parser_print.add_argument('-pc', '--print-context', dest='print_context', action='store_true',
+                        help='print the RDP stream context of the pdu')
     parser_print.add_argument('-v', '--verbose', dest='verbose', action='count', default=0,
                         help='''Verbosity levels.
                         0: source + layer summaries (good for diffing)
@@ -322,6 +326,7 @@ def main():
 
     if args.cmd_name == 'print': # read/print pcap file
         def no_throw(f):
+            @functools.wraps(f)
             def wrap_no_throw(*argv, **kwargs):
                 try:
                     return bool(f(*argv, **kwargs))
@@ -330,17 +335,29 @@ def main():
                     return False
             return wrap_no_throw
         def compose(*funcs):
-            def wraper(*argv, **kwargs):
+            @functools.wraps(funcs[-1])
+            def wraper_compose(*argv, **kwargs):
                 retval = funcs[-1](*argv, **kwargs)
                 for f in funcs[:-1][::-1]:
                      retval = f(retval)
                 return retval
-            return wraper
+            return wraper_compose
+        def OR(*funcs):
+            def wraper_OR(*argv, **kwargs):
+                return any([f(*argv, **kwargs) for f in funcs])
+            return wraper_OR
+        def AND(*funcs):
+            def wraper_AND(*argv, **kwargs):
+                return all([f(*argv, **kwargs) for f in funcs])
+            return wraper_AND
+        def NOT(f):
+            def wraper_NOT(*argv, **kwargs):
+                return not f(*argv, **kwargs)
+            return wraper_NOT
         def l(x):
             print(x)
             return x
         LOG = l
-        NOT = lambda x: not x
         IDENTITY = lambda x: x
             
         
@@ -446,9 +463,10 @@ def main():
         pdu = None
         for rdp_stream_snapshot in file_parser:
             pdu_source = rdp_stream_snapshot.pdu_source
-            rdp_context = rdp_stream_snapshot.rdp_context
+            rdp_context = rdp_stream_snapshot.rdp_context.clone()
             err = None
-            pre_parsing_rdp_context = rdp_context.clone()
+            pre_parsing_rdp_context = rdp_stream_snapshot.rdp_context
+            # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()
             try:
                 pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
             except parser_v2.ParserException as e:
@@ -464,10 +482,13 @@ def main():
                 include = any([f(pdu,rdp_context) for f in filters_include])
                 exclude = any([f(pdu,rdp_context) for f in filters_exclude])
                 if (not include) and exclude:
+                    if DEBUG: print('skipping offset %s' % (offset,))
                     do_print = False
                 else:
+                    if DEBUG: print('printing offset %s, %s' % (offset, filters_include))
                     do_print = True
             if err:
+                if DEBUG: print('printing offset %s because of an error' % (offset,))
                 do_print = True
             if do_print:
                 with rdp_context.set_pdu_source(pdu_source):
@@ -501,9 +522,10 @@ def main():
                                 print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(int(rdp_stream_snapshot.pdu_timestamp)).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(rdp_stream_snapshot.pdu_bytes), pdu.get_pdu_name(rdp_context)))
                             
                             if args.verbose >= 3:
-                                print(pre_parsing_rdp_context)
                                 print(utils.as_hex_str(rdp_stream_snapshot.pdu_bytes))
                                 print(utils.as_hex_str(pdu.as_wire_bytes()))
+                                if args.print_context:
+                                    print(pre_parsing_rdp_context)
 
                                 pdu_inner = pdu
                                 if args.path and pdu.has_path(args.path):

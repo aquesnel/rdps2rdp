@@ -360,7 +360,15 @@ def main():
         LOG = l
         IDENTITY = lambda x: x
             
-        
+        def channel_name(channel_name):
+            return no_throw(lambda pdu, rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId).name == channel_name)
+        def compression_type(compression_type):
+            return OR(
+                no_throw(lambda pdu,rdp_context: compression_type == Rdp.Channel.to_compression_type(pdu.tpkt.mcs.rdp.channel.header.flags)), 
+                no_throw(lambda pdu,rdp_context: compression_type == pdu.tpkt.mcs.rdp.channel.dyvc.payload.GFX_PDU.payload.bulkData.header_CompressionType),
+            )
+
+
         filters_include = []
         filters_exclude = []
         layer_filters_include = []
@@ -414,6 +422,19 @@ def main():
         #     no_throw(lambda pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
         # ])
         
+        def missing_GFX_PDU(pdu,rdp_context):
+            # print('missing_GFX_PDU: result %s, pdu %s' % (not pdu.has_path('tpkt.mcs.rdp.channel.dyvc.payload.GFX_PDU'), pdu.tpkt.mcs.rdp.channel.dyvc, ))
+            return not pdu.has_path('tpkt.mcs.rdp.channel.dyvc.payload.GFX_PDU')
+        # search for compressed RDP_80 packets
+        # filters_exclude.extend([
+        #     NOT(
+        #         AND(
+        #             channel_name(Rdp.Channel.GFX_CHANNEL_NAME),
+        #             # compression_type(Rdp.GraphicsPipelineExtention.Compression.PACKET_COMPR_TYPE_RDP8),
+        #         )
+        #     ),
+        # ])
+
         # OUTPUTPCAP = 'output.win10.rail.no-client-compression.pcap' ; SERVER_PORT = 14259
         
         # OUTPUTPCAP = 'output.win10.rail.no-all-compression.pcap' ; SERVER_PORT = 14817

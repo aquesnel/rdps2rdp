@@ -199,7 +199,7 @@ def main():
     parser_print.add_argument('-if', '--input-format', dest='file_format', type=str, action='store', default='pcap',
                         help='The file format to read. Options: %s. The file format pcap must contain the PCAP trace for an RDP session' % (print_input_file_formats,)) 
     parser_print.add_argument('-of', '--output-format', dest='output_format', type=str, action='store', default='text',
-                        help='The output format to write. Options: text, snapshot.') 
+                        help='The output format to write. Options: text, snapshot, cstr-hex.') 
     parser_print.add_argument('-sp', '--server-port', dest='server_port', type=int, action='store', default=None,
                         help="The RDP server's port for the packet trace. Default to auto-detect based on the first PDU being an X224.TPDU_CONNECTION_REQUEST") 
     parser_print.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
@@ -461,7 +461,7 @@ def main():
         # offset = 62 ; limit = 1 ; # fast path
         # offset = 64 ; limit = 1 ; # fast path
         
-        OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
+        # OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
         # OUTPUTPCAP = 'output.win10.rail.no-compression.no-gfx.fail.pcap' ; SERVER_PORT = 33930
         # offset = 180 ; limit = 1 ; # alt-sec err
         
@@ -485,6 +485,8 @@ def main():
         for rdp_stream_snapshot in file_parser:
             pdu_source = rdp_stream_snapshot.pdu_source
             rdp_context = rdp_stream_snapshot.rdp_context.clone()
+            #HACK: make this compression cofig a CLI option
+            rdp_context.compression_enabled = False
             err = None
             pre_parsing_rdp_context = rdp_stream_snapshot.rdp_context
             # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()
@@ -498,6 +500,7 @@ def main():
                 pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
             root_pdu = pdu
 
+            # DEBUG = True
             do_print = False
             if offset <= i and i < offset + limit:
                 include = any([f(pdu,rdp_context) for f in filters_include])
@@ -514,9 +517,33 @@ def main():
             if do_print:
                 with rdp_context.set_pdu_source(pdu_source):
                     try:
+                        pdu_inner = pdu
+                        if args.path:
+                            if pdu.has_path(args.path):
+                                print('[INFO] Path into PDU: %s' % (args.path,), file=sys.stderr)
+                                pdu_inner = pdu.get_path(args.path)
+                            else:
+                                print('[WARNING] PDU does not have path: %s' % (args.path,), file=sys.stderr)
+                            
+                            if callable(pdu_inner):
+                                try:
+                                    pdu_inner = pdu_inner()
+                                except Exception as e:
+                                    print('[WARNING] Exception while calling: %s' % (pdu_inner,), file=sys.stderr)
+
+                        if args.print_context:
+                            print(pre_parsing_rdp_context)
+
                         if args.output_format == 'snapshot':
                             print(rdp_stream_snapshot.to_json())
+                        
+                        elif args.output_format == 'cstr-hex':
+                            if isinstance(pdu_inner, data_model_v2.BaseDataUnit):
+                                pdu_inner = pdu_inner.as_wire_bytes()
+                            print(utils.as_hex_cstr(pdu_inner))
+                            
                         elif args.output_format == 'text':
+                            
                             if args.verbose in (0, 1):
                                 pdu_summary = pdu.get_pdu_summary(rdp_context)
                                 pdu_summary.sequence_id = i
@@ -543,16 +570,12 @@ def main():
                                 print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(int(rdp_stream_snapshot.pdu_timestamp)).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(rdp_stream_snapshot.pdu_bytes), pdu.get_pdu_name(rdp_context)))
                             
                             if args.verbose >= 3:
-                                print(utils.as_hex_str(rdp_stream_snapshot.pdu_bytes))
-                                print(utils.as_hex_str(pdu.as_wire_bytes()))
-                                if args.print_context:
-                                    print(pre_parsing_rdp_context)
-
-                                pdu_inner = pdu
-                                if args.path and pdu.has_path(args.path):
-                                    print('Path into PDU: %s' % (args.path,))
-                                    pdu_inner = root_pdu.get_path(path)
-                                print(pdu_inner.as_str(args.depth))
+                                if isinstance(pdu_inner, data_model_v2.BaseDataUnit):
+                                    print(pdu_inner.as_str(args.depth))
+                                elif isinstance(pdu_inner, memoryview):
+                                    print(bytes(pdu_inner))
+                                else:
+                                    print(pdu_inner)
                                 
                         else:
                             raise ValueError('Unknown output format: %s, Supported formats are: %s' % (args.output_format, print_input_file_formats))

@@ -11,6 +11,9 @@ DEBUG = False
 def as_hex_str(b):
     return " ".join("{:02x}".format(x) for x in b)
 
+def as_hex_cstr(b):
+    return '"' + ''.join("\\x{:02x}".format(x) for x in b) + '"' 
+
 if True:
     test_case = unittest.TestCase()
     assertEqual = test_case.assertEqual

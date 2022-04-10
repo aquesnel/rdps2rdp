@@ -559,7 +559,7 @@ def main():
                     except Exception as e:
                         if err:
                             # don't print the exception that was thrown during printing
-                            print('Ignoring exception receiving during printing')
+                            print('Ignoring exception receiving during printing', file=sys.stderr)
                         else:
                             raise e
 
@@ -569,7 +569,7 @@ def main():
                 err.__cause__ = e
                 if args.partial_parsing:
                     err = traceback.TracebackException.from_exception(err)
-                    print("".join(err.format()))
+                    print("".join(err.format()), file=sys.stderr)
                 else:
                     raise err
 

@@ -589,7 +589,7 @@ def main():
                             # don't print the exception that was thrown during printing
                             print('Ignoring exception receiving during printing', file=sys.stderr)
                         else:
-                            raise e
+                            raise RuntimeError('Error while printing pdu %d' % i) from e
 
             if err:
                 e = err

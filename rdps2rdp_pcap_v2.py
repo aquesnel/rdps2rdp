@@ -567,7 +567,12 @@ def main():
                                             '\n    '.join([str(l) for l in pdu_summary.layers]),
                                             ))
                             if args.verbose >= 2:
-                                print('%3d %s %s - len %4d - %s' % (i, datetime.fromtimestamp(int(rdp_stream_snapshot.pdu_timestamp)).strftime('%H:%M:%S.%f')[:12], pdu_source.name, len(rdp_stream_snapshot.pdu_bytes), pdu.get_pdu_name(rdp_context)))
+                                print('%3d %s %s - len %4d - %s' % (
+                                        i, 
+                                        datetime.fromtimestamp(int(rdp_stream_snapshot.pdu_timestamp)).strftime('%H:%M:%S.%f')[:12], 
+                                        pdu_source.name, 
+                                        len(rdp_stream_snapshot.pdu_bytes), 
+                                        pdu.get_pdu_name(rdp_context)))
                             
                             if args.verbose >= 3:
                                 if isinstance(pdu_inner, data_model_v2.BaseDataUnit):

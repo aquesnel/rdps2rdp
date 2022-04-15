@@ -843,10 +843,10 @@ class PolymophicField(BaseField):
         return self._get_field().serialize_value(buffer, offset, serde_context)
 
 class CompressedField(BaseField):
-    def __init__(self, decompression_type: ValueDependency, decompression_flags: ValueDependency, field: BaseField, decompression_length: LengthDependency = LengthDependency()):
+    def __init__(self, decompression_type: ValueDependency, decompression_flags: ValueDependency, field: BaseField, compressed_length: LengthDependency = LengthDependency()):
         self._decompression_type_getter = decompression_type
         self._decompression_flags_getter = decompression_flags
-        self._decompression_length = decompression_length
+        self._compressed_length = compressed_length
         self._decompression_count = {}
         self._compression_count = {}
         self._cached_compressed_value = None
@@ -988,21 +988,31 @@ class CompressedField(BaseField):
             return False
     
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
-        length = self._decompression_length.get_length(raw_data)
-        if serde_context.get_compression_enabled():
-            inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
-            if DEBUG: print('Decompressing complete, deserializing field: %s' % (self._field.name,))
-            inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
-            self._field_valid = True
-            if inner_length_consumed != len(inflated):
-                raise ValueError('The field %s was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, len(inflated), inner_length_consumed))
-        else:
-            # flags = self._decompression_flags_getter.get_value(None)
-            # compression_type = self._decompression_type_getter.get_value(None)
-            # self._update_cached_value(memoryview(raw_data)[offset : offset + length], flags, compression_type)
-            self._update_cached_value(memoryview(raw_data)[offset : offset + length], set(), compression_constants.CompressionTypes.NO_OP)
-            
-        return length
+        try:
+            length = self._compressed_length.get_length(raw_data)
+            # if True:
+            if serde_context.get_compression_enabled():
+                inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
+                if DEBUG: print('Decompressing complete, deserializing field: %s' % (self._field.name,))
+                inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
+                self._field_valid = True
+                if inner_length_consumed != len(inflated):
+                    raise ValueError('The field %s was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, len(inflated), inner_length_consumed))
+            else:
+                # flags = self._decompression_flags_getter.get_value(None)
+                # compression_type = self._decompression_type_getter.get_value(None)
+                # self._update_cached_value(memoryview(raw_data)[offset : offset + length], flags, compression_type)
+                self._update_cached_value(memoryview(raw_data)[offset : offset + length], set(), compression_constants.CompressionTypes.NO_OP)
+                
+            return length
+        except Exception as e:
+            # raise NotImplementedError('just checking')
+            # self._update_cached_value(memoryview(raw_data)[offset : ], set(), compression_constants.CompressionTypes.NO_OP)
+            # raise e
+            raise SerializationException(
+                'Error decompressing from data offset: %s, length: %s' % (offset, length)
+                ) from e
+
     
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         if self._cached_compressed_value is None:

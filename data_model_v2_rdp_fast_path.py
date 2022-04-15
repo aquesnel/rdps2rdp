@@ -229,7 +229,7 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
             CompressedField(
                 decompression_type = ValueDependency(lambda x: Rdp.ShareDataHeader.to_compression_type(self.compressionType)),
                 decompression_flags = ValueDependency(lambda x: Rdp.ShareDataHeader.to_compression_flags(self.compressionArgs)),
-                decompression_length = LengthDependency(lambda x: self.size),
+                compressed_length = LengthDependency(lambda x: self.size),
                 field = PolymophicField('updateData',
                     type_getter = ValueDependency(lambda x: self.updateCode), 
                     fields_by_type = {

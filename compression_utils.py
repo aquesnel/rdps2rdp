@@ -69,6 +69,11 @@ class BitStream(object):
                 retval |= bit
             if DEBUG: print('next_int bit_length = %s, value = %s' % (bit_length, retval))
             return retval
+
+        def next_align_to_byte(self):
+            bits_consumed = len(self.bit_stream) - self._remaining
+            bit_length = (8 - (bits_consumed % 8)) % 8
+            return self.next_int(bit_length)
             
         def remaining(self):
             return self._remaining
@@ -109,7 +114,12 @@ class BitStream(object):
                 retval |= bit
             if DEBUG: print('next_int bit_length = %s, value = %s' % (bit_length, retval))
             return retval
-            
+
+        def next_align_to_byte(self):
+            bits_consumed = len(self.bit_stream) - self._remaining
+            bit_length = (8 - (bits_consumed % 8)) % 8
+            return self.next_int(bit_length)
+
         def remaining(self):
             return self._remaining
         

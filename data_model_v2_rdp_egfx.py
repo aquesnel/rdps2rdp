@@ -1,4 +1,5 @@
 
+import compression_constants
 from data_model_v2 import (
     BaseDataUnit,
     ArrayDataUnit,
@@ -67,12 +68,22 @@ class Rdp_RDPGFX_PDU(BaseDataUnit):
                             to_serialized = lambda x: 0,
                             from_serialized = lambda x: x if x == Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS else Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS)),
                     to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_NAMES))),
-            PolymophicField('payload',
+            PolymophicField('commands',
                 type_getter = ValueDependency(lambda x: self.pdu_type),
                 fields_by_type = {
-                    # TODO: the Rdp_RDP_SEGMENTED_DATA field needs to be changed so that the segmented data structure is embeded inside the compression engine (like rdp60/61 compression) other wise multi block segments will not be able to skip compression correctly
-                    Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS: DataUnitField('segments', Rdp_RDP_SEGMENTED_DATA()),
-                    Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS: DataUnitField('commands', Rdp_RDPGFX_commands_PDU()),
+                    Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_COMMANDS: 
+                        DataUnitField('commands_raw', 
+                            ArrayDataUnit(Rdp_RDPGFX_commands_PDU, 
+                                length_dependency = LengthDependency())),
+                    Rdp.GraphicsPipelineExtention.PduType.PDU_TYPE_SEGMENTS: 
+                        CompressedField(
+                            decompression_type = ValueDependency(lambda x: compression_constants.CompressionTypes.RDP_80),
+                            decompression_flags = ValueDependency(lambda x: set()),
+                            compressed_length = LengthDependency(),
+                            field = 
+                                DataUnitField('commands_compressed', 
+                                    ArrayDataUnit(Rdp_RDPGFX_commands_PDU, 
+                                        length_dependency = LengthDependency()))),
                 }),
         ])
 
@@ -109,7 +120,7 @@ class Rdp_RDP_DATA_SEGMENT(BaseDataUnit):
 class Rdp_RDP8_BULK_ENCODED_DATA(BaseDataUnit):
     def __init__(self, data_length_dependency):
         super(Rdp_RDP8_BULK_ENCODED_DATA, self).__init__(fields = [
-            UnionField([
+            UnionField(name = 'header_Compression', fields = [
                 PrimitiveField('header_CompressionType', 
                     BitMaskSerializer(Rdp.GraphicsPipelineExtention.Compression.COMPRESSION_TYPE_MASK, StructEncodedSerializer(UINT_8)),
                     to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.Compression.TYPE_NAMES)),
@@ -117,14 +128,10 @@ class Rdp_RDP8_BULK_ENCODED_DATA(BaseDataUnit):
                     BitFieldEncodedSerializer(UINT_8, Rdp.GraphicsPipelineExtention.Compression.FLAG_NAMES.keys()),
                     to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.Compression.FLAG_NAMES)),
             ]),
-            CompressedField(
-                decompression_type = ValueDependency(lambda x: Rdp.GraphicsPipelineExtention.Compression.to_compression_type(self.header_CompressionType)),
-                decompression_flags = ValueDependency(lambda x: Rdp.GraphicsPipelineExtention.Compression.to_compression_flags(self.header_CompressionFlags)),
-                decompression_length = data_length_dependency,
-                field = 
-                    DataUnitField('data', 
-                        ArrayDataUnit(Rdp_RDPGFX_commands_PDU, 
-                            length_dependency = data_length_dependency))),
+            PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: (
+                                                                data_length_dependency.get_length(x) 
+                                                                 - self.as_field_objects().header_Compression.get_length()
+                                                                )))),
         ])
 
     def get_pdu_types(self, rdp_context):

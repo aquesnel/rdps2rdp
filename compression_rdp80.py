@@ -5,7 +5,7 @@ import utils
 import compression_huffman
 import compression_utils
 from data_model_v2_rdp import Rdp
-import data_model_v2_rdp_egdi
+import data_model_v2_rdp_egfx
 import compression_constants
 
 from compression_utils import (
@@ -200,8 +200,7 @@ class Rdp80_CompressionDecoder(compression_utils.Decoder):
                     # """
                     literals = bytearray()
                     length_of_match = bits_iter.next_int(15)
-                    byte_alignment_padding_length = self._bitstream_dest.get_available_bits_in_last_byte()
-                    _ = bits_iter.next_int(byte_alignment_padding_length)
+                    _ = bits_iter.next_align_to_byte()
                     for i in range(length_of_match):
                         literals.append(bits_iter.next_int(8))
                     if DEBUG: print('decoding literals: %s -> %s' % (utils.as_hex_str(literals), ''.join((chr(value) if value != 0 else '') for value in literals)))
@@ -247,4 +246,53 @@ class Rdp80_CompressionEncodingFacotry(compression_utils.EncodingFactory):
         else:
             return compression_utils.NoOpDecoder(compression_args.data)
     
+@utils.json_serializable()
+class Rdp80_CompressionEngine(compression_utils.CompressionEngine):
+
+    def __init__(self, compression_engine):
+        self._compression_engine = compression_engine
     
+    def compress(self, data):
+        raise NotImplementedError()
+        # compression_args_l1 = self._l1_compression_engine.compress(data)
+        # compression_args_l2 = self._l2_compression_engine.compress(compression_args_l1.data)
+        
+        # if compression_constants.CompressionFlags.COMPRESSED in compression_args_l2.flags:
+        #     compression_args_l1.flags.add(compression_constants.CompressionFlags.INNER_COMPRESSION)
+        
+        # compressed_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA()
+        # compressed_struct.header.Level1ComprFlags = Rdp.Compression61.from_L1_compression_flags(compression_args_l1.flags)
+        # compressed_struct.header.Level2ComprFlags = Rdp.Compression61.from_L2_compression_flags(compression_args_l2.flags)
+        # compressed_struct.header.Level2ComprFlags.add(Rdp.Compression61.PACKET_COMPR_TYPE_64K)
+        # compressed_struct.payload = compression_args_l2.data
+            
+        # return CompressionArgs(data = compressed_struct.as_wire_bytes(), 
+        #             flags = set(),
+        #             type = compression_constants.CompressionTypes.RDP_61)
+
+    def decompress(self, compression_args):
+        compressed_struct = data_model_v2_rdp_egfx.Rdp_RDP_SEGMENTED_DATA()
+        try:
+            compressed_struct.with_value(compression_args.data)
+        except Exception as e:
+            raise ValueError('Invalid Rdp_RDP_SEGMENTED_DATA: %s' % (compressed_struct,)) from e
+
+        if compressed_struct.descriptor == Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_SINGLE:
+            bulkDatas = [compressed_struct.bulkData]
+
+        elif compressed_struct.descriptor == Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_MULTIPART:
+            bulkDatas = [segment.bulkData for segment in compressed_struct.segmentArray]
+        
+        else:
+            raise ValueError('Invalid Rdp_RDP_SEGMENTED_DATA: %s' % (compressed_struct,))
+
+        data = bytearray()
+        for bulkData in bulkDatas:
+            comp_arg = CompressionArgs(
+                data = bulkData.payload, 
+                flags = Rdp.GraphicsPipelineExtention.Compression.to_compression_flags(bulkData.header_CompressionFlags), 
+                type = Rdp.GraphicsPipelineExtention.Compression.to_compression_type(bulkData.header_CompressionType))
+ 
+            data.extend(self._compression_engine.decompress(comp_arg))
+
+        return data

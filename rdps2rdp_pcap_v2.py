@@ -486,7 +486,7 @@ def main():
             pdu_source = rdp_stream_snapshot.pdu_source
             rdp_context = rdp_stream_snapshot.rdp_context.clone()
             #HACK: make this compression cofig a CLI option
-            rdp_context.compression_enabled = False
+            # rdp_context.compression_enabled = False
             err = None
             pre_parsing_rdp_context = rdp_stream_snapshot.rdp_context
             # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()

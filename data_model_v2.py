@@ -811,7 +811,7 @@ class PolymophicField(BaseField):
     def get_sub_fields(self):
         retval = []
         for field_type, field in self._fields_by_type.items():
-            retval.extend([ConditionallyPresentWrapperField(lambda: field_type == self._type_getter.get_value(None)) for f in field.get_sub_fields()])
+            retval.extend([ConditionallyPresentWrapperField(lambda: field_type == self._type_getter.get_value(None), f) for f in field.get_sub_fields()])
         return retval
         
     def get_value(self) -> Any:

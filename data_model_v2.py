@@ -1256,13 +1256,14 @@ class BaseDataUnit(object):
         return self
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
-        if DEBUG: print('%s: raw data length %d' % (self.__class__, len(raw_data)))
+        if DEBUG or serde_context.get_print_debug(): print('%s: at path "%s" has raw data length %d' % (self.__class__, serde_context.get_debug_field_path(), len(raw_data)))
         offset = orig_offset
         for f in self._fields:
             length = f.deserialize_value(raw_data, offset, serde_context)
             offset += length
             if isinstance(f, PolymophicField):
                 self.alias_field(f._get_field().name, f.name)
+            if DEBUG or serde_context.get_print_debug(): print('%s: deserialized length %d for field %s' % (self.__class__, length, f))
         for config in self._auto_reinterpret_configs:
             config.auto_reinterpret(self, serde_context)
         self.apply_context(serde_context)

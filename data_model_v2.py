@@ -783,17 +783,22 @@ class PolymophicField(BaseField):
     
     def __init__(self, name,
             type_getter: ValueDependency[POLYMORPHIC_TYPE_ID], 
-            fields_by_type: Dict[POLYMORPHIC_TYPE_ID, BaseField]):
+            fields_by_type: Dict[POLYMORPHIC_TYPE_ID, BaseField],
+            length_dependency: LengthDependency = None):
         self.name = name
         self._type_getter = type_getter
         self._fields_by_type = fields_by_type
-        self._unknown_type_field = PrimitiveField('field_with_unknown_type', RawLengthSerializer())
+        
+        if length_dependency is None:
+            length_dependency=LengthDependency()
+        self._length_dependency = length_dependency
+        self._unknown_type_field = PrimitiveField('polymophic_raw_field', RawLengthSerializer(self._length_dependency))
 
     def __str__(self):
         return '<PolymophicField(type=%s, fields=%s)>' % (
             self._type_getter.get_value(), self._fields_by_type)
 
-    def _get_field(self, allow_unknown = False):
+    def _get_field(self, allow_unknown = True):
         if allow_unknown:
             return self._fields_by_type.get(self._type_getter.get_value(None), self._unknown_type_field)
         else:
@@ -828,12 +833,17 @@ class PolymophicField(BaseField):
 
     def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         if DEBUG: print('%s: raw data length %d' % (self.name, len(raw_data)))
+        raw_data_end_view = memoryview(raw_data)[offset:]
+        max_length = self._length_dependency.get_length(raw_data_end_view)
         try:
-            return self._get_field()._deserialize_value(raw_data, offset, serde_context)
+            inner_length = self._get_field().deserialize_value(raw_data, offset, serde_context)
+            if inner_length > max_length:
+                raise SerializationException('Unexpected length from the inner fields as compared to the given max length: inner_length = %d, max_length = %d, field = %s' % (inner_length, max_length, self._get_field(allow_unknown = True)))
+            return inner_length
         except Exception as e:
-            # if there is an unknown field, then optimistically deserialize to a raw field so the data is available for debugging
+            # if there is an unknown exception, then pre-deserialize to a raw field so the data is available for debugging
             try:
-                self._get_field(allow_unknown = True)._deserialize_value(raw_data, offset, serde_context)
+                self._unknown_type_field.deserialize_value(raw_data, offset, serde_context)
             except Exception:
                 pass
             raise e

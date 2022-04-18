@@ -51,22 +51,23 @@ class Rdp_TS_RAIL_PDU(BaseDataUnit):
     def __init__(self):
         super(Rdp_TS_RAIL_PDU, self).__init__(fields = [
             DataUnitField('header', Rdp_TS_RAIL_PDU_HEADER()),
-            PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: self.header.orderLength))),
-        ],
-        auto_reinterpret_configs = [
-            AutoReinterpret(
-                field_to_reinterpret_name = 'payload',
+            PolymophicField('payload',
+                length_dependency = LengthDependency(lambda x: self.header.orderLength - self.as_field_objects().header.get_length()),
                 type_getter = ValueDependency(lambda x: self.header.orderType),
-                config_by_type = {
-                    Rdp.Rail.TS_RAIL_ORDER_EXEC: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_EXEC),
-                    Rdp.Rail.TS_RAIL_ORDER_EXEC_RESULT: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_EXEC_RESULT),
-                    Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_HANDSHAKE),
-                    Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE_EX: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_HANDSHAKE_EX),
-                    Rdp.Rail.TS_RAIL_ORDER_GET_APPID_REQ: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_GET_APPID_REQ),
-                    Rdp.Rail.TS_RAIL_ORDER_GET_APPID_RESP: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_GET_APPID_RESP),
-                    Rdp.Rail.TS_RAIL_ORDER_GET_APPID_RESP_EX: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_GET_APPID_RESP_EX),
-                    Rdp.Rail.TS_RAIL_ORDER_MINMAXINFO: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_MINMAXINFO),
-                    Rdp.Rail.TS_RAIL_ORDER_CLOAK: AutoReinterpretConfig('', Rdp_TS_RAIL_ORDER_CLOAK),
+                fields_by_type = {
+                    Rdp.Rail.TS_RAIL_ORDER_EXEC: DataUnitField('RAIL_ORDER_EXEC', Rdp_TS_RAIL_ORDER_EXEC()),
+                    Rdp.Rail.TS_RAIL_ORDER_EXEC_RESULT: DataUnitField('RAIL_ORDER_EXEC_RESULT', Rdp_TS_RAIL_ORDER_EXEC_RESULT()),
+                    Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE: DataUnitField('RAIL_ORDER_HANDSHAKE', Rdp_TS_RAIL_ORDER_HANDSHAKE()),
+                    Rdp.Rail.TS_RAIL_ORDER_HANDSHAKE_EX: DataUnitField('RAIL_ORDER_HANDSHAKE_EX', Rdp_TS_RAIL_ORDER_HANDSHAKE_EX()),
+                    Rdp.Rail.TS_RAIL_ORDER_GET_APPID_REQ: DataUnitField('RAIL_ORDER_GET_APPID_REQ', Rdp_TS_RAIL_ORDER_GET_APPID_REQ()),
+                    Rdp.Rail.TS_RAIL_ORDER_GET_APPID_RESP: DataUnitField('RAIL_ORDER_GET_APPID_RESP', Rdp_TS_RAIL_ORDER_GET_APPID_RESP()),
+                    Rdp.Rail.TS_RAIL_ORDER_GET_APPID_RESP_EX: DataUnitField('RAIL_ORDER_GET_APPID_RESP_EX', Rdp_TS_RAIL_ORDER_GET_APPID_RESP_EX()),
+                    Rdp.Rail.TS_RAIL_ORDER_MINMAXINFO: DataUnitField('RAIL_ORDER_MINMAXINFO', Rdp_TS_RAIL_ORDER_MINMAXINFO()),
+                    Rdp.Rail.TS_RAIL_ORDER_CLOAK: DataUnitField('RAIL_ORDER_CLOAK', Rdp_TS_RAIL_ORDER_CLOAK()),
+                    Rdp.Rail.TS_RAIL_ORDER_ACTIVATE: DataUnitField('RAIL_ORDER_ACTIVATE', Rdp_TS_RAIL_ORDER_ACTIVATE()),
+                    Rdp.Rail.TS_RAIL_ORDER_SYSMENU: DataUnitField('RAIL_ORDER_SYSMENU', Rdp_TS_RAIL_ORDER_SYSMENU()),
+                    Rdp.Rail.TS_RAIL_ORDER_SYSCOMMAND: DataUnitField('RAIL_ORDER_SYSCOMMAND', Rdp_TS_RAIL_ORDER_SYSCOMMAND()),
+                    Rdp.Rail.TS_RAIL_ORDER_SYSPARAM: DataUnitField('RAIL_ORDER_SYSPARAM', Rdp_TS_RAIL_ORDER_SYSPARAM()),
                 }),
         ])
 
@@ -172,7 +173,72 @@ class Rdp_TS_RAIL_ORDER_CLOAK(BaseDataUnit):
             PrimitiveField('WindowId', StructEncodedSerializer(UINT_32_LE)),
             PrimitiveField('Cloaked', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOAKED_NAMES)),
         ])
-        
+
+class Rdp_TS_RAIL_ORDER_ACTIVATE(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_RAIL_ORDER_ACTIVATE, self).__init__(fields = [
+            PrimitiveField('WindowId', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('Enabled', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+        ])
+
+class Rdp_TS_RAIL_ORDER_SYSMENU(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_RAIL_ORDER_SYSMENU, self).__init__(fields = [
+            PrimitiveField('WindowId', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('Left', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('Top', StructEncodedSerializer(UINT_16_LE)),
+        ])
+
+class Rdp_TS_RAIL_ORDER_SYSCOMMAND(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_RAIL_ORDER_SYSCOMMAND, self).__init__(fields = [
+            PrimitiveField('WindowId', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('Command', StructEncodedSerializer(UINT_16_LE), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_SYSCOMMAND_NAMES)),
+        ])
+
+class Rdp_TS_RAIL_ORDER_SYSPARAM(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_RAIL_ORDER_SYSPARAM, self).__init__(fields = [
+            PrimitiveField('SystemParam', StructEncodedSerializer(UINT_32_LE), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_SYSPARAM_NAMES)),
+            PolymophicField('body',
+                type_getter = ValueDependency(lambda x: self.SystemParam),
+                fields_by_type = {
+                    # Client allowed fields:
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETDRAGFULLWINDOWS: PrimitiveField('SET_DRAG_FULL_WINDOWS', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETKEYBOARDCUES: PrimitiveField('SET_KEYBOARD_CUES', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETKEYBOARDPREF: PrimitiveField('SET_KEYBOARD_PREF', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETMOUSEBUTTONSWAP: PrimitiveField('SET_MOUSE_BUTTON_SWAP', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETWORKAREA: DataUnitField('SET_WORKAREA', Rdp_TS_RECTANGLE_16()),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAYCHANGE: DataUnitField('DISPLAY_CHANGE', Rdp_TS_RECTANGLE_16()),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_TASKBARPOS: DataUnitField('TASKBAR_POS', Rdp_TS_RECTANGLE_16()),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETHIGHCONTRAST: DataUnitField('SET_HIGH_CONTRAST', Rdp_TS_HIGHCONTRAST()),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETCARETWIDTH: PrimitiveField('SET_CARET_WIDTH', StructEncodedSerializer(UINT_32_LE)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETSTICKYKEYS: DataUnitField('SET_STICKY_KEYS', Rdp_TS_STICKYKEYS()),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETTOGGLEKEYS: DataUnitField('SET_TOGGLE_KEYS', Rdp_TS_TOGGLEKEYS()),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETFILTERKEYS: DataUnitField('SET_FILTER_KEYS', Rdp_TS_FILTERKEYS()),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAY_ANIMATIONS_ENABLED: PrimitiveField('DISPLAY_ANIMATIONS_ENABLED', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAY_ADVANCED_EFFECTS_ENABLED: PrimitiveField('DISPLAY_ADVANCED_EFFECTS_ENABLED', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAY_AUTO_HIDE_SCROLLBARS: PrimitiveField('DISPLAY_AUTO_HIDE_SCROLLBARS', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAY_MESSAGE_DURATION: PrimitiveField('DISPLAY_MESSAGE_DURATION', StructEncodedSerializer(UINT_32_LE)),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAY_MESSAGE_DURATION: PrimitiveField('DISPLAY_AUTO_HIDE_SCROLLBARS', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_FONT_COLOR: PrimitiveField('CLOSED_CAPTION_FONT_COLOR', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_FONT_COLOR_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_FONT_OPACITY: PrimitiveField('CLOSED_CAPTION_FONT_OPACITY', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_FONT_OPACITY_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_FONT_SIZE: PrimitiveField('CLOSED_CAPTION_FONT_SIZE', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_FONT_SIZE_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_FONT_STYLE: PrimitiveField('CLOSED_CAPTION_FONT_STYLE', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_FONT_STYLE_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_FONT_EDGE_EFFECT: PrimitiveField('CLOSED_CAPTION_FONT_EDGE_EFFECT', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_FONT_EDGE_EFFECT_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_BACKGROUND_COLOR: PrimitiveField('CLOSED_CAPTION_BACKGROUND_COLOR', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_BACKGROUND_COLOR_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_BACKGROUND_OPACITY: PrimitiveField('CLOSED_CAPTION_BACKGROUND_OPACITY', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_BACKGROUND_OPACITY_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_REGION_COLOR: PrimitiveField('CLOSED_CAPTION_REGION_COLOR', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_REGION_COLOR_NAMES)),
+                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_CLOSED_CAPTION_REGION_OPACITY: PrimitiveField('CLOSED_CAPTION_REGION_OPACITY', StructEncodedSerializer(UINT_8), to_human_readable = lookup_name_in(Rdp.Rail.TS_RAIL_CLOSED_CAPTION_REGION_OPACITY_NAMES)),
+
+                    # Server allowed fields:
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETSCREENSAVEACTIVE: PrimitiveField('SET_SCREENSAVE_ACTIVE', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETSCREENSAVESECURE: PrimitiveField('SET_SCREENSAVE_SECURE', StructEncodedSerializer(UINT_8), to_human_readable = bool),
+                }),
+        ])
+
+
+
 class Rdp_ALTSEC_WINDOW_ORDER_HEADER(BaseDataUnit):
     def __init__(self):
         super(Rdp_ALTSEC_WINDOW_ORDER_HEADER, self).__init__(fields = [

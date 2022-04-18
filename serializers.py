@@ -129,7 +129,8 @@ class SerializationContext(object):
     @contextlib.contextmanager
     def print_debug(self, print_debug):
         orig_print_debug = self._print_debug
-        self._print_debug = print_debug
+        if print_debug is not None:
+            self._print_debug = print_debug
         try:
             yield self
         finally:

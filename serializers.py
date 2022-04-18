@@ -314,10 +314,10 @@ class DelimitedEncodedStringSerializer(EncodedStringSerializer):
         return len(value) + len(delimiter)
 
 class Utf16leEncodedStringSerializer(EncodedStringSerializer):
-    def __init__(self, length_dependency = None):
+    def __init__(self, length_dependency = None, delimiter = '\x00'):
         super().__init__(EncodedStringSerializer.UTF_16_LE,
                 length_dependency,
-                delimiter_dependency = ValueDependency(lambda x: '\x00'),
+                delimiter_dependency = ValueDependency(lambda x: delimiter) if delimiter is not None else None,
                 include_delimiter_in_length = True)
         
 class FixedLengthUtf16leEncodedStringSerializer(FixedLengthEncodedStringSerializer):

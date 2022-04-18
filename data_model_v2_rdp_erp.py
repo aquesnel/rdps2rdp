@@ -113,9 +113,9 @@ class Rdp_TS_RAIL_ORDER_EXEC(BaseDataUnit):
             PrimitiveField('ExeOrFileLength', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('WorkingDirLength', StructEncodedSerializer(UINT_16_LE)),
             PrimitiveField('ArgumentsLen', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('ExeOrFile', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.ExeOrFileLength))),
-            PrimitiveField('WorkingDir', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.WorkingDirLength))),
-            PrimitiveField('Arguments', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.ArgumentsLen))),
+            PrimitiveField('ExeOrFile', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.ExeOrFileLength), delimiter = None)),
+            PrimitiveField('WorkingDir', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.WorkingDirLength), delimiter = None)),
+            PrimitiveField('Arguments', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.ArgumentsLen), delimiter = None)),
         ])
         
 class Rdp_TS_RAIL_ORDER_EXEC_RESULT(BaseDataUnit):
@@ -127,7 +127,7 @@ class Rdp_TS_RAIL_ORDER_EXEC_RESULT(BaseDataUnit):
             PrimitiveField('Padding1', StructEncodedSerializer(PAD)),
             PrimitiveField('Padding2', StructEncodedSerializer(PAD)),
             PrimitiveField('ExeOrFileLength', StructEncodedSerializer(UINT_16_LE)),
-            PrimitiveField('ExeOrFile', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.ExeOrFileLength))),
+            PrimitiveField('ExeOrFile', Utf16leEncodedStringSerializer(LengthDependency(lambda x: self.ExeOrFileLength), delimiter = None)),
         ])
         
 class Rdp_TS_RAIL_ORDER_GET_APPID_REQ(BaseDataUnit):

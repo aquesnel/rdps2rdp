@@ -481,6 +481,11 @@ def main():
         else:
             raise ValueError('Unknown file format: %s' % args.file_format)
 
+        parser_config = parser_v2_context.ParserConfig(
+            debug_pdu_paths = [
+                # 'channel.payload',
+            ])
+
         pdu = None
         for rdp_stream_snapshot in file_parser:
             pdu_source = rdp_stream_snapshot.pdu_source
@@ -491,7 +496,7 @@ def main():
             pre_parsing_rdp_context = rdp_stream_snapshot.rdp_context
             # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()
             try:
-                pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, rdp_context)#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+                pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, parser_config = parser_config, rdp_context = rdp_context)
             except parser_v2.ParserException as e:
                 err = e.__cause__
                 pdu = e.pdu

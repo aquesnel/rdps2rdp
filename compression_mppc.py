@@ -148,16 +148,17 @@ class MccpCompressionDecoder(compression_utils.Decoder):
         self._bitstream_src_iter = iter(compression_utils.BitStream(data, append_low_to_high = False))
     
     def decode_next(self): #Tuple[SymbolType, Any]
+        # DEBUG = True
         bits_iter = self._bitstream_src_iter
         # if DEBUG: print("Processing input byte %d, bit %d, bits: %s" % (byte_offset, self.__getInputBit(), bits))
         # encoding rules from https://www.ietf.org/rfc/rfc2118.txt section 4.2.1
         if DEBUG: print('bits remaining: %s' % bits_iter.remaining())
-        if bits_iter.next() == 0: # literal value <= 0x7f with prefix 0b0
-            if bits_iter.remaining() < 8: # padding bits at the end of the stream to align to a byte boundary that can be discarded
-                return (SymbolType.END_OF_STREAM, None)
-            else:
-                literal_byte = bits_iter.next_int(7)
-                return (SymbolType.LITERAL, literal_byte.to_bytes(1,'little'))
+        if bits_iter.remaining() < 8: # padding bits at the end of the stream to align to a byte boundary that can be discarded
+            return (SymbolType.END_OF_STREAM, None)
+        
+        elif bits_iter.next() == 0: # literal value <= 0x7f with prefix 0b0
+            literal_byte = bits_iter.next_int(7)
+            return (SymbolType.LITERAL, literal_byte.to_bytes(1,'little'))
 
         elif bits_iter.next() == 0: # literal value > 0x7f with prefix 0b10
             literal_byte = bits_iter.next_int(7) + 128
@@ -174,14 +175,14 @@ class MccpCompressionDecoder(compression_utils.Decoder):
         for encoding_range in encoding_ranges_iter:
             if prefix_length > encoding_range.prefix_length:
                 raise ValueError('Expected the prefix length to be monotonically increasing')
-            if DEBUG: print('decode_range_value prefix = %s, prefix_length = %s, encoding_range = %s' % (prefix, prefix_length, encoding_range))
+            if DEBUG: print('decode_range_value candidate: prefix_length = %s, prefix = %s, encoding_range = %s' % (prefix, prefix_length, encoding_range))
             while prefix_length < encoding_range.prefix_length:
                 bit = bits_iter.next()
                 prefix <<= 1
                 prefix += bit
                 prefix_length += 1
             if prefix == encoding_range.prefix:
-                if DEBUG: print('decode_range_value found match: prefix = %s, prefix_length = %s, encoding_range = %s' % (prefix, prefix_length, encoding_range))
+                if DEBUG: print('decode_range_value found match: prefix_length = %s, prefix = %s, encoding_range = %s' % (prefix, prefix_length, encoding_range))
                 return bits_iter.next_int(encoding_range.value_bit_length) + encoding_range.min_value
 
         raise ValueError('No matching prefix in config. Prefix: %s' % (prefix))
@@ -253,7 +254,7 @@ class MPPC(compression_utils.CompressionEngine):
         if compression_constants.CompressionFlags.COMPRESSED not in compression_args.flags:
             if self._add_non_compressed_data_to_history:
                 self._decompression_history_manager.append_bytes(compression_args.data)
-            if DEBUG: print("decoder the Data is not compressed, returning raw data")
+            if compression_args.is_debug_enabled(DEBUG): print("decoder the Data is not compressed, returning raw data")
             return compression_args.data
         
         decoder = self._encoder_factory.make_decoder(compression_args)
@@ -262,18 +263,18 @@ class MPPC(compression_utils.CompressionEngine):
         done = False
         while not done:
             decoder_retval = decoder.decode_next()
-            if DEBUG: print("decoder (%s) returned: %s" % (decoder, decoder_retval,))
+            if compression_args.is_debug_enabled(DEBUG): print("decoder (%s) returned: %s" % (decoder, decoder_retval,))
             type, value = decoder_retval
             if type == SymbolType.END_OF_STREAM:
-                if DEBUG: print('decoding end-of-stream')
+                if compression_args.is_debug_enabled(DEBUG): print('decoding (output_len = %d) end-of-stream ' % (output_length, ))
                 done = True
             elif type == SymbolType.LITERAL:
                 # if value > b'\xff':
                 #     raise ValueError("Byte must be less than or equal to 0xff, got: ", hex(value))
                 # dest.append(value)
                 self._decompression_history_manager.append_bytes(value)
+                if compression_args.is_debug_enabled(DEBUG): print('decoding (output_len = %d) literal: %s' % (output_length, value,))
                 output_length += len(value)
-                if DEBUG: print('decoding literal: %s' % (value,))
                 #if DEBUG: print("Push bytes to output: %s = %s, dest = ...%s" % (' '.join([hex(v) for v in value]), bytes(value), self._decompression_history_manager.get_bytes(output_length, output_length, relative = True).tobytes()[-10:]))
             elif type == SymbolType.COPY_OFFSET:
                 # import binascii
@@ -287,6 +288,7 @@ class MPPC(compression_utils.CompressionEngine):
                         copy_offset = value.copy_offset + i
                     match_data[i] = self._decompression_history_manager.get_bytes(copy_offset, 1, relative = value.is_relative_offset)[0]
                     self._decompression_history_manager.append_byte(match_data[i])
+                    if compression_args.is_debug_enabled(DEBUG): print('decoding (output_len = %d) copy match (count=%d): %s' % (output_length + i, i, match_data[i].to_bytes(1, 'little'),))
                 # if DEBUG: print("decoding copy_tuple: %s, match_data = [...]%s" % (value, bytes(match_data)[-10:]))
                 # dest.extend(match_data)
                 # self._decompression_history_manager.append_bytes(match_data)
@@ -295,8 +297,9 @@ class MPPC(compression_utils.CompressionEngine):
             else:
                 raise ValueError('unknown SymbolType: %s' % type)
         retval = self._decompression_history_manager.get_bytes(output_length, output_length, relative = True)
-        # import utils
-        # utils.assertEqual(len(retval), output_length)
+        if compression_args.is_debug_enabled(DEBUG): print('decoding final result (len=%d): %s' % (output_length, retval,))
+        import utils
+        utils.assertEqual(len(retval), output_length)
         retval = retval.tobytes()
         # utils.assertEqual(len(retval), output_length)
         return retval

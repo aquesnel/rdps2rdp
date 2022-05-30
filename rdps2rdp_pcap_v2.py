@@ -594,7 +594,11 @@ def main():
                     except Exception as e:
                         if err:
                             # don't print the exception that was thrown during printing
-                            print('Ignoring exception receiving during printing', file=sys.stderr)
+                            print('[WARNING] Ignoring exception receiving during printing', file=sys.stderr)
+                            print('------------- Ignored exception begin -------------', file=sys.stderr)
+                            e = traceback.TracebackException.from_exception(e)
+                            print("".join(e.format()), file=sys.stderr)
+                            print('------------- Ignored exception end -------------', file=sys.stderr)
                         else:
                             raise RuntimeError('Error while printing pdu %d' % i) from e
 

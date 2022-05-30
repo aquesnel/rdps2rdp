@@ -236,11 +236,11 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
                         Rdp.FastPath.FASTPATH_UPDATETYPE_SURFCMDS: 
                             DataUnitField('updateData_surfaceCmd', 
                                 ArrayDataUnit(Rdp_TS_SURFCMD, 
-                                    length_dependency = LengthDependency(lambda x: self.size))),
+                                    length_dependency = LengthDependency(lambda x: self.as_field_objects().updateData.get_decompressed_length()))),
                         Rdp.FastPath.FASTPATH_UPDATETYPE_ORDERS: 
                             DataUnitField('updateData_orders', Rdp_TS_FP_UPDATE_ORDERS(rdp_context)),
                         Rdp.FastPath.FASTPATH_UPDATETYPE_POINTER:
-                            DataUnitField('updateData_pointer', Rdp_TS_FP_POINTERATTRIBUTE(LengthDependency(lambda x: self.size))),
+                            DataUnitField('updateData_pointer', Rdp_TS_FP_POINTERATTRIBUTE(LengthDependency(lambda x: self.as_field_objects().updateData.get_decompressed_length()))),
                         Rdp.FastPath.FASTPATH_UPDATETYPE_CACHED:
                             DataUnitField('updateData_cached', Rdp_TS_FP_CACHEDPOINTERATTRIBUTE()),
                     }

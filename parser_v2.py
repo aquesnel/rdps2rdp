@@ -136,17 +136,17 @@ def _get_pdu_type(data, rdp_context):
         return Rdp.DataUnitTypes.CREDSSP
 
     # Note: Rdp.DataUnitTypes.FAST_PATH == CREDSSP_END_PDU[0] so we need to check the more specific CREDSSP_END_PDU first
-    elif (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
-        return Rdp.DataUnitTypes.FAST_PATH
-    
-    elif first_byte == Rdp.DataUnitTypes.CREDSSP:
-        return Rdp.DataUnitTypes.CREDSSP
-
-    # elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
+    # elif (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
     #     return Rdp.DataUnitTypes.FAST_PATH
     
-    # elif rdp_context.pre_capability_exchange and first_byte == Rdp.DataUnitTypes.CREDSSP:
+    # elif first_byte == Rdp.DataUnitTypes.CREDSSP:
     #     return Rdp.DataUnitTypes.CREDSSP
+
+    elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
+        return Rdp.DataUnitTypes.FAST_PATH
+    
+    elif rdp_context.pre_capability_exchange and first_byte == Rdp.DataUnitTypes.CREDSSP:
+        return Rdp.DataUnitTypes.CREDSSP
         
     else:
         raise ValueError('Unsupported packet type: (len: %d) %s' % (len(data), data[:len(CREDSSP_END_PDU)]))

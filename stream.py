@@ -1,6 +1,7 @@
 import contextlib
 import functools
 import socket
+import time
 import utils
 import re
 from enum import Enum, unique
@@ -15,6 +16,10 @@ DEFAULT_BUFF_SIZE = 4096
 DEFAULT_FLAGS = 0
 
 DEBUG = False
+
+# >>> with managed_resource(timeout=3600) as resource:
+# ...     # Resource is released at the end of this block,
+# ...     # even if code in the block raises an exception
 
 @contextlib.contextmanager
 def managed_timeout(sck, timeout = None, blocking = False):
@@ -36,33 +41,24 @@ def managed_timeout(sck, timeout = None, blocking = False):
     else:
         new_timeout = timeout
 
-    # blocking = 1 # True
-    # if new_timeout > 0:
-    #     blocking = 0 # False
-        
     orig_timeout = sck.gettimeout()
     sck.settimeout(new_timeout)
-    # sck.setblocking(blocking)
     try:
         yield sck
     finally:
         # Code to release resource, e.g.:
-        # blocking = 1 # True
-        # if orig_timeout is not None and orig_timeout > 0:
-        #     blocking = 0 # False
-        sck.settimeout(orig_timeout)
-        # sck.setblocking(blocking)
-
-# >>> with managed_resource(timeout=3600) as resource:
-# ...     # Resource is released at the end of this block,
-# ...     # even if code in the block raises an exception
-
+        try:
+            sck.settimeout(orig_timeout)
+        except ConnectionClosed:
+            pass
+        
 class TcpStream_v2(object):
     def __init__(self, server, client, interceptors):
         self.stream_context = TcpStreamContext()
         self.stream_context.stream = self
         self.server = None
         self.client = None
+        self._flush_in_progress = False
         self.replace_sockets(server, client, interceptors)
         
     def replace_sockets(self, server, client, interceptors = None):
@@ -75,19 +71,54 @@ class TcpStream_v2(object):
             interceptors = current_socket.get_interceptors()
         else:
             new_socket = CountingSocketWrapper(new_socket)
+        new_socket = CloseAwareSocketWrapper(new_socket)
         new_socket = StreamDisconnectingSocketWrapper(new_socket, self.stream_context)
         return InterceptingSocketWrapper(
             PduSocketWrapper(new_socket, pdu_source, self.stream_context),
             pdu_source, self.stream_context, interceptors)
-        
+
+    def flush(self):
+        if self._flush_in_progress:
+            return
+        self._flush_in_progress = True
+        print('Flushing stream')
+        try:
+            with self.managed_timeout(timeout = 0.1) as _:
+                done = False
+                while (self._quiet_forward_pkt(self.server, self.client)
+                        or self._quiet_forward_pkt(self.client, self.server)):
+                    pass
+        finally:
+            self._flush_in_progress = False
+
+    def _quiet_forward_pkt(self, src, dst):
+        try:
+            msg = src.recv(1024)
+            dst.send(msg)
+            return True
+        except socket.timeout:
+            return False
+        except ConnectionResetError:
+            return False
+        except ConnectionClosed:
+            return False
+
     def close(self):
+        try:
+            self.flush()
+        except ConnectionClosed:
+            pass
+
         print('Shutting down stream')
         self._close(self.server)
         self._close(self.client)
         
     def _close(self, sck):
-        sck.shutdown(socket.SHUT_RDWR)
-        sck.close()
+        try:
+            sck.shutdown(socket.SHUT_RDWR)
+            sck.close()
+        except ConnectionClosed:
+            pass
         
     def settimeout(self, timeout):
         self.server.settimeout(timeout)
@@ -102,6 +133,14 @@ class TcpStream_v2(object):
         
     def managed_timeout(self, timeout = None, blocking = False):
         return managed_timeout(self, timeout, blocking)
+
+    @contextlib.contextmanager
+    def managed_close(self):
+        try:
+            yield self
+        finally:
+            # Code to release resource, e.g.:
+            self.close()
 
 class TcpStreamContext(object):
     def __init__(self):
@@ -135,6 +174,12 @@ class DelegatingMixin(object):
         else:
             raise AttributeError('Class <%s> does not have a field named: %s' % (self.__class__.__name__, name))
 
+class ConnectionClosed(ConnectionError):
+    pass
+
+# When recv gets no data that means that the remote side of the socket is closed, 
+# which means that the local side of the socket needs to be closed too
+# https://stackoverflow.com/a/11253873
 class StreamDisconnectingSocketWrapper(DelegatingMixin):
     def __init__(self, sock, stream_context):
         super(StreamDisconnectingSocketWrapper, self).__init__(sock)
@@ -147,7 +192,7 @@ class StreamDisconnectingSocketWrapper(DelegatingMixin):
 
     def disconnect_on_error(self, func):
         @functools.wraps(func)
-        def wrapper_decorator(*args, **kwargs):
+        def disconnect_on_error_wrapper(*args, **kwargs):
             try:
                 return func(*args, **kwargs)
             except socket.timeout:
@@ -155,7 +200,64 @@ class StreamDisconnectingSocketWrapper(DelegatingMixin):
             except ConnectionResetError:
                 self.stream_context.stream.close()
                 raise
-        return wrapper_decorator
+            except ConnectionClosed:
+                self.stream_context.stream.close()
+                raise
+        return disconnect_on_error_wrapper
+
+    def recv(self, bufsize, flags=DEFAULT_FLAGS):
+        data = self.socket.recv(bufsize, flags)
+        if not data:
+            raise ConnectionClosed('no data from socket')
+        return data
+
+    def recvfrom(self, bufsize, flags=DEFAULT_FLAGS):
+        (data, address) = self.socket.recvfrom(bufsize, flags)
+        if not data:
+            raise ConnectionClosed('no data from socket')
+        return (data, address)
+
+    def recvmsg(self, bufsize, ancbufsize=0, flags=DEFAULT_FLAGS):
+        (data, ancdata, msg_flags, address) = self.socket.recvmsg(bufsize, ancbufsize, flags)
+        if not data:
+            raise ConnectionClosed('no data from socket')
+        return (data, ancdata, msg_flags, address)
+
+    def recvmsg_into(self, buffers, ancbufsize=0, flags=DEFAULT_FLAGS):
+        (nbytes, ancdata, msg_flags, address) = self.socket.recvmsg_into(buffers, ancbufsize, flags)
+        if nbytes == 0:
+            raise ConnectionClosed('no data from socket')
+        
+        self.bytes_received += nbytes
+        return (nbytes, ancdata, msg_flags, address)
+
+class CloseAwareSocketWrapper(DelegatingMixin):
+    def __init__(self, sock):
+        super(CloseAwareSocketWrapper, self).__init__(sock)
+        self.socket = sock
+        self._closed = False
+        
+        # if the socket is closed then calling one of these methods will throw "OSError: [Errno 9] Bad file descriptor"
+        # so instead we need to wrap them and throw an explicit exception that the socket is closed so that it can be 
+        # correctly handled by client code
+        for func_name in ('recv', 'recvfrom', 'recvmsg', 'recv_into', 'recvfrom_into', 'recvmsg_into', 
+                            'send', 'sendall', 'sendmsg', 
+                            'settimeout', 'setblocking', 'gettimeout',
+                            'shutdown'):
+            f = getattr(self, func_name)
+            setattr(self, func_name, self.closed_thrower(f))
+
+    def closed_thrower(self, func):
+        @functools.wraps(func)
+        def closed_thrower_wrapper(*args, **kwargs):
+            if self._closed:
+                raise ConnectionClosed('the connection is closed')
+            return func(*args, **kwargs)
+        return closed_thrower_wrapper
+
+    def close(self):
+        self._closed = True
+        self.socket.close()
 
 class CountingSocketWrapper(DelegatingMixin):
     def __init__(self, sock, bytes_received=0, bytes_sent=0):
@@ -242,32 +344,32 @@ class PduSocketWrapper(DelegatingMixin):
 
     def _receive_peek(self, num_bytes):
         if len(self._receive_buffer) >= num_bytes:
-            # print('DEBUG: receive_peek returning from cache')
+            if DEBUG: print('DEBUG: receive_peek returning from cache')
             return self._receive_buffer[:num_bytes]
         buffer = self.socket.recv(num_bytes)
         if buffer:
-            # print('DEBUG: receive_peek got %d bytes' % len(buffer))
+            if DEBUG: print('DEBUG: receive_peek got %d bytes' % len(buffer))
             self._receive_buffer += buffer
             if len(self._receive_buffer) >= num_bytes:
                 return self._receive_buffer[:num_bytes]
-        # print('DEBUG: receive_peek returned nothing')
+        if DEBUG: print('DEBUG: receive_peek returned nothing')
         return bytes()
 
     def _receive_exactly(self, num_bytes):
         if len(self._receive_buffer) >= num_bytes:
             result = self._receive_buffer[:num_bytes]
             self._receive_buffer = self._receive_buffer[num_bytes:]
-            # print('DEBUG: receive_exactly returning from cache')
+            if DEBUG: print('DEBUG: receive_exactly returning from cache')
             return result
         buffer = self.socket.recv(num_bytes)
         if buffer:
-            # print('DEBUG: receive_exactly got %d bytes' % len(buffer))
+            if DEBUG: print('DEBUG: receive_exactly got %d bytes' % len(buffer))
             self._receive_buffer += buffer
             if len(self._receive_buffer) >= num_bytes:
                 result = self._receive_buffer[:num_bytes]
                 self._receive_buffer = self._receive_buffer[num_bytes:]
                 return result
-        # print('DEBUG: receive_exactly returned nothing')
+        if DEBUG: print('DEBUG: receive_exactly returned nothing')
         return bytes()
         
     def _receive_next(self, bufsize, flags=DEFAULT_FLAGS):
@@ -285,6 +387,7 @@ class PduSocketWrapper(DelegatingMixin):
         return data
         
     def receive_pdu(self, blocking=False):
+        # DEBUG = True
         pdu = None
         dbg_msg = None
         

@@ -296,6 +296,7 @@ def main():
         serversock.bind(LISTENCON)
         serversock.listen(5)
         while True:
+            print('listening on %s' % (LISTENCON,))
             print('waiting for connection...')
             
             clientsock, addr = serversock.accept()
@@ -312,7 +313,8 @@ def main():
             rdp_stream.stream_context.rdp_context = parser_v2.RdpContext()
             
             if True: # intercept and decrypt MITM
-                handler_v2(rdp_stream)
+                with rdp_stream.managed_close():
+                    handler_v2(rdp_stream)
                 
             # if False: # observe only MITM
         

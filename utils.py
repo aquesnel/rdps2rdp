@@ -9,6 +9,8 @@ DEBUG = False
 # DEBUG = True
 
 def as_hex_str(b):
+    if isinstance(b, int):
+        return hex(b)
     return " ".join("{:02x}".format(x) for x in b)
 
 def as_hex_cstr(b):
@@ -27,6 +29,34 @@ else:
 def log(value, do_print = False, name = ''):
     if do_print: print('%s%s%s' % (name, ': ' if name else '', value))
     return value
+
+def verify_signature_match(func, expected_signature):
+    if not callable(func):
+        raise ValueError('The object must be callable but is not: %s' % (func,))
+    func_sig = inspect.signature(func).parameters
+    for (func_param, expected_param) in zip(func_sig, expected_signature):
+        if expected_param.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD:
+            if not (
+                    func_param.kind == expected_param.kind
+                    and func_param.name == expected_param.name
+                ):
+                raise ValueError('the function %s with signature %s does not match the expected signature parameters %s for the parameter: expected_param = %s, function_param = %s' % (
+                        func, func_sig, expected_signature, expected_param, func_param
+                    ))
+        else:
+            raise NotImplementedError()
+
+class DebugPredicate(object):
+    def __init__(self, predicate):
+        verify_signature_match(predicate, [
+                inspect.Parameter('debug_override', inspect.Parameter.POSITIONAL_OR_KEYWORD),
+                inspect.Parameter('runtime_context', inspect.Parameter.POSITIONAL_OR_KEYWORD),
+            ])
+
+        self._predicate = predicate
+    
+    def is_debug_enabled(self, debug_override = False, runtime_context = None):
+        return self._predicate(debug_override, runtime_context)
 
 def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True):
     d = {}
@@ -128,7 +158,9 @@ def from_json_dict(key_cls, value_cls, d):
     return d
 
 def to_json(self):
-    d = to_json_dict(self.to_dict())
+    d = self.to_dict()
+    if DEBUG: print('to_json dict: %s' % (d, ))
+    d = to_json_dict(d)
     return json.dumps(d)
 
 @classmethod

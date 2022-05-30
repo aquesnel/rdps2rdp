@@ -155,17 +155,18 @@ def handler_v2(stream):
                 negotiate_credssp_as_server(stream.client)
 
         print('Passing traffic through unmodified between client and server')
+        stream.stream_context.full_pdu_parsing = False
         with stream.managed_timeout(timeout = SOCKET_TIMEOUT_SEC) as _:
             while True:
-                if not stream.stream_context.rdp_context.pre_capability_exchange:
-                    stream.stream_context.full_pdu_parsing = False
+                # if not stream.stream_context.rdp_context.pre_capability_exchange:
+                #     stream.stream_context.full_pdu_parsing = False
                 pdu = stream.client.receive_pdu()
                 if pdu:
                     stream.server.send_pdu(pdu)
                 pdu = stream.server.receive_pdu()
                 if pdu:
                     stream.client.send_pdu(pdu)
-
+                
     except:
         import traceback
         traceback.print_exc()
@@ -285,7 +286,7 @@ def main():
                     
         interceptors = [
             # DisableCompressionInterceptor(),
-            DisableGfxInterceptor(),
+            # DisableGfxInterceptor(),
             LoggingInterceptor(),
         ]
         
@@ -356,6 +357,8 @@ def main():
             def wraper_NOT(*argv, **kwargs):
                 return not f(*argv, **kwargs)
             return wraper_NOT
+        def ALL(*argv, **kwargs):
+            return True
         def l(x):
             print(x)
             return x
@@ -363,7 +366,10 @@ def main():
         IDENTITY = lambda x: x
             
         def channel_name(channel_name):
-            return no_throw(lambda pdu, rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId).name == channel_name)
+            return OR(
+                no_throw(lambda pdu, rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == channel_name),
+                no_throw(lambda pdu, rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId).name == channel_name),
+            )
         def compression_type(compression_type):
             return OR(
                 no_throw(lambda pdu,rdp_context: compression_type == Rdp.Channel.to_compression_type(pdu.tpkt.mcs.rdp.channel.header.flags)), 
@@ -371,8 +377,18 @@ def main():
             )
 
 
-        filters_include = []
-        filters_exclude = []
+        filters_include = [
+            # channel_name(Rdp.Channel.RAIL_CHANNEL_NAME),
+            # AND(
+            #     channel_name(Rdp.Channel.GFX_CHANNEL_NAME),
+            #     # compression_type(Rdp.GraphicsPipelineExtention.Compression.PACKET_COMPR_TYPE_RDP8),
+            # )
+        ]
+        filters_exclude = [
+            # ALL,
+            # no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            # no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+        ]
         layer_filters_include = []
         layer_filters_exclude = []
         offset = args.offset
@@ -388,9 +404,15 @@ def main():
             # lambda l: l.command in ('SEC_HEARTBEAT', 'PDUTYPE_DATAPDU (7)', ),
         ]
         
+        filters_include.extend([
+            # channel_name(Rdp.Channel.RAIL_CHANNEL_NAME),
+            # no_throw(lambda pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
+            # no_throw(lambda pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
+            # no_throw(lambda pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 
+        ])
         filters_exclude.extend([
-            no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
-            no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            # no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_REQ in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
+            # no_throw(lambda pdu,rdp_context: Rdp.Security.SEC_AUTODETECT_RSP in pdu.tpkt.mcs.rdp.sec_header.flags), # existance check only
         ])
         
         OUTPUTPCAP = 'output.pcap' ; SERVER_PORT = 33986
@@ -409,6 +431,7 @@ def main():
         # offset = 340 # TS_RAIL_ORDER_EXEC
         # offset = 370 # suspected compressed server TS_RAIL_ORDER_EXEC_RESULT
         filters_include.extend([
+            # channel_name(Rdp.Channel.RAIL_CHANNEL_NAME),
             # no_throw(lambda pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # static RAIL channel
             # no_throw(lambda pdu,rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.dyvc_data.ChannelId).name == Rdp.Channel.RAIL_CHANNEL_NAME), # dynamic RAIL channel
             # no_throw(lambda pdu,rdp_context: Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in pdu.tpkt.mcs.rdp.CHANNEL_PDU_HEADER.flags), 

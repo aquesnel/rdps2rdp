@@ -116,6 +116,10 @@ class SerializationContext(object):
 
     @contextlib.contextmanager
     def rdp_context(self, rdp_context):
+        # HACK: inverted import dependency, so we import locally to avoid cycles
+        import parser_v2_context
+        if rdp_context is not None and not isinstance(rdp_context, parser_v2_context.RdpContext):
+            raise ValueError('Expected an RdpContext, but got %s' % (rdp_context.__class__.__name__ if rdp_context else rdp_context))
         orig_rdp_context = self._rdp_context
         self._rdp_context = rdp_context
         try:

@@ -255,15 +255,19 @@ class PrimitiveField(BaseField):
                     and self.value != self._deserialize_value_snapshot))
 
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
-        value, length = self.serializer.unpack_from(raw_data, offset, serde_context)
-        self.value = value
-        if isinstance(value, collections.abc.Iterable) and not isinstance(value, memoryview):
-            self._deserialize_value_snapshot = copy.copy(value)
-        self.is_value_dirty = False
-        # utils.assertEqual(length, self.serializer.get_serialized_length(value))
-        # length = self.serializer.get_serialized_length(value)
-        self.raw_value = memoryview(raw_data)[offset : offset+length]
-        return length
+        try:
+            value, length = self.serializer.unpack_from(raw_data, offset, serde_context)
+            self.value = value
+            if isinstance(value, collections.abc.Iterable) and not isinstance(value, memoryview):
+                self._deserialize_value_snapshot = copy.copy(value)
+            self.is_value_dirty = False
+            # utils.assertEqual(length, self.serializer.get_serialized_length(value))
+            # length = self.serializer.get_serialized_length(value)
+            self.raw_value = memoryview(raw_data)[offset : offset+length]
+            return length
+        except Exception as e:
+            self.raw_value = memoryview(raw_data)[offset : ]
+            raise e
     
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         # print('Serializing: is_dirty? %s for %s' % (self.is_dirty(), serde_context.get_debug_field_path()))
@@ -833,6 +837,10 @@ class PolymophicField(BaseField):
 
     def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         if DEBUG: print('%s: raw data length %d' % (self.name, len(raw_data)))
+        serde_debug = None
+        # if serde_context.get_debug_field_path().endswith('TS_RAIL_PDU'):
+        #     serde_debug = True
+
         raw_data_end_view = memoryview(raw_data)[offset:]
         max_length = self._length_dependency.get_length(raw_data_end_view)
         try:
@@ -859,6 +867,7 @@ class CompressedField(BaseField):
         self._compressed_length = compressed_length
         self._decompression_count = {}
         self._compression_count = {}
+        self._cached_decompressed_value = None
         self._cached_compressed_value = None
         self._compression_flags = None
         self._compression_type = None
@@ -907,11 +916,17 @@ class CompressedField(BaseField):
     
     def get_decompressed_field(self) -> BaseField:
         return self._field
+
+    def get_decompressed_length(self) -> BaseField:
+        if self._cached_decompressed_value is None:
+            raise AssertionError("decompress_field must be called before get_decompressed_length")
+        return len(self._cached_decompressed_value)
     
-    def _update_cached_value(self, data, flags, type):
-        self._cached_compressed_value = data
+    def _update_cached_value(self, decompressed_data, compressed_data, flags, compression_type):
+        self._cached_compressed_value = compressed_data
+        self._cached_decompressed_value = decompressed_data
         self._compression_flags = flags
-        self._compression_type = type
+        self._compression_type = compression_type
         self._cached_compressed_bytes_struct.set_value(self._cached_compressed_value)
         if self._compression_type == compression_constants.CompressionTypes.RDP_61:
             import data_model_v2_rdp_egdi
@@ -945,7 +960,7 @@ class CompressedField(BaseField):
             inflated_length = self._field.serialize_value(inflated_buffer, 0, serde_context)
             deflated = engine.compress(inflated_buffer[:inflated_length])
             
-            self._update_cached_value(deflated.data, deflated.flags, deflated.type)
+            self._update_cached_value(inflated_buffer[:inflated_length], deflated.data, deflated.flags, deflated.type)
             
             return deflated
         except Exception as e:
@@ -958,7 +973,6 @@ class CompressedField(BaseField):
         flags = None
         compression_type = None
         try:
-            if DEBUG: print('Decompressing field: %s' % (self.name,))
             flags = self._decompression_flags_getter.get_value(None)
             compression_type = self._decompression_type_getter.get_value(None)
             engine = serde_context.get_rdp_context().get_compression_engine(compression_type)
@@ -970,10 +984,16 @@ class CompressedField(BaseField):
                 raise AssertionError("decompress_field must be called only once per compression engine")
             
             self._decompression_count[engine_id] = 1
-            self._update_cached_value(data, flags, compression_type)
             
-            return engine.decompress(compression_utils.CompressionArgs(data = data, flags = flags, type = compression_type))
+            compression_args = compression_utils.CompressionArgs(data = data, flags = flags, type = compression_type)
+            if serde_context.is_debug_enabled(DEBUG): print('Decompressing field "%s": compression_args = %s, data (len=%d) = %s' % (self.name, compression_args, len(data), bytes(data)))
+            result = engine.decompress(compression_args)
+            self._update_cached_value(result, data, flags, compression_type)
+            if serde_context.is_debug_enabled(DEBUG): print('Decompressing field "%s": result (len=%d) = %s' % (self.name, len(result), result))
+            
+            return result
         except Exception as e:
+            self._update_cached_value('<decompression error>', data, flags, compression_type)
             raise SerializationException(
                 'Error decompressing with type: %s, flags: %s' % (compression_type, flags)
                 ) from e
@@ -982,7 +1002,7 @@ class CompressedField(BaseField):
         self._field.set_value(value)
         buffer = bytearray()
         length = self._field.serialize_value(buffer, 0, SerializationContext(SerializationContext.Operation.SERIALIZE))
-        self._update_cached_value(buffer[:length], set(), compression_constants.CompressionTypes.NO_OP)
+        self._update_cached_value(buffer[:length], buffer[:length], set(), compression_constants.CompressionTypes.NO_OP)
 
     def is_dirty(self) -> bool:
         # when the field is dirty then the compressed field is always dirty
@@ -1003,21 +1023,21 @@ class CompressedField(BaseField):
             # if True:
             if serde_context.get_compression_enabled():
                 inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
-                if DEBUG: print('Decompressing complete, deserializing field: %s' % (self._field.name,))
+                if serde_context.is_debug_enabled(DEBUG): print('Decompressing complete, deserializing field with path "%s": %s' % (serde_context.get_debug_field_path(), self._field.name, ))
                 inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
                 self._field_valid = True
                 if inner_length_consumed != len(inflated):
-                    raise ValueError('The field %s was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, len(inflated), inner_length_consumed))
+                    raise ValueError('The field %s with path "%s" was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, serde_context.get_debug_field_path(), len(inflated), inner_length_consumed))
             else:
                 # flags = self._decompression_flags_getter.get_value(None)
                 # compression_type = self._decompression_type_getter.get_value(None)
                 # self._update_cached_value(memoryview(raw_data)[offset : offset + length], flags, compression_type)
-                self._update_cached_value(memoryview(raw_data)[offset : offset + length], set(), compression_constants.CompressionTypes.NO_OP)
+                self._update_cached_value(memoryview(raw_data)[offset : offset + length], memoryview(raw_data)[offset : offset + length], set(), compression_constants.CompressionTypes.NO_OP)
                 
             return length
         except Exception as e:
             # raise NotImplementedError('just checking')
-            # self._update_cached_value(memoryview(raw_data)[offset : ], set(), compression_constants.CompressionTypes.NO_OP)
+            # self._update_cached_value(memoryview(raw_data)[offset : ], memoryview(raw_data)[offset : ], set(), compression_constants.CompressionTypes.NO_OP)
             # raise e
             raise SerializationException(
                 'Error decompressing from data offset: %s, length: %s' % (offset, length)
@@ -1261,14 +1281,14 @@ class BaseDataUnit(object):
         return self
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
-        if DEBUG or serde_context.get_print_debug(): print('%s: at path "%s" has raw data length %d' % (self.__class__, serde_context.get_debug_field_path(), len(raw_data)))
+        if serde_context.is_debug_enabled(DEBUG): print('%s: at path "%s" has raw data length %d' % (self.__class__, serde_context.get_debug_field_path(), len(raw_data)))
         offset = orig_offset
         for f in self._fields:
             length = f.deserialize_value(raw_data, offset, serde_context)
             offset += length
             if isinstance(f, PolymophicField):
                 self.alias_field(f._get_field().name, f.name)
-            if DEBUG or serde_context.get_print_debug(): print('%s: deserialized length %d for field %s' % (self.__class__, length, f))
+            if serde_context.is_debug_enabled(DEBUG): print('%s: deserialized length %d for field %s' % (self.__class__, length, f))
         for config in self._auto_reinterpret_configs:
             config.auto_reinterpret(self, serde_context)
         self.apply_context(serde_context)
@@ -1458,7 +1478,7 @@ class ArrayDataUnit(BaseDataUnit):
             self.append(item)
 
     def deserialize_value(self, raw_data: bytes, orig_offset: int, serde_context: SerializationContext) -> int:
-        if DEBUG: print('%s: raw data length %d' % (self.__class__, len(raw_data)))
+        if serde_context.is_debug_enabled(DEBUG): print('%s: raw data length %d' % (self.__class__, len(raw_data)))
         consumed = 0
         items_parsed = 0
         

@@ -607,17 +607,24 @@ class PerEncodedLengthSerializer(BaseSerializer[int]):
         return length_length
 
 class RawLengthSerializer(BaseSerializer[bytes]):
-    def __init__(self, length_dependency = LengthDependency()):
+    def __init__(self, length_dependency = None):
         self._length_dependency = length_dependency
         
     def get_serialized_length(self, value: bytes) -> int:
+        if self._length_dependency is None:
+            return len(value)
         return self._length_dependency.get_length(value)
 
     def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[bytes, int]:
         max_length = self.get_serialized_length(raw_data)
         value = raw_data[offset : offset + max_length]
         # utils.assertEqual(length, self.get_serialized_length(value))
-        # utils.assertEqual(length, len(value))
+        if self._length_dependency is None:
+            if max_length < len(value):
+                raise ValueError('RawLengthSerializer unpacked value with max length %d but got value with length %d' % (max_length, len(value)))
+        else:
+            if max_length != len(value):
+                raise ValueError('RawLengthSerializer unpacked value with expected length %d but got value with length %d' % (max_length, len(value)))
         return value, len(value)
     
     def pack_into(self, buffer: bytes, offset: int, value: bytes, serde_context: SerializationContext) -> int:

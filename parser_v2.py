@@ -451,7 +451,9 @@ def parse(pdu_source, data, rdp_context = None, parser_config = None):
                                     pdu.tpkt.mcs.rdp.channel.payload = data_chunk.get_data()
                                     
                                     channel_name = rdp_context.get_channel_by_id(channel_id, NULL_CHANNEL).name
-                                    if channel_name == Rdp.Channel.DRDYNVC_CHANNEL_NAME: 
+                                    if channel_name == Rdp.Channel.RAIL_CHANNEL_NAME:
+                                        pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload', DataUnitField('TS_RAIL_PDU', Rdp_TS_RAIL_PDU()), rdp_context)
+                                    elif channel_name == Rdp.Channel.DRDYNVC_CHANNEL_NAME: 
                                         pdu.tpkt.mcs.rdp.channel.reinterpret_field('payload.remaining', DataUnitField('dyvc', Rdp_DYNVC_PDU(rdp_context.pdu_source)), rdp_context)
                                         if (pdu.tpkt.mcs.rdp.channel.dyvc.header.Cmd == Rdp.DynamicVirtualChannels.COMMAND_CREATE
                                                 and rdp_context.pdu_source == RdpContext.PduSource.SERVER):

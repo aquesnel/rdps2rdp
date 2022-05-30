@@ -713,7 +713,15 @@ class Rdp(object):
             WINDOW_ORDER_FIELD_DESKTOP_ARC_BEGAN =     0x00000008
             WINDOW_ORDER_FIELD_DESKTOP_ZORDER =        0x00000010
             WINDOW_ORDER_FIELD_DESKTOP_ACTIVEWND =     0x00000020
-            
+        
+        @add_constants_names_mapping('HCF_', 'HCF_NAMES')
+        class HighContrast(object):
+            HCF_HIGHCONTRASTON = 0x00000001
+            HCF_AVAILABLE =      0x00000002
+            HCF_HOTKEYACTIVE =   0x00000004
+            HCF_CONFIRMHOTKEY =  0x00000008
+            HCF_HOTKEYSOUND =    0x00000010
+        
 
     @add_constants_names_mapping('COMMAND_', 'COMMAND_NAMES')
     class DynamicVirtualChannels(object): # from [MS-RDPEDYC]

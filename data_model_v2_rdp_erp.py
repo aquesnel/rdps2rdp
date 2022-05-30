@@ -208,10 +208,10 @@ class Rdp_TS_RAIL_ORDER_SYSPARAM(BaseDataUnit):
                     Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETKEYBOARDCUES: PrimitiveField('SET_KEYBOARD_CUES', StructEncodedSerializer(UINT_8), to_human_readable = bool),
                     Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETKEYBOARDPREF: PrimitiveField('SET_KEYBOARD_PREF', StructEncodedSerializer(UINT_8), to_human_readable = bool),
                     Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETMOUSEBUTTONSWAP: PrimitiveField('SET_MOUSE_BUTTON_SWAP', StructEncodedSerializer(UINT_8), to_human_readable = bool),
-                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETWORKAREA: DataUnitField('SET_WORKAREA', Rdp_TS_RECTANGLE_16()),
-                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAYCHANGE: DataUnitField('DISPLAY_CHANGE', Rdp_TS_RECTANGLE_16()),
-                    # Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_TASKBARPOS: DataUnitField('TASKBAR_POS', Rdp_TS_RECTANGLE_16()),
-                    # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETHIGHCONTRAST: DataUnitField('SET_HIGH_CONTRAST', Rdp_TS_HIGHCONTRAST()),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETWORKAREA: DataUnitField('SET_WORKAREA', Rdp_TS_RECTANGLE_16()),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_DISPLAYCHANGE: DataUnitField('DISPLAY_CHANGE', Rdp_TS_RECTANGLE_16()),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_RAIL_SPI_TASKBARPOS: DataUnitField('TASKBAR_POS', Rdp_TS_RECTANGLE_16()),
+                    Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETHIGHCONTRAST: DataUnitField('SET_HIGH_CONTRAST', Rdp_TS_HIGHCONTRAST()),
                     Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETCARETWIDTH: PrimitiveField('SET_CARET_WIDTH', StructEncodedSerializer(UINT_32_LE)),
                     # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETSTICKYKEYS: DataUnitField('SET_STICKY_KEYS', Rdp_TS_STICKYKEYS()),
                     # Rdp.Rail.TS_RAIL_SYSPARAM_SPI_SETTOGGLEKEYS: DataUnitField('SET_TOGGLE_KEYS', Rdp_TS_TOGGLEKEYS()),
@@ -237,6 +237,35 @@ class Rdp_TS_RAIL_ORDER_SYSPARAM(BaseDataUnit):
                 }),
         ])
 
+    def get_pdu_types(self, rdp_context):
+        retval = []
+        retval.append(self.as_field_objects().SystemParam.get_human_readable_value())
+        retval.extend(super(Rdp_TS_RAIL_ORDER_SYSPARAM, self).get_pdu_types(rdp_context))
+        return retval
+        
+    def _get_pdu_summary_layers(self, rdp_context):
+        return [PduLayerSummary('RAIL_ORDER_SYSPARAM', str(self.as_field_objects().SystemParam.get_human_readable_value()))]
+
+
+
+class Rdp_TS_HIGHCONTRAST(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_HIGHCONTRAST, self).__init__(fields = [
+            PrimitiveField('Flags', 
+                    BitFieldEncodedSerializer(UINT_32_LE, Rdp.Rail.HighContrast.HCF_NAMES.keys()), 
+                    to_human_readable = lookup_name_in(Rdp.Rail.HighContrast.HCF_NAMES)),
+            PrimitiveField('ColorSchemeLength', StructEncodedSerializer(UINT_32_LE)),
+            PrimitiveField('ColorScheme', Utf16leEncodedStringSerializer(length_dependency = LengthDependency(lambda x: self.ColorSchemeLength), delimiter = None)),
+        ])
+
+class Rdp_TS_RECTANGLE_16(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_TS_RECTANGLE_16, self).__init__(fields = [
+            PrimitiveField('Left', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('Top', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('Right', StructEncodedSerializer(UINT_16_LE)),
+            PrimitiveField('Bottom', StructEncodedSerializer(UINT_16_LE)),
+        ])
 
 
 class Rdp_ALTSEC_WINDOW_ORDER_HEADER(BaseDataUnit):

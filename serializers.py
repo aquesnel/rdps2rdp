@@ -141,6 +141,11 @@ class SerializationContext(object):
     def get_compression_enabled(self):
         return self._rdp_context.compression_enabled
 
+    def is_strict_parsing_enabled(self):
+        if self._rdp_context is None:
+            return False
+        return self._rdp_context.is_strict_parsing_enabled()
+
 class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
     """
     Serialization/deserialization unit for a value. Can be a single unnamed value, or a structure with named values.
@@ -622,13 +627,14 @@ class RawLengthSerializer(BaseSerializer[bytes]):
     def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[bytes, int]:
         max_length = self.get_serialized_length(raw_data)
         value = raw_data[offset : offset + max_length]
-        # utils.assertEqual(length, self.get_serialized_length(value))
-        if self._length_dependency is None:
-            if max_length < len(value):
-                raise ValueError('RawLengthSerializer unpacked value with max length %d but got value with length %d' % (max_length, len(value)))
-        else:
-            if max_length != len(value):
-                raise ValueError('RawLengthSerializer unpacked value with expected length %d but got value with length %d' % (max_length, len(value)))
+        if serde_context.is_strict_parsing_enabled():
+            # utils.assertEqual(length, self.get_serialized_length(value))
+            if self._length_dependency is None:
+                if max_length < len(value):
+                    raise ValueError('RawLengthSerializer unpacked value with max length %d but got value with length %d' % (max_length, len(value)))
+            else:
+                if max_length != len(value):
+                    raise ValueError('RawLengthSerializer unpacked value with expected length %d but got value with length %d' % (max_length, len(value)))
         return value, len(value)
     
     def pack_into(self, buffer: bytes, offset: int, value: bytes, serde_context: SerializationContext) -> int:

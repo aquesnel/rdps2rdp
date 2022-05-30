@@ -507,6 +507,7 @@ def main():
             raise ValueError('Unknown file format: %s' % args.file_format)
 
         parser_config = parser_v2_context.ParserConfig(
+            strict_parsing = False,
             debug_pdu_paths = [
                 # 'channel.payload',
             ])

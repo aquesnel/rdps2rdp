@@ -204,6 +204,9 @@ class RdpContext(object):
             self._compression_engines[compression_type] = compression.CompressionFactory.new_engine(compression_type)
         return self._compression_engines[compression_type]
 
+    def is_strict_parsing_enabled(self): # Boolean
+        return self.parser_config.is_strict_parsing_enabled()
+
 @utils.json_serializable(field_filter = lambda path: path.split('.')[-1] not in {'pdu_bytes'})
 class RdpStreamSnapshot(object):
     def __init__(self, pdu_source: PduSource, pdu_bytes: bytes = None, pdu_timestamp = None, pdu_sequence_id = None, rdp_context: RdpContext = None, pdu_bytes_hex: str = None):
@@ -226,8 +229,9 @@ class RdpStreamSnapshot(object):
                     raise ValueError('pdu_bytes_hex must be equal to pdu_bytes. pdu_bytes_hex: %s, pdu_bytes = %s' % (bytes.fromhex(self.pdu_bytes_hex), self.pdu_bytes))
 
 class ParserConfig(object):
-    def __init__(self, compression_enabled = True, debug_pdu_paths = None):
+    def __init__(self, compression_enabled = True, debug_pdu_paths = None, strict_parsing = True):
         self.compression_enabled = compression_enabled
+        self._strict_parsing = strict_parsing
 
         if debug_pdu_paths is None:
             debug_pdu_paths = []
@@ -235,3 +239,6 @@ class ParserConfig(object):
 
     def is_debug_enabled(self, pdu_path):
         return any(pdu_path.endswith(debug_path) for debug_path in self._debug_pdu_paths)
+
+    def is_strict_parsing_enabled(self): # Boolean
+        return self._strict_parsing

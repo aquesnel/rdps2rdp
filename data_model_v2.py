@@ -1225,7 +1225,12 @@ class BaseDataUnit(object):
         result[ItemKey(-1, '__python_type__')] = self.__class__
         for field_index, f in enumerate(self._fields):
             if DEBUG: print('getting dict for field: %s' % (f.name,))
-            v = f.get_human_readable_value()
+            try:
+                v = f.get_human_readable_value()
+            except Exception as e:
+                v = 'Unknown because exception: %s' % e
+                raise e
+
             if not isinstance(v, list):
                 v_list = [v]
             else:

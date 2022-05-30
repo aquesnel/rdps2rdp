@@ -108,6 +108,8 @@ import mccp
 
 IS_DECRYPTION_SUPPORTED = False
 NULL_CHANNEL = ChannelDef('null', 0, Rdp.Channel.ChannelType.STATIC)
+# this is the special end of CREDSSP pdu that was observed in the prod Win10 RDP server traffic
+CREDSSP_END_PDU = b'\x00\x00\x00\x00'
 
 class ParserException(Exception):
     def __init__(self, pdu):
@@ -129,50 +131,62 @@ def _get_pdu_type(data, rdp_context):
     if first_byte == Rdp.DataUnitTypes.X224:
         return Rdp.DataUnitTypes.X224
     
-    elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
+    elif data == CREDSSP_END_PDU:
+        return Rdp.DataUnitTypes.CREDSSP
+
+    # Note: Rdp.DataUnitTypes.FAST_PATH == CREDSSP_END_PDU[0] so we need to check the more specific CREDSSP_END_PDU first
+    elif (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
         return Rdp.DataUnitTypes.FAST_PATH
     
-    elif rdp_context.pre_capability_exchange and first_byte == Rdp.DataUnitTypes.CREDSSP:
+    elif first_byte == Rdp.DataUnitTypes.CREDSSP:
         return Rdp.DataUnitTypes.CREDSSP
+
+    # elif (not rdp_context.pre_capability_exchange) and (first_byte & Rdp.FastPath.FASTPATH_ACTIONS_MASK) == Rdp.DataUnitTypes.FAST_PATH:
+    #     return Rdp.DataUnitTypes.FAST_PATH
     
-    elif data == b'\x00\x00\x00\x00':
-        # this is the special end of CREDSSP pdu that was observed in the prod Win10 RDP server traffic
-        return Rdp.DataUnitTypes.CREDSSP
+    # elif rdp_context.pre_capability_exchange and first_byte == Rdp.DataUnitTypes.CREDSSP:
+    #     return Rdp.DataUnitTypes.CREDSSP
         
     else:
-        raise ValueError('Unsupported packet type')
+        raise ValueError('Unsupported packet type: (len: %d) %s' % (len(data), data[:len(CREDSSP_END_PDU)]))
 
 def parse_pdu_length(data, rdp_context = None):
     if rdp_context is None:
         rdp_context = RdpContext()
     pdu_type = _get_pdu_type(data, rdp_context)
+    pdu_length = None
     
     if pdu_type == Rdp.DataUnitTypes.X224:
         pdu = RawDataUnit().with_value(data)
         pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
         pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()), rdp_context)
         
-        return pdu.tpkt.length
+        pdu_length = pdu.tpkt.length
     
     elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
         pdu = RawDataUnit().with_value(data)
         pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
         pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_length_only()), rdp_context)
         
-        return pdu.rdp_fp.length
+        pdu_length = pdu.rdp_fp.length
     
     elif pdu_type == Rdp.DataUnitTypes.CREDSSP:
-        # the pdu.credssp.length field only contains the length of 
-        # the payload and not the header. Taking the length of the DataUnit 
-        # works eventhough we only have the partial pdu because the 
-        # RawLengthField size is taken from the value of the length field.
-        pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()), rdp_context)
-        
-        return pdu.credssp.get_length()
+        if data == CREDSSP_END_PDU:
+            pdu_length = len(CREDSSP_END_PDU)
+        else:
+            # the pdu.credssp.length field only contains the length of 
+            # the payload and not the header. Taking the length of the DataUnit 
+            # works eventhough we only have the partial pdu because the 
+            # RawLengthField size is taken from the value of the length field.
+            pdu = RawDataUnit().with_value(data)
+            pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()), rdp_context)
+            
+            pdu_length = pdu.credssp.get_length()
     
     else:
         raise ValueError('Unsupported packet type')
+
+    return pdu_length
 
 def parse(pdu_source, data, rdp_context = None, allow_partial_parsing = None):
     if rdp_context is None:

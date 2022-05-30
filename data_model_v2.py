@@ -796,7 +796,7 @@ class PolymophicField(BaseField):
 
     def __str__(self):
         return '<PolymophicField(type=%s, fields=%s)>' % (
-            self._type_getter.get_value(), self._fields_by_type)
+            self._type_getter.get_value(None), self._fields_by_type)
 
     def _get_field(self, allow_unknown = True):
         if allow_unknown:
@@ -820,16 +820,16 @@ class PolymophicField(BaseField):
         return retval
         
     def get_value(self) -> Any:
-        return self._get_field().get_value()
+        return self._get_field(allow_unknown = True).get_value()
 
     def set_value(self, value: Any):
-        self._get_field().set_value(value)
+        self._get_field(allow_unknown = True).set_value(value)
 
     def get_length(self):
         return self._get_field(allow_unknown = True).get_length()
 
     def is_dirty(self) -> bool:
-        return self._get_field().is_dirty()
+        return self._get_field(allow_unknown = True).is_dirty()
 
     def deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         if DEBUG: print('%s: raw data length %d' % (self.name, len(raw_data)))

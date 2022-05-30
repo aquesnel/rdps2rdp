@@ -24,7 +24,18 @@ CopyTupleV3 = collections.namedtuple('CopyTuple', ['copy_offset', 'length_of_mat
 HistoryMatch = collections.namedtuple('HistoryMatch', ['data_absolute_offset', 'history_absolute_offset', 'history_relative_offset', 'length'])
 
 # CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags'])
-CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags', 'type'])
+# CompressionArgs = collections.namedtuple('CompressionArgs', ['data', 'flags', 'type'])
+
+@utils.json_serializable()
+class CompressionArgs(object):
+    def __init__(self, data, flags, type, debug_enabled = False):
+        self.data = data
+        self.flags = flags
+        self.type = type
+        self.debug_enabled = debug_enabled
+
+    def is_debug_enabled(self, debug_override = False):
+        return debug_override or self.debug_enabled
 
 class BitStream(object):
     def __init__(self, packed_bits = [], padding_bit_length = 0, append_low_to_high = False):

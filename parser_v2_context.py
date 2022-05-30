@@ -72,10 +72,10 @@ class PduSource(Enum):
     CLIENT = 'Client'
     SERVER = 'Server'
     
-@utils.json_serializable()
+@utils.json_serializable(field_filter = lambda field_path: field_path.split('.')[-1] not in {'parser_config'})
 class RdpContext(object):
     PduSource = PduSource
-    def __init__(self, **kwargs):
+    def __init__(self, parser_config = None, **kwargs):
         self.allow_partial_parsing = kwargs.get('allow_partial_parsing', False) # hack, this should be in SerializationContext
         
         self.is_gcc_confrence = kwargs.get('is_gcc_confrence', False)
@@ -95,6 +95,10 @@ class RdpContext(object):
         self.working_dir = kwargs.get('working_dir', None)
         self.pdu_source = kwargs.get('pdu_source', None)
         
+        if parser_config is None:
+            parser_config = ParserConfig()
+        self.parser_config = parser_config
+
         # HACK: this is a parsing setting not a rdp context value, but I don't have another place to put it at the moment
         self.compression_enabled = kwargs.get('compression_enabled', True)
 
@@ -180,6 +184,19 @@ class RdpContext(object):
         finally:
             self.pdu_source = orig_pdu_source
 
+    @contextlib.contextmanager
+    def set_parser_config(self, parser_config):
+        if parser_config is not None and not isinstance(parser_config, ParserConfig):
+            raise ValueError('Expected an ParserConfig, but got %s' % (parser_config.__class__.__name__ if parser_config else parser_config))
+        if parser_config is None:
+            parser_config = self.parser_config
+        orig_parser_config = self.parser_config
+        self.parser_config = parser_config
+        try:
+            yield self
+        finally:
+            self.parser_config = orig_parser_config
+
     def get_compression_engine(self, compression_type = None):
         if compression_type is None:
             compression_type = self.compression_type
@@ -207,3 +224,14 @@ class RdpStreamSnapshot(object):
             else:
                 if bytes.fromhex(self.pdu_bytes_hex) != self.pdu_bytes:
                     raise ValueError('pdu_bytes_hex must be equal to pdu_bytes. pdu_bytes_hex: %s, pdu_bytes = %s' % (bytes.fromhex(self.pdu_bytes_hex), self.pdu_bytes))
+
+class ParserConfig(object):
+    def __init__(self, compression_enabled = True, debug_pdu_paths = None):
+        self.compression_enabled = compression_enabled
+
+        if debug_pdu_paths is None:
+            debug_pdu_paths = []
+        self._debug_pdu_paths = debug_pdu_paths
+
+    def is_debug_enabled(self, pdu_path):
+        return any(pdu_path.endswith(debug_path) for debug_path in self._debug_pdu_paths)

@@ -126,18 +126,13 @@ class SerializationContext(object):
     def get_rdp_context(self):
         return self._rdp_context
 
-    @contextlib.contextmanager
-    def print_debug(self, print_debug):
-        orig_print_debug = self._print_debug
-        if print_debug is not None:
-            self._print_debug = print_debug
-        try:
-            yield self
-        finally:
-            self._print_debug = orig_print_debug
 
-    def get_print_debug(self):
-        return self._print_debug
+    def is_debug_enabled(self, debug_override = False):
+        if debug_override:
+            return True
+        if self._rdp_context is None:
+            return False
+        return self._rdp_context.parser_config.is_debug_enabled(self.get_debug_field_path())
 
     def get_compression_enabled(self):
         return self._rdp_context.compression_enabled

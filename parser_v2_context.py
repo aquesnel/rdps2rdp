@@ -174,7 +174,7 @@ class RdpContext(object):
     
     
     @contextlib.contextmanager
-    def set_pdu_source(self, pdu_source):
+    def managed_pdu_source(self, pdu_source):
         if pdu_source not in RdpContext.PduSource:
             raise ValueError('Invalid pdu_source: %s' % str(pdu_source))
         orig_pdu_source = self.pdu_source
@@ -185,7 +185,7 @@ class RdpContext(object):
             self.pdu_source = orig_pdu_source
 
     @contextlib.contextmanager
-    def set_parser_config(self, parser_config):
+    def managed_parser_config(self, parser_config):
         if parser_config is not None and not isinstance(parser_config, ParserConfig):
             raise ValueError('Expected an ParserConfig, but got %s' % (parser_config.__class__.__name__ if parser_config else parser_config))
         if parser_config is None:

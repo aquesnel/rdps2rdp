@@ -546,7 +546,7 @@ def main():
                 if DEBUG: print('printing offset %s because of an error' % (offset,))
                 do_print = True
             if do_print:
-                with rdp_context.set_pdu_source(pdu_source):
+                with rdp_context.managed_pdu_source(pdu_source):
                     try:
                         pdu_inner = pdu
                         if args.path:

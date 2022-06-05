@@ -197,8 +197,8 @@ def parse(pdu_source, data, rdp_context = None, parser_config = None):
         # initialize with raw value so that the error message will be initialized
         pdu = RawDataUnit().with_value(data)
 
-        with rdp_context.set_parser_config(parser_config):
-            with rdp_context.set_pdu_source(pdu_source):
+        with rdp_context.managed_parser_config(parser_config):
+            with rdp_context.managed_pdu_source(pdu_source):
                 
                 pdu_type = _get_pdu_type(data, rdp_context)
                 declared_length = parse_pdu_length(data, rdp_context)

@@ -875,8 +875,8 @@ class CompressedField(BaseField):
         self._field_valid = False
 
         # HACK! this field is just to be able to show the compression headers when printing the field
-        self._cached_wrapper_rdp61_struct = ConditionallyPresentWrapperField(
-            lambda: self._compression_type == compression_constants.CompressionTypes.RDP_61,
+        self._cached_compress_struct = ConditionallyPresentWrapperField(
+            lambda: self._compression_type in {compression_constants.CompressionTypes.RDP_61, compression_constants.CompressionTypes.RDP_80},
             BaseField('__HIDDEN__compression_struct_for_(field=%s)' % field.name))
         self._cached_compressed_bytes_struct = ConditionallyPresentWrapperField(
             lambda: self._compression_type not in {None, compression_constants.CompressionTypes.NO_OP},
@@ -900,7 +900,7 @@ class CompressedField(BaseField):
     
     def get_sub_fields(self):
         # HACK! this is a horrible way to just be able to show the compression headers when printing the field
-        retval = [self._cached_wrapper_rdp61_struct, self._cached_compressed_bytes_struct]
+        retval = [self._cached_compress_struct, self._cached_compressed_bytes_struct]
         retval.extend(self._field.get_sub_fields())
         return retval
 
@@ -931,9 +931,13 @@ class CompressedField(BaseField):
         if self._compression_type == compression_constants.CompressionTypes.RDP_61:
             import data_model_v2_rdp_egdi
             compress_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(self._cached_compressed_value)
-            self._cached_wrapper_rdp61_struct._optional_field = DataUnitField(self._cached_wrapper_rdp61_struct.name, compress_struct)
+            self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
+        elif self._compression_type == compression_constants.CompressionTypes.RDP_80:
+            import data_model_v2_rdp_egfx
+            compress_struct = data_model_v2_rdp_egfx.Rdp_RDP_SEGMENTED_DATA().with_value(self._cached_compressed_value)
+            self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
         elif self._compression_type is None:
-            self._cached_wrapper_rdp61_struct._optional_field = BaseField(self._cached_wrapper_rdp61_struct.name)
+            self._cached_compress_struct._optional_field = BaseField(self._cached_compress_struct.name)
         
     def get_compression_flags(self):
         if self._cached_compressed_value is None:

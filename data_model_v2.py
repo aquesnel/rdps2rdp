@@ -1195,7 +1195,10 @@ class BaseDataUnit(object):
         return self.as_str()
         
     def as_str(self, depth_remaining = None):
-        return pprint.pformat(self._as_dict_for_pprint(depth_remaining = depth_remaining), width=160)
+        # return pprint.pformat(self._as_dict_for_pprint(depth_remaining = depth_remaining), width=160)
+        import yaml
+        yaml.add_multi_representer(object, lambda dumper, data: dumper.represent_scalar(yaml.resolver.BaseResolver.DEFAULT_SCALAR_TAG, u'%s' % (data,)))
+        return yaml.dump(self._as_dict_for_pprint(depth_remaining = depth_remaining), default_flow_style=False, indent=4, width=160)
 
     def get_pdu_name(self, rdp_context):
         types = self.get_pdu_types(rdp_context)
@@ -1242,7 +1245,7 @@ class BaseDataUnit(object):
                 depth_remaining -= 1
         
         result = {}
-        result[ItemKey(-1, '__python_type__')] = self.__class__
+        result[ItemKey(-1, '__python_type__')] = str(self.__class__)
         for field_index, f in enumerate(self._fields):
             if DEBUG: print('getting dict for field: %s' % (f.name,))
             try:
@@ -1258,6 +1261,10 @@ class BaseDataUnit(object):
             for value_index, v in enumerate(v_list):
                 if isinstance(v, BaseDataUnit):
                     v = v._as_dict_for_pprint(depth_remaining = depth_remaining)
+                elif isinstance(v, set):
+                    # for yaml formatting which natively supports sets in an ugly way, convert the set into a list 
+                    # since we don't care about the distinction between a list and a set when printing
+                    v = list(v)
                 elif isinstance(v, (bytes, bytearray, memoryview)):
                     length = len(v)
                     if length < 10:

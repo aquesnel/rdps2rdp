@@ -493,42 +493,67 @@ def main():
         # OUTPUTPCAP = 'output.win10.rail.no-gfx.fail.pcap'; SERVER_PORT = 33994
         
         server_port = args.server_port
-        rdp_context = parser_v2_context.RdpContext()
-        i = 0
-        if args.file_format == 'pcap':
-            file_parser = pcap_utils.parse_packets_as_raw(args.input_file, args.server_port)
-        elif args.file_format == 'snapshot':
-            file_parser = []
-            with open(args.input_file, 'r') as f:
-                for line in f:
-                    snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.loads(line))
-                    file_parser.append(snapshot)
-        else:
-            raise ValueError('Unknown file format: %s' % args.file_format)
-
+        # rdp_context = parser_v2_context.RdpContext()
+        #HACK: make this compression cofig a CLI option
+        # rdp_context.compression_enabled = False
         parser_config = parser_v2_context.ParserConfig(
             strict_parsing = False,
             debug_pdu_paths = [
                 # 'channel.payload',
             ])
 
+        i = 0
+        if args.file_format == 'pcap':
+            file_parser = pcap_utils.parse_packets_as_raw(args.input_file, args.server_port, parser_config = parser_config)
+        elif args.file_format == 'snapshot':
+            # file_parser = []
+            # with open(args.input_file, 'r') as f:
+            #     for line in f:
+            #         snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.loads(line))
+            #         file_parser.append(snapshot)
+            def file_parser_from_snapshot():
+                with open(args.input_file, 'r') as f:
+                    for line in f:
+                        rdp_stream_snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.loads(line))
+
+                        pdu_source = rdp_stream_snapshot.pdu_source
+                        rdp_context = rdp_stream_snapshot.rdp_context.clone()
+                        err = None
+                        try:
+                            # parse and update the rdp_context
+                            pdu = parser_v2.parse(
+                                rdp_stream_snapshot.pdu_source, 
+                                rdp_stream_snapshot.pdu_bytes, 
+                                parser_config = parser_config, 
+                                rdp_context = rdp_context)
+                        except parser_v2.ParserException as e:
+                            err = e.__cause__
+                            pdu = e.pdu
+                        except Exception as e:
+                            err = e
+                            pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
+
+                        yield rdp_stream_snapshot, pdu, err, rdp_context
+
+            file_parser = file_parser_from_snapshot()
+        else:
+            raise ValueError('Unknown file format: %s' % args.file_format)
+
         pdu = None
-        for rdp_stream_snapshot in file_parser:
+        for rdp_stream_snapshot, pdu, err, rdp_context in file_parser:
             pdu_source = rdp_stream_snapshot.pdu_source
-            rdp_context = rdp_stream_snapshot.rdp_context.clone()
-            #HACK: make this compression cofig a CLI option
-            # rdp_context.compression_enabled = False
-            err = None
+            # rdp_context = rdp_stream_snapshot.rdp_context.clone()
+            # err = None
             pre_parsing_rdp_context = rdp_stream_snapshot.rdp_context
-            # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()
-            try:
-                pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, parser_config = parser_config, rdp_context = rdp_context)
-            except parser_v2.ParserException as e:
-                err = e.__cause__
-                pdu = e.pdu
-            except Exception as e:
-                err = e
-                pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
+            # # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()
+            # try:
+            #     pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, parser_config = parser_config, rdp_context = rdp_context)
+            # except parser_v2.ParserException as e:
+            #     err = e.__cause__
+            #     pdu = e.pdu
+            # except Exception as e:
+            #     err = e
+            #     pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
             root_pdu = pdu
 
             # DEBUG = True

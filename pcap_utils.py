@@ -8,8 +8,8 @@ from scapy.all import (
     TCP,
 )
 
-def parse_packets_as_raw(pcap_file, server_port = None):
-    rdp_context = parser_v2_context.RdpContext()
+def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
+    private_rdp_context = parser_v2_context.RdpContext()
     pkt_list = rdpcap(pcap_file)
     i = 0
     for pkt in pkt_list:
@@ -22,22 +22,32 @@ def parse_packets_as_raw(pcap_file, server_port = None):
             else:
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
         
-        raw_pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
-        # yield pdu_source, rdp_context, raw_pdu
-        yield parser_v2_context.RdpStreamSnapshot(
-                    pdu_source, 
-                    pdu_bytes = pkt[Raw].load,
-                    pdu_timestamp = float(pkt.time), 
-                    pdu_sequence_id = i,
-                    rdp_context = rdp_context.clone()
-                )
-        
-        pdu = parser_v2.parse(pdu_source, pkt[Raw].load, rdp_context)
+        pre_parsing_rdp_context = private_rdp_context.clone()
+
+        try:
+            err = None
+            # parse and update the rdp_context
+            pdu = parser_v2.parse(pdu_source, pkt[Raw].load, private_rdp_context, parser_config = parser_config)
+        except parser_v2.ParserException as e:
+            err = e.__cause__
+            pdu = e.pdu
+        except Exception as e:
+            err = e
+            pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
         
         if server_port is None:
             if pdu.has_path('tpkt.x224.type') and pdu.tpkt.x224.type == data_model_v2_x224.X224.TPDU_CONNECTION_REQUEST:
                 server_port = pkt[TCP].dport
             else:
-                raise ValueError('The PDU is not a known PDU type')
+                raise ValueError('The PDU is not a known PDU type') from err
+
+        yield parser_v2_context.RdpStreamSnapshot(
+                    pdu_source, 
+                    pdu_bytes = pkt[Raw].load,
+                    pdu_timestamp = float(pkt.time), 
+                    pdu_sequence_id = i,
+                    rdp_context = pre_parsing_rdp_context
+                ), pdu, err, private_rdp_context.clone()
+        
         i += 1
             

@@ -106,6 +106,7 @@ class Rdp61_L1_CompressionEncodingFacotry(compression_utils.EncodingFactory):
 class Rdp61_CompressionEngine(compression_utils.CompressionEngine):
 
     def __init__(self, l1_compression_engine, l2_compression_engine):
+        super(Rdp61_CompressionEngine, self).__init__(compression_constants.CompressionTypes.RDP_61)
         self._l1_compression_engine = l1_compression_engine
         self._l2_compression_engine = l2_compression_engine
     

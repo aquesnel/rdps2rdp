@@ -1,5 +1,6 @@
 import unittest
 
+import test_utils
 import compression_constants
 import data_model_v2_rdp
 import parser_v2_context
@@ -93,7 +94,10 @@ class TestParsingContext(unittest.TestCase):
             id(cloned_rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_40)._decompression_history_manager), 
             id(rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_40)._decompression_history_manager))
 
-        
+    def test_load_from_snapshot(self):
+        snapshot = test_utils.load_snapshot('output.win10.full.rail.pdu-370.json')
+        # verify no exceptions
+        # TODO verify contents of the snapshot
 
 if __name__ == '__main__':
     unittest.main()

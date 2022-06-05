@@ -250,6 +250,7 @@ class Rdp80_CompressionEncodingFacotry(compression_utils.EncodingFactory):
 class Rdp80_CompressionEngine(compression_utils.CompressionEngine):
 
     def __init__(self, compression_engine):
+        super(Rdp80_CompressionEngine, self).__init__(compression_constants.CompressionTypes.RDP_80)
         self._compression_engine = compression_engine
     
     def compress(self, data):

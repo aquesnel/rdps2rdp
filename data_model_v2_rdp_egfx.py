@@ -94,7 +94,10 @@ class Rdp_RDP_SEGMENTED_DATA(BaseDataUnit):
                 to_human_readable = lookup_name_in(Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_NAMES)),
             ConditionallyPresentField(  
                 lambda: self.descriptor == Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_SINGLE,
-                DataUnitField('bulkData', Rdp_RDP8_BULK_ENCODED_DATA(LengthDependency()))),
+                DataUnitField('bulkData', Rdp_RDP8_BULK_ENCODED_DATA(LengthDependency(lambda x: (
+                                                                len(x)
+                                                                 - self.as_field_objects().descriptor.get_length()
+                                                                ))))),
             ConditionallyPresentField(
                 lambda: self.descriptor == Rdp.GraphicsPipelineExtention.DataPackaging.DEBLOCK_MULTIPART,
                 PrimitiveField('segmentCount', StructEncodedSerializer(UINT_16_LE))),

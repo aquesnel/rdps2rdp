@@ -80,7 +80,41 @@ class TestCompressionRdp80(unittest.TestCase):
 
             # inflated_2 = d.decompress(deflated_2)
             # self.assertEqual(inflated_2, data)
-   
+
+    def test_decompress_single_part_from_gfx_capture_1(self):
+        # data captured from an MSTSC session with a Win10 datacenter RDP 10? server
+        # pdu from server
+        # OUTPUTPCAP = 'output.win10.rail.no-compression.success.pcap' ; SERVER_PORT = 33930
+        # offset = 63
+        compressed_data = test_utils.extract_as_bytes("""
+            # 03 00 00 28 # TPKT(len=40)
+            # 02 f0 80 # X224(len=2, type=data)
+            # 68 00 01 03 f2 f0 1a # Mcs(len=26, type=TPDU_DATA)
+            # 12 00 00 00 03 00 00 00 # CHANNEL_PDU_HEADER(len=18, flags=FIRST|LAST)
+            # 38 07 # DYNVC_DATA_FIRST(type=COMMAND_DATA, channel=7)
+            e0 # RDP_SEGMENTED_DATA(type=SINGLE)
+            24 # RDP8_BULK_ENCODING(flags=COMPRESSED | COMPRESSION_RDP80)
+            09 e3 18 0a 44 8c 70 e9 8d d1 44 63 18 00 # compressed bytes
+            # RDPGFX_CMDID_CAPSCONFIRM
+            # 13 00 00 00 # version
+            # 14 00 00 00 # capsDataLength
+            # 00 06 0a 00 04 00 00 00 00 00 00 00 # capsData
+            """)
+        data = test_utils.extract_as_bytes("""
+            # RDPGFX_CMDID_CAPSCONFIRM
+            13 00 00 00 # version
+            14 00 00 00 # capsDataLength
+            00 06 0a 00 04 00 00 00 00 00 00 00 # capsData
+            """)
+
+        c = compression.CompressionFactory.new_RDP_80()
+        d = compression.CompressionFactory.new_RDP_80()
+        
+        # flags = {compression_constants.CompressionFlags.COMPRESSED}
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = set(), type = compression_constants.CompressionTypes.RDP_80))
+        self.assertEqual(inflated_1.hex(), data.hex())
+        self.assertEqual(inflated_1, data)
+
     def test_decompress_single_part(self):
         # copied from https://github.com/FreeRDP/FreeRDP/blob/master/libfreerdp/codec/test/TestFreeRDPCodecZGfx.c /* Sample from [MS-RDPEGFX] */
         data = b"The quick brown fox jumps over the lazy dog"

@@ -151,41 +151,42 @@ def _get_pdu_type(data, rdp_context):
     else:
         raise ValueError('Unsupported packet type: (len: %d) %s' % (len(data), data[:len(CREDSSP_END_PDU)]))
 
-def parse_pdu_length(data, rdp_context = None):
+def parse_pdu_length(data, rdp_context = None, parser_config = None):
     if rdp_context is None:
         rdp_context = RdpContext()
     pdu_type = _get_pdu_type(data, rdp_context)
     pdu_length = None
     
-    if pdu_type == Rdp.DataUnitTypes.X224:
-        pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
-        pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()), rdp_context)
-        
-        pdu_length = pdu.tpkt.length
-    
-    elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
-        pdu = RawDataUnit().with_value(data)
-        pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
-        pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_length_only()), rdp_context)
-        
-        pdu_length = pdu.rdp_fp.length
-    
-    elif pdu_type == Rdp.DataUnitTypes.CREDSSP:
-        if data == CREDSSP_END_PDU:
-            pdu_length = len(CREDSSP_END_PDU)
-        else:
-            # the pdu.credssp.length field only contains the length of 
-            # the payload and not the header. Taking the length of the DataUnit 
-            # works eventhough we only have the partial pdu because the 
-            # RawLengthField size is taken from the value of the length field.
+    with rdp_context.managed_parser_config(parser_config):
+        if pdu_type == Rdp.DataUnitTypes.X224:
             pdu = RawDataUnit().with_value(data)
-            pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()), rdp_context)
+            pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
+            pdu.reinterpret_field('payload.remaining', DataUnitField('tpkt', TpktDataUnit()), rdp_context)
             
-            pdu_length = pdu.credssp.get_length()
-    
-    else:
-        raise ValueError('Unsupported packet type')
+            pdu_length = pdu.tpkt.length
+        
+        elif pdu_type == Rdp.DataUnitTypes.FAST_PATH:
+            pdu = RawDataUnit().with_value(data)
+            pdu.reinterpret_field('payload', DataUnitField('rdp_fp_header', Rdp_TS_FP_HEADER()), rdp_context)
+            pdu.reinterpret_field('payload.remaining', DataUnitField('rdp_fp', Rdp_TS_FP_length_only()), rdp_context)
+            
+            pdu_length = pdu.rdp_fp.length
+        
+        elif pdu_type == Rdp.DataUnitTypes.CREDSSP:
+            if data == CREDSSP_END_PDU:
+                pdu_length = len(CREDSSP_END_PDU)
+            else:
+                # the pdu.credssp.length field only contains the length of 
+                # the payload and not the header. Taking the length of the DataUnit 
+                # works eventhough we only have the partial pdu because the 
+                # RawLengthField size is taken from the value of the length field.
+                pdu = RawDataUnit().with_value(data)
+                pdu.reinterpret_field('payload', DataUnitField('credssp', BerEncodedDataUnit()), rdp_context)
+                
+                pdu_length = pdu.credssp.get_length()
+        
+        else:
+            raise ValueError('Unsupported packet type')
 
     return pdu_length
 

@@ -7,6 +7,7 @@ from data_model_v2_mcs import Mcs
 from data_model_v2_rdp import Rdp
 
 from parser_v2 import parse, RdpContext
+import parser_v2_context
 
 from test_utils import extract_as_bytes, extract_as_context
 
@@ -208,8 +209,9 @@ class TestParsing(unittest.TestCase):
             7c fd 72 23 c2 6d 4e 48 89 aa 75 88 68 94 1f da # securityCookie (random)
             """)
         rdp_context = extract_as_context({'password': 'P@ssw0rd!', 'encryption_level': 0, 'is_gcc_confrence': True, 'encrypted_client_random': None, 'encryption_method': 0, 'alternate_shell': 'rdpinit.exe', 'pre_capability_exchange': True, 'auto_logon': True, 'rail_enabled': True, 'compression_type': 1536, 'user_name': 'runneradmin', 'domain': '', 'working_dir': ''})
+        parser_config = parser_v2_context.ParserConfig(strict_parsing = False)
 
-        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context, parser_config)
     
     def test_parse_from_server_channel_unknown_1(self):
         # data captured from an MSTSC rail session with a Win10 datacenter RDP 10? server

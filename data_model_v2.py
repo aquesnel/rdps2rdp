@@ -782,8 +782,8 @@ class PeekField(BaseField):
 
 POLYMORPHIC_TYPE_ID = TypeVar('POLYMORPHIC_TYPE_ID')
 class PolymophicField(BaseField):
-    NULL_FIELD = PrimitiveField('null_field', RawLengthSerializer(LengthDependency(lambda x: 0)))
-    NULL_FIELD.deserialize_value(b'', 0, SerializationContext(SerializationContext.Operation.DESERIALIZE))
+    # NULL_FIELD = PrimitiveField('null_field', RawLengthSerializer(LengthDependency(lambda x: 0)))
+    # NULL_FIELD.deserialize_value(b'', 0, SerializationContext(SerializationContext.Operation.DESERIALIZE))
     
     def __init__(self, name,
             type_getter: ValueDependency[POLYMORPHIC_TYPE_ID], 
@@ -1030,7 +1030,7 @@ class CompressedField(BaseField):
                 if serde_context.is_debug_enabled(DEBUG): print('Decompressing complete, deserializing field with path "%s": %s' % (serde_context.get_debug_field_path(), self._field.name, ))
                 inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
                 self._field_valid = True
-                if inner_length_consumed != len(inflated):
+                if serde_context.is_strict_parsing_enabled() and inner_length_consumed != len(inflated):
                     raise ValueError('The field %s with path "%s" was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, serde_context.get_debug_field_path(), len(inflated), inner_length_consumed))
             else:
                 # flags = self._decompression_flags_getter.get_value(None)

@@ -105,6 +105,7 @@ from parser_v2_context import (
     RdpContext,
     ChannelDef,
     DataChunk,
+    ParserConfig,
 )
 
 IS_DECRYPTION_SUPPORTED = False
@@ -193,6 +194,8 @@ def parse_pdu_length(data, rdp_context = None, parser_config = None):
 def parse(pdu_source, data, rdp_context = None, parser_config = None):
     if rdp_context is None:
         rdp_context = RdpContext()
+    if parser_config is None:
+        parser_config = ParserConfig()
 
     try:
         # initialize with raw value so that the error message will be initialized
@@ -203,7 +206,7 @@ def parse(pdu_source, data, rdp_context = None, parser_config = None):
                 
                 pdu_type = _get_pdu_type(data, rdp_context)
                 declared_length = parse_pdu_length(data, rdp_context)
-                if declared_length != len(data):
+                if parser_config.is_strict_parsing_enabled() and declared_length != len(data):
                     raise ValueError('Unexpected data length for pdu type %s: declared_length = %d, acctual_length = %d' % (pdu_type, declared_length, len(data)))
                 
                 # pdu = RawDataUnit().with_value(data)

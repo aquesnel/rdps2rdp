@@ -20,6 +20,8 @@ UINT_32_LE = '<I'
 UINT_64_LE = '<Q'
 PAD = 'x'
 STRING_WITH_LENGTH = '%ds'
+
+DEBUG = False
             
 class LengthDependency(object):
     def __init__(self, length_getter: Callable[[Any], int] = len):
@@ -143,7 +145,8 @@ class SerializationContext(object):
 
     def is_strict_parsing_enabled(self):
         if self._rdp_context is None:
-            return False
+            return True
+            # raise NotImplementedError('strict parsing reqires an rdp context')
         return self._rdp_context.is_strict_parsing_enabled()
 
 class BaseSerializer(Generic[FIELD_VALUE_TYPE]):
@@ -625,8 +628,10 @@ class RawLengthSerializer(BaseSerializer[bytes]):
         return self._length_dependency.get_length(value)
 
     def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[bytes, int]:
+        # DEBUG = True
         max_length = self.get_serialized_length(raw_data)
         value = raw_data[offset : offset + max_length]
+        if serde_context.is_debug_enabled(DEBUG): print('RawLengthSerializer unpacking value with expected length %d from bytes with length %d and offset %d' % (max_length, len(raw_data), offset))
         if serde_context.is_strict_parsing_enabled():
             # utils.assertEqual(length, self.get_serialized_length(value))
             if self._length_dependency is None:

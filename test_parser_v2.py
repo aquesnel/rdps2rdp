@@ -7,6 +7,7 @@ from data_model_v2_rdp import Rdp
 
 from parser_v2 import parse, parse_pdu_length
 from parser_v2_context import RdpContext
+import parser_v2_context
 
 def extract_as_bytes(data):
     result = ''
@@ -784,9 +785,10 @@ class TestParsing(unittest.TestCase):
         rdp_context.encryption_method = Rdp.Security.ENCRYPTION_METHOD_128BIT
         rdp_context.encrypted_client_random = b'1234'
         rdp_context.pre_capability_exchange = False
-        self.assertEqual(parse_pdu_length(data, rdp_context), 519)
+        parser_config = parser_v2_context.ParserConfig(strict_parsing = False)
+        self.assertEqual(parse_pdu_length(data, rdp_context, parser_config), 519)
         
-        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context)
+        pdu = parse(RdpContext.PduSource.SERVER, data, rdp_context, parser_config)
         self.assertEqual(pdu.rdp_fp_header.action, Rdp.FastPath.FASTPATH_ACTION_X224)
         self.assertEqual(pdu.tpkt.length, 519)
         

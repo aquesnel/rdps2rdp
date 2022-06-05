@@ -37,7 +37,7 @@ class TestParsing(unittest.TestCase):
         # self.assertEqual(length, len(data))
         
     # @unittest.skip("skip after changing rdp80 cmpression input struct")
-    # @unittest.skip("skip for debugging")
+    @unittest.skip("skip for debugging")
     def test_parse_from_snapshot_1(self):
         # A PDU from a real connection
         # copied from the output of:
@@ -61,6 +61,12 @@ class TestParsing(unittest.TestCase):
         # except parser_v2.ParserException as e:
         #     err = e.__cause__
         #     pdu = e.pdu
+        pdu = parser_v2.parse(snapshot.pdu_source, snapshot.pdu_bytes, snapshot.rdp_context)
+
+        
+    @unittest.skip("skip for debugging")
+    def test_parse_from_snapshot_2(self):
+        snapshot = test_utils.load_snapshot('output.win10.full.rail.pdu-370.json')
         pdu = parser_v2.parse(snapshot.pdu_source, snapshot.pdu_bytes, snapshot.rdp_context)
 
 if __name__ == '__main__':

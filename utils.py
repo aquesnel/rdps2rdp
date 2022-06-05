@@ -107,6 +107,7 @@ def to_json_dict(d):
     return d
 
 def from_json_value(value_cls, d, default = None):
+    if DEBUG: print('from_json_value(%s): d = %s' % (value_cls, d))
     if d is None and default is not None:
         d = default
     elif isinstance(d, value_cls):
@@ -114,19 +115,18 @@ def from_json_value(value_cls, d, default = None):
     elif isinstance(d, collections.abc.Mapping):
         d = value_cls.from_json(d)
     elif isinstance(d, str):
-        if DEBUG: print('from_json_dict: d = %s' % d)
         if issubclass(value_cls, enum.Enum):
             if d in (None, 'None'):
                 d = None
             else:
                 d = value_cls[d]
-
     return d
     
 def from_json_list(value_cls, d):
     return from_json_dict(None, value_cls, d)
 
 def from_json_dict(key_cls, value_cls, d):
+    if DEBUG: print('from_json_dict: d = %s' % d)
     if isinstance(d, collections.abc.Mapping):
         temp = {}
         for k,v in d.items():
@@ -142,7 +142,6 @@ def from_json_dict(key_cls, value_cls, d):
             temp[k] = v
         d = temp
     elif isinstance(d, str):
-        if DEBUG: print('from_json_dict: d = %s' % d)
         if issubclass(value_cls, enum.Enum):
             if d in (None, 'None'):
                 d = None
@@ -165,6 +164,7 @@ def to_json(self):
 
 @classmethod
 def get_field_from_json_dict(cls, field_name, json_dict, default = None, factory = None):
+    if DEBUG: print('get_field_from_json_dict(%s): field_name = %s' % (cls, field_name, ))
     if factory is None:
         factory = cls
     
@@ -217,6 +217,7 @@ def from_json_cls(cls, json_str, factory = None):
             d[name[len(mangle_prefix):]] = d[name]
             del d[name]
     
+    if DEBUG: print('from_json_cls(%s): kwargs = %s' % (cls, d))
     return factory(**d)
 
 def repr_from_dict(self, field_filter = lambda x: True):

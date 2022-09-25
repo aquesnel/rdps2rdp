@@ -12,6 +12,7 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
     private_rdp_context = parser_v2_context.RdpContext()
     pkt_list = rdpcap(pcap_file)
     i = 0
+    pdu_bytes = bytes()
     for pkt in pkt_list:
         if server_port is None:
             # assume that the first packet is the client connection request PDU
@@ -23,17 +24,20 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
         
         pre_parsing_rdp_context = private_rdp_context.clone()
-
+        pdu_bytes += pkt[Raw].load
+        
         try:
             err = None
             # parse and update the rdp_context
-            pdu = parser_v2.parse(pdu_source, pkt[Raw].load, private_rdp_context, parser_config = parser_config)
+            pdu = parser_v2.parse(pdu_source, pdu_bytes, private_rdp_context, parser_config = parser_config)
+        except parser_v2.NotEnoughBytesException as e:
+            continue
         except parser_v2.ParserException as e:
             err = e.__cause__
             pdu = e.pdu
         except Exception as e:
             err = e
-            pdu = data_model_v2.RawDataUnit().with_value(pkt[Raw].load)
+            pdu = data_model_v2.RawDataUnit().with_value(pdu_bytes)
         
         if server_port is None:
             if pdu.has_path('tpkt.x224.type') and pdu.tpkt.x224.type == data_model_v2_x224.X224.TPDU_CONNECTION_REQUEST:
@@ -43,11 +47,12 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
 
         yield parser_v2_context.RdpStreamSnapshot(
                     pdu_source, 
-                    pdu_bytes = pkt[Raw].load,
+                    pdu_bytes = pdu_bytes,
                     pdu_timestamp = float(pkt.time), 
                     pdu_sequence_id = i,
                     rdp_context = pre_parsing_rdp_context
                 ), pdu, err, private_rdp_context.clone()
         
+        pdu_bytes = bytes()
         i += 1
             

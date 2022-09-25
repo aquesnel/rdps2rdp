@@ -117,6 +117,10 @@ class ParserException(Exception):
     def __init__(self, pdu):
         self.pdu = pdu
 
+class NotEnoughBytesException(ParserException):
+    def __init__(self, pdu):
+        self.pdu = pdu
+
 def _get_pdu_type(data, rdp_context):
     
     # the first byte value of the payload for each type is:
@@ -155,6 +159,8 @@ def _get_pdu_type(data, rdp_context):
 def parse_pdu_length(data, rdp_context = None, parser_config = None):
     if rdp_context is None:
         rdp_context = RdpContext()
+    if parser_config is None:
+        parser_config = ParserConfig(strict_parsing = False)
     pdu_type = _get_pdu_type(data, rdp_context)
     pdu_length = None
     
@@ -206,7 +212,9 @@ def parse(pdu_source, data, rdp_context = None, parser_config = None):
                 
                 pdu_type = _get_pdu_type(data, rdp_context)
                 declared_length = parse_pdu_length(data, rdp_context)
-                if parser_config.is_strict_parsing_enabled() and declared_length != len(data):
+                if len(data) < declared_length:
+                    raise NotEnoughBytesException(pdu)
+                elif parser_config.is_strict_parsing_enabled() and declared_length != len(data):
                     raise ValueError('Unexpected data length for pdu type %s: declared_length = %d, acctual_length = %d' % (pdu_type, declared_length, len(data)))
                 
                 # pdu = RawDataUnit().with_value(data)
@@ -550,6 +558,8 @@ def parse(pdu_source, data, rdp_context = None, parser_config = None):
                 #         and tpkt.x224.mcs.rdp 
                 #         and tpkt.x224.mcs.rdp.is_license_success()):
                 #     rdp_context.pre_capability_exchange = False
+    except NotEnoughBytesException as e:
+        raise e
     except Exception as e:
         raise ParserException(pdu) from e
     return pdu

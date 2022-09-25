@@ -28,7 +28,12 @@ class LengthDependency(object):
         self._length_getter = length_getter
         
     def get_length(self, value: Any) -> int:
-        return self._length_getter(value)
+        try:
+            return self._length_getter(value)
+        except TypeError:
+            if value is None:
+                return 0
+            raise
 
 class ValueDependency(Generic[VALUE_RESULT_TYPE]):
     def __init__(self, value_getter: Callable[[Any], VALUE_RESULT_TYPE]):
@@ -624,7 +629,10 @@ class RawLengthSerializer(BaseSerializer[bytes]):
         
     def get_serialized_length(self, value: bytes) -> int:
         if self._length_dependency is None:
-            return len(value)
+            if value is None:
+                return 0
+            else:
+                return len(value)
         return self._length_dependency.get_length(value)
 
     def unpack_from(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> Tuple[bytes, int]:

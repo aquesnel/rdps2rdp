@@ -793,8 +793,6 @@ class PolymophicField(BaseField):
         self._type_getter = type_getter
         self._fields_by_type = fields_by_type
         
-        if length_dependency is None:
-            length_dependency=LengthDependency()
         self._length_dependency = length_dependency
         self._unknown_type_field = PrimitiveField('polymophic_raw_field', RawLengthSerializer(self._length_dependency))
 
@@ -807,6 +805,11 @@ class PolymophicField(BaseField):
             return self._fields_by_type.get(self._type_getter.get_value(None), self._unknown_type_field)
         else:
             return self._fields_by_type[self._type_getter.get_value(None)]
+
+    def _get_length_dependency(self):
+        if self._length_dependency is None:
+            return LengthDependency()
+        return self._length_dependency
         
     def get_human_readable_value(self):
         return self._get_field(allow_unknown = True).get_human_readable_value()
@@ -842,7 +845,7 @@ class PolymophicField(BaseField):
         #     serde_debug = True
 
         raw_data_end_view = memoryview(raw_data)[offset:]
-        max_length = self._length_dependency.get_length(raw_data_end_view)
+        max_length = self._get_length_dependency().get_length(raw_data_end_view)
         try:
             inner_length = self._get_field().deserialize_value(raw_data, offset, serde_context)
             if inner_length > max_length:

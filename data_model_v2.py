@@ -883,7 +883,10 @@ class CompressedField(BaseField):
             BaseField('__HIDDEN__compression_struct_for_(field=%s)' % field.name))
         self._cached_compressed_bytes_struct = ConditionallyPresentWrapperField(
             lambda: self._compression_type not in {None, compression_constants.CompressionTypes.NO_OP},
-            PrimitiveField('__HIDDEN__compression_bytes_for_(field=%s)' % field.name, RawLengthSerializer()))
+            PrimitiveField('__HIDDEN__compressed_bytes_for_(field=%s)' % field.name, RawLengthSerializer()))
+        self._cached_decompressed_bytes_struct = ConditionallyPresentWrapperField(
+            lambda: self._compression_type not in {None, compression_constants.CompressionTypes.NO_OP},
+            PrimitiveField('__HIDDEN__decompressed_bytes_for_(field=%s)' % field.name, RawLengthSerializer()))
 
     @property
     def name(self):
@@ -903,12 +906,12 @@ class CompressedField(BaseField):
     
     def get_sub_fields(self):
         # HACK! this is a horrible way to just be able to show the compression headers when printing the field
-        retval = [self._cached_compress_struct, self._cached_compressed_bytes_struct]
+        retval = [self._cached_compress_struct, self._cached_compressed_bytes_struct, self._cached_decompressed_bytes_struct]
         retval.extend(self._field.get_sub_fields())
         return retval
 
     def get_length(self):
-        if self._cached_compressed_value is None:
+        if not self._is_cached_values_valid():
             raise AssertionError("compress_field must be called before get_length")
         return len(self._cached_compressed_value)
 
@@ -916,21 +919,30 @@ class CompressedField(BaseField):
         if self._field_valid:
             return self._field.get_value()
         return self._cached_compressed_value
-    
+
     def get_decompressed_field(self) -> BaseField:
         return self._field
 
-    def get_decompressed_length(self) -> BaseField:
-        if self._cached_decompressed_value is None:
-            raise AssertionError("decompress_field must be called before get_decompressed_length")
-        return len(self._cached_decompressed_value)
+    def get_decompressed_bytes(self):
+        if not self._is_cached_values_valid():
+            raise AssertionError("decompress_field must be called before get_decompressed_bytes")
+        return self._cached_decompressed_value
+
+    def get_decompressed_length(self):
+        return len(self.get_decompressed_bytes())
     
+    def get_compressed_bytes(self):
+        if not self._is_cached_values_valid():
+            raise AssertionError("compress_field must be called before get_compressed_bytes")
+        return self._cached_compressed_value
+        
     def _update_cached_value(self, decompressed_data, compressed_data, flags, compression_type):
         self._cached_compressed_value = compressed_data
         self._cached_decompressed_value = decompressed_data
         self._compression_flags = flags
         self._compression_type = compression_type
         self._cached_compressed_bytes_struct.set_value(self._cached_compressed_value)
+        self._cached_decompressed_bytes_struct.set_value(self._cached_decompressed_value)
         if self._compression_type == compression_constants.CompressionTypes.RDP_61:
             import data_model_v2_rdp_egdi
             compress_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(self._cached_compressed_value)
@@ -941,14 +953,15 @@ class CompressedField(BaseField):
             self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
         elif self._compression_type is None:
             self._cached_compress_struct._optional_field = BaseField(self._cached_compress_struct.name)
-        
+    
+    def _is_cached_values_valid(self):
+        return self._cached_compressed_value is not None
+
     def get_compression_flags(self):
-        if self._cached_compressed_value is None:
-            raise AssertionError("compress_field must be called before get_compression_flags")
         return self._compression_flags
         
     def get_compression_type(self):
-        if self._cached_compressed_value is None:
+        if not self._is_cached_values_valid():
             raise AssertionError("compress_field must be called before get_compression_type")
         return self._compression_type
     
@@ -1000,7 +1013,7 @@ class CompressedField(BaseField):
             
             return result
         except Exception as e:
-            self._update_cached_value('<decompression error>', data, flags, compression_type)
+            self._update_cached_value(b'<decompression error>', data, flags, compression_type)
             raise SerializationException(
                 'Error decompressing with type: %s, flags: %s' % (compression_type, flags)
                 ) from e
@@ -1052,7 +1065,7 @@ class CompressedField(BaseField):
 
     
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
-        if self._cached_compressed_value is None:
+        if not self._is_cached_values_valid():
             raise AssertionError("compress_field must be called before serialize_value")
         deflated_length = len(self._cached_compressed_value)
         buffer[offset : offset + deflated_length] = self._cached_compressed_value

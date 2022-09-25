@@ -27,7 +27,7 @@ EncodingConfig = collections.namedtuple('CompressionConfig', ['compression_type'
 EncodingRange = collections.namedtuple('EncodingRange', ['min_value', 'value_bit_length', 'prefix', 'prefix_length'])
 
 
-class MccpCompressionConfig(object):
+class MppcCompressionConfig(object):
     
     RDP_40 = EncodingConfig(
             compression_type = compression_constants.CompressionTypes.RDP_40,
@@ -84,7 +84,7 @@ class MccpCompressionConfig(object):
                 ], key = lambda x: x.min_value),
         )
 
-class MccpCompressionEncoder(compression_utils.Encoder):
+class MppcCompressionEncoder(compression_utils.Encoder):
 
     def __init__(self, encoding_config):
         self.encoding_config = encoding_config
@@ -141,7 +141,7 @@ class MccpCompressionEncoder(compression_utils.Encoder):
         return self.encode_range_value(encoding_range, LengthOfMatch)
 
 
-class MccpCompressionDecoder(compression_utils.Decoder):
+class MppcCompressionDecoder(compression_utils.Decoder):
     
     def __init__(self, encoding_config, data):
         self.encoding_config = encoding_config
@@ -195,19 +195,16 @@ class MppcEncodingFacotry(compression_utils.EncodingFactory):
         return self._config.compression_type
         
     def make_encoder(self):
-        return MccpCompressionEncoder(self._config)
+        return MppcCompressionEncoder(self._config)
     
     def make_decoder(self, compression_args):
-        if compression_constants.CompressionFlags.COMPRESSED in compression_args.flags:
-            return MccpCompressionDecoder(self._config, compression_args.data)
-        else:
-            return compression_utils.NoOpDecoder(compression_args.data)
+        return MppcCompressionDecoder(self._config, compression_args.data)
 
-def MPCC_field_filter(path):
-    if DEBUG: print('MPCC_field_filter: split path = %s' % (path.split('.'),))
+def MPPC_field_filter(path):
+    if DEBUG: print('MPPC_field_filter: split path = %s' % (path.split('.'),))
     return path.split('.')[-1] not in {'_encoder_factory'}
 
-@utils.json_serializable(field_filter = MPCC_field_filter)
+@utils.json_serializable(field_filter = MPPC_field_filter)
 class MPPC(compression_utils.CompressionEngine):
     def __init__(self, compression_type, compression_history_manager, decompression_history_manager, encoder_factory, add_non_compressed_data_to_history, **kwargs):
         super(MPPC, self).__init__(compression_type)

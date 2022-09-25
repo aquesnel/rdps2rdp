@@ -44,7 +44,7 @@ class CompressionFactory(object):
     
     @classmethod
     def new_RDP_40(cls, **kwargs):
-        compression_config = compression_mppc.MccpCompressionConfig.RDP_40
+        compression_config = compression_mppc.MppcCompressionConfig.RDP_40
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_40,
                                     compression_history_manager = 
@@ -76,7 +76,7 @@ class CompressionFactory(object):
     
     @classmethod
     def new_RDP_50(cls, **kwargs):
-        compression_config = compression_mppc.MccpCompressionConfig.RDP_50
+        compression_config = compression_mppc.MppcCompressionConfig.RDP_50
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_50,
                                     compression_history_manager = 

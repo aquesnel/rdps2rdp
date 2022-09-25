@@ -250,6 +250,8 @@ class Rdp_TS_FP_UPDATE(BaseDataUnit):
         
     def get_pdu_types(self, rdp_context):
         retval = []
+        if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in self.compressionArgs:
+            retval.append('(compressed %s)' % (Rdp.ShareDataHeader.to_compression_type(self.compressionType).name,))
         retval.append(str(self._fields_by_name['updateCode'].get_human_readable_value()))
         retval.extend(super(Rdp_TS_FP_UPDATE, self).get_pdu_types(rdp_context))
         return retval

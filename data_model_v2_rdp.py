@@ -1444,7 +1444,7 @@ class Rdp_TS_SHAREDATAHEADER(BaseDataUnit):
     def get_pdu_types(self, rdp_context):
         retval = []
         if Rdp.ShareDataHeader.PACKET_ARG_COMPRESSED in self.compressionArgs:
-            retval.append('(compressed)')
+            retval.append('(compressed %s)' % (Rdp.ShareDataHeader.to_compression_type(self.compressionType).name,))
         retval.append(str(self._fields_by_name['pduType2'].get_human_readable_value()))
         retval.extend(super(Rdp_TS_SHAREDATAHEADER, self).get_pdu_types(rdp_context))
         return retval
@@ -1574,7 +1574,7 @@ class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
                 DependentValueSerializer(
                     StructEncodedSerializer(UINT_32_LE), 
                     payload_length)),
-            PrimitiveField('flags', 
+            PrimitiveField('flags', # TODO add a union here for the compression type so that the RDP40 compression (which is type 0) is explicitly stated and exposed in the struct
                 DependentValueSerializer(
                     BitFieldEncodedSerializer(UINT_32_LE, Rdp.Channel.CHANNEL_FLAG_NAMES.keys()),
                     ValueDependencyWithContext(lambda x, serde_context: self._get_flags(x, serde_context, do_compression))),
@@ -1592,7 +1592,7 @@ class Rdp_CHANNEL_PDU_HEADER(BaseDataUnit):
     def get_pdu_types(self, rdp_context):
         retval = []
         if Rdp.Channel.CHANNEL_FLAG_PACKET_COMPRESSED in self.flags:
-            retval.append('(compressed %s)' % lookup_name_in(Rdp.Channel.CHANNEL_FLAG_NAMES)(Rdp.Channel.to_compression_type(self.flags)))
+            retval.append('(compressed %s)' % (Rdp.Channel.to_compression_type(self.flags).name,))
         retval.extend(super(Rdp_CHANNEL_PDU_HEADER, self).get_pdu_types(rdp_context))
         return retval
 

@@ -410,8 +410,10 @@ class BufferOnlyHistoryManager(HistoryManager):
         else:
             offset = offset_from_end
         if DEBUG: print("history size = %d, offset_from_end = %d, length = %d, relative = %s, get bytes = [%d-%d], history = %s" % (self._historyOffset, offset_from_end, length, relative, offset, offset + length, binascii.hexlify(self._history[:self._historyOffset])))
-        if offset < 0 or self._historyOffset < offset + length:
-            raise ValueError("Getting bytes that are outside the history's range of bytes. Actual range: 0-%d, Requested range: %d-%d" % (self._historyOffset, offset, offset + length))
+        # Note: when the offset is negative then read bytes from the end of the buffer
+        #       This is to match the FreeRDP behaviour: https://github.com/FreeRDP/FreeRDP/blob/ccffa8dfa23c0854b88597c725e9989b3385f540/libfreerdp/codec/mppc.c#L420
+        # if offset < 0 or self._historyOffset < offset + length:
+        #     raise ValueError("Getting bytes that are outside the history's range of bytes. Actual range: 0-%d, Requested range: %d-%d" % (self._historyOffset, offset, offset + length))
         return memoryview(self._history)[offset : offset + length]
     
     def append_and_find_matches(self, data):

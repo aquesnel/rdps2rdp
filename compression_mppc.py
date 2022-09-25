@@ -175,15 +175,17 @@ class MppcCompressionDecoder(compression_utils.Decoder):
         for encoding_range in encoding_ranges_iter:
             if prefix_length > encoding_range.prefix_length:
                 raise ValueError('Expected the prefix length to be monotonically increasing')
-            if DEBUG: print('decode_range_value candidate: prefix_length = %s, prefix = %s, encoding_range = %s' % (prefix, prefix_length, encoding_range))
             while prefix_length < encoding_range.prefix_length:
                 bit = bits_iter.next()
                 prefix <<= 1
                 prefix += bit
                 prefix_length += 1
+            if DEBUG: print('decode_range_value candidate: prefix_length = %s, prefix = %s, encoding_range = %s' % (prefix_length, hex(prefix), encoding_range))
             if prefix == encoding_range.prefix:
-                if DEBUG: print('decode_range_value found match: prefix_length = %s, prefix = %s, encoding_range = %s' % (prefix, prefix_length, encoding_range))
-                return bits_iter.next_int(encoding_range.value_bit_length) + encoding_range.min_value
+                value_offset = bits_iter.next_int(encoding_range.value_bit_length)
+                result = value_offset + encoding_range.min_value
+                if DEBUG: print('decode_range_value found match: result = %d, value_offset = %d, prefix_length = %s, prefix = %s, encoding_range = %s' % (result, value_offset, prefix_length, hex(prefix), encoding_range))
+                return result
 
         raise ValueError('No matching prefix in config. Prefix: %s' % (prefix))
 
@@ -212,10 +214,6 @@ class MPPC(compression_utils.CompressionEngine):
         self._decompression_history_manager = decompression_history_manager
         self._compression_history_manager = compression_history_manager
         self._add_non_compressed_data_to_history = add_non_compressed_data_to_history
-
-    # def resetHistory(self):
-    #     self._decompression_history_manager.resetHistory()
-    #     self._compression_history_manager.resetHistory()
 
     def compress(self, data):
         encoder = self._encoder_factory.make_encoder()

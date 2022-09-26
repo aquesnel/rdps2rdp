@@ -1147,8 +1147,8 @@ class FieldAccessor(object):
         if name in self._data_unit._fields_by_name:
             return self._data_unit._fields_by_name[name]
         else:
-            raise AttributeError('Class <%s> does not have a field named: %s' % (self.__class__.__name__, name))
-        
+            raise AttributeError('Class <%s> does not have a field named: %s' % (self._data_unit.__class__.__name__, name))
+
 class BaseDataUnit(object):
     def __init__(self, fields, auto_reinterpret_configs = None, use_class_as_pdu_name = False):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})

@@ -68,9 +68,16 @@ def is_int(s):
     except ValueError:
         return False
         
+def split_object_traversal_path(path):
+    return path.split(".")
+
 def traverse_object_graph(value, path):
     # try:
-        for field_name in path.split("."):
+        if isinstance(path, str):
+            path_split = split_object_traversal_path(path)
+        else:
+            path_split = path
+        for field_name in path_split:
             # if is_int(field_name):
             #     try:
             #         # print('getting field name with numerical value %s' % field_name)
@@ -1149,6 +1156,11 @@ class FieldAccessor(object):
         else:
             raise AttributeError('Class <%s> does not have a field named: %s' % (self._data_unit.__class__.__name__, name))
 
+    def get_path(self, path):
+        path_split = split_object_traversal_path(path)
+        value = self._data_unit.get_path(path_split[:-1])
+        return getattr(value.as_field_objects(), path_split[-1])
+
 class BaseDataUnit(object):
     def __init__(self, fields, auto_reinterpret_configs = None, use_class_as_pdu_name = False):
         super(BaseDataUnit, self).__setattr__('_fields_by_name', {})
@@ -1195,7 +1207,21 @@ class BaseDataUnit(object):
     
     def get_path(self, path):
         return traverse_object_graph(self, path)
-        
+
+    def walk_fields(self, path_prefix = None):
+        if path_prefix is None:
+            path_prefix = ''
+        else:
+            path_prefix += "."
+        path_current = path_prefix
+        for field in self._fields:
+            path_current = path_prefix + field.name
+            if isinstance(field, DataUnitField):
+                for path_inner, field_inner in field.data_unit.walk_fields(path_current):
+                    yield path_inner, field_inner
+            else:
+                yield path_current, field
+
     def get_length(self):
         total_length = 0
         for f in self._fields:

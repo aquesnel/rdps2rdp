@@ -212,6 +212,8 @@ def main():
                         help='Print only limit number of packets from the packet capture.')
     parser_print.add_argument('-p', '--partial-parsing', dest='partial_parsing', action='store_true',
                         help='allow partial parsing of packets by ignoring errors')
+    parser_print.add_argument('-spe', '--supress-parsing-errors', dest='supress_parsing_errors', action='store_true',
+                        help='allow partial parsing of packets by ignoring errors')
     parser_print.add_argument('--path', dest='path', type=str, action='store',
                         help='print only the pdu path elements of the pdu')
     parser_print.add_argument('--depth', dest='depth', type=int, action='store', default=None,
@@ -496,11 +498,10 @@ def main():
         # OUTPUTPCAP = 'output.win10.rail.no-gfx.fail.pcap'; SERVER_PORT = 33994
         
         server_port = args.server_port
-        # rdp_context = parser_v2_context.RdpContext()
-        #HACK: make this compression cofig a CLI option
-        # rdp_context.compression_enabled = False
         parser_config = parser_v2_context.ParserConfig(
-            strict_parsing = False,
+            # strict_parsing = False,
+            #HACK: make this compression cofig a CLI option
+            # compression_enabled = False,
             debug_pdu_paths = [
                 # 'channel.payload',
             ])
@@ -629,7 +630,9 @@ def main():
                 e = err
                 err = RuntimeError('Error while parsing pdu %d' % i)
                 err.__cause__ = e
-                if args.partial_parsing:
+                if args.supress_parsing_errors:
+                    print('[WARNING] Ignoring exception receiving during parsing: %s' % (err,), file=sys.stderr)
+                elif args.partial_parsing:
                     err = traceback.TracebackException.from_exception(err)
                     print("".join(err.format()), file=sys.stderr)
                 else:

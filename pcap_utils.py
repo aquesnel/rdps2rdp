@@ -12,7 +12,10 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
     private_rdp_context = parser_v2_context.RdpContext()
     pkt_list = rdpcap(pcap_file)
     i = 0
-    pdu_bytes = bytes()
+    partial_pdu_history = {
+        parser_v2_context.RdpContext.PduSource.CLIENT: bytes(),
+        parser_v2_context.RdpContext.PduSource.SERVER: bytes(),
+    }
     for pkt in pkt_list:
         if server_port is None:
             # assume that the first packet is the client connection request PDU
@@ -24,6 +27,7 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
                 pdu_source = parser_v2_context.RdpContext.PduSource.CLIENT
         
         pre_parsing_rdp_context = private_rdp_context.clone()
+        pdu_bytes = partial_pdu_history[pdu_source]
         pdu_bytes += pkt[Raw].load
         
         try:
@@ -31,6 +35,7 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
             # parse and update the rdp_context
             pdu = parser_v2.parse(pdu_source, pdu_bytes, private_rdp_context, parser_config = parser_config)
         except parser_v2.NotEnoughBytesException as e:
+            partial_pdu_history[pdu_source] = pdu_bytes
             continue
         except parser_v2.ParserException as e:
             err = e.__cause__
@@ -53,6 +58,6 @@ def parse_packets_as_raw(pcap_file, server_port = None, parser_config = None):
                     rdp_context = pre_parsing_rdp_context
                 ), pdu, err, private_rdp_context.clone()
         
-        pdu_bytes = bytes()
+        partial_pdu_history[pdu_source] = bytes()
         i += 1
             

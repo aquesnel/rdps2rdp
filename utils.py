@@ -11,10 +11,10 @@ DEBUG = False
 def as_hex_str(b):
     if isinstance(b, int):
         return hex(b)
-    return " ".join("{:02x}".format(x) for x in b)
+    return " ".join("{:02x}".format(i) for i in b)
 
 def as_hex_cstr(b):
-    return '"' + ''.join("\\x{:02x}".format(x) for x in b) + '"' 
+    return '"' + ''.join("\\x{:02x}".format(i) for i in b) + '"' 
 
 if True:
     test_case = unittest.TestCase()
@@ -59,6 +59,13 @@ class DebugPredicate(object):
         return self._predicate(debug_override, runtime_context)
 
 def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True):
+    # if is_recursive is None:
+    #     is_recursive = True
+    # if path is None:
+    #     path = '$'
+    # if field_filter is None:
+    #     field_filter = lambda x: True
+
     d = {}
     for k,v in self.__dict__.items():
         path_k = '%s.%s' % (path, k)
@@ -74,12 +81,24 @@ def to_dict(self, is_recursive = True, path = '$', field_filter = lambda x: True
             elif isinstance(v, collections.abc.Mapping):
                 temp = {}
                 for k1, v1 in v.items():
+                    path_k1 = '%s.%s' % (path_k, k1)
+                    if not field_filter(path_k1):
+                        continue
                     if hasattr(v1, 'to_dict'):
-                        v1 = v1.to_dict(path = '%s.%s' % (path_k, k1))
+                        v1 = v1.to_dict(path = path_k1)
                     temp[k1] = v1
                 v = temp
             elif isinstance(v, collections.abc.Iterable):
-                v = [(e.to_dict(path = '%s.%s' % (path_k, i)) if hasattr(e, 'to_dict') else e) for i, e in enumerate(v)]
+                # v = [(e.to_dict(path = '%s.%s' % (path_k, i)) if hasattr(e, 'to_dict') else e) for i, e in enumerate(v)]
+                temp = []
+                for i, e in enumerate(v):
+                    path_i = '%s.%s' % (path_k, i)
+                    if not field_filter(path_i):
+                        continue
+                    if hasattr(e, 'to_dict'):
+                        e = e.to_dict(path = path_i)
+                    temp.append(e)
+                v = temp
             elif hasattr(v, 'to_dict'):
                 v = v.to_dict(path = path_k)
         d[k] = v

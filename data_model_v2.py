@@ -1040,14 +1040,13 @@ class CompressedField(BaseField):
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
         try:
             length = self._compressed_length.get_length(raw_data)
-            # if True:
-            if serde_context.get_compression_enabled():
+            if serde_context.is_compression_enabled():
                 inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
                 if serde_context.is_debug_enabled(DEBUG): print('Decompressing complete, deserializing field with path "%s": %s' % (serde_context.get_debug_field_path(), self._field.name, ))
                 inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
                 self._field_valid = True
-                if serde_context.is_strict_parsing_enabled() and inner_length_consumed != len(inflated):
-                    raise ValueError('The field %s with path "%s" was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, serde_context.get_debug_field_path(), len(inflated), inner_length_consumed))
+                # if serde_context.is_strict_parsing_enabled() and inner_length_consumed != len(inflated):
+                #     raise ValueError('The field %s with path "%s" was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, serde_context.get_debug_field_path(), len(inflated), inner_length_consumed))
             else:
                 # flags = self._decompression_flags_getter.get_value(None)
                 # compression_type = self._decompression_type_getter.get_value(None)

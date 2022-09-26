@@ -99,9 +99,6 @@ class RdpContext(object):
             parser_config = ParserConfig()
         self.parser_config = parser_config
 
-        # HACK: this is a parsing setting not a rdp context value, but I don't have another place to put it at the moment
-        self.compression_enabled = kwargs.get('compression_enabled', True)
-
         self._compression_engines = utils.from_json_dict(compression_constants.CompressionTypes, compression_utils.CompressionEngine, kwargs.get('_compression_engines', {}))
         self.previous_primary_drawing_orders = kwargs.get('previous_primary_drawing_orders', {})
         self._channel_defs = utils.from_json_list(ChannelDef, kwargs.get('_channel_defs', []))
@@ -207,6 +204,9 @@ class RdpContext(object):
     def is_strict_parsing_enabled(self): # Boolean
         return self.parser_config.is_strict_parsing_enabled()
 
+    def is_compression_enabled(self): # Boolean
+        return self.parser_config.is_compression_enabled()
+
 @utils.json_serializable(field_filter = lambda path: path.split('.')[-1] not in {'pdu_bytes'})
 class RdpStreamSnapshot(object):
     def __init__(self, pdu_source: PduSource, pdu_bytes: bytes = None, pdu_timestamp = None, pdu_sequence_id = None, rdp_context: RdpContext = None, pdu_bytes_hex: str = None):
@@ -230,7 +230,7 @@ class RdpStreamSnapshot(object):
 
 class ParserConfig(object):
     def __init__(self, compression_enabled = True, debug_pdu_paths = None, strict_parsing = True):
-        self.compression_enabled = compression_enabled
+        self._compression_enabled = compression_enabled
         self._strict_parsing = strict_parsing
 
         if debug_pdu_paths is None:
@@ -242,3 +242,6 @@ class ParserConfig(object):
 
     def is_strict_parsing_enabled(self): # Boolean
         return self._strict_parsing
+
+    def is_compression_enabled(self): # Boolean
+        return self._compression_enabled

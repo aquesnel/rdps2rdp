@@ -145,8 +145,8 @@ class SerializationContext(object):
             return False
         return self._rdp_context.parser_config.is_debug_enabled(self.get_debug_field_path())
 
-    def get_compression_enabled(self):
-        return self._rdp_context.compression_enabled
+    def is_compression_enabled(self):
+        return self._rdp_context.is_compression_enabled()
 
     def is_strict_parsing_enabled(self):
         if self._rdp_context is None:

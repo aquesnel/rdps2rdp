@@ -68,13 +68,16 @@ class Rdp_DYNVC_PDU(BaseDataUnit):
                                     ValueDependency(lambda x: self.header.Pri))),
                         Rdp.DynamicVirtualChannels.COMMAND_DATA: 
                             DataUnitField('data', Rdp_DYNVC_DATA(ValueDependency(lambda x: self.header.cbId))),
-                        Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA_FIRST: 
-                            DataUnitField('data_first', 
-                                Rdp_DYNVC_DATA_FIRST(
-                                    ValueDependency(lambda x: self.header.cbId),
-                                    ValueDependency(lambda x: self.header.Pri))),
-                        Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA: 
-                            DataUnitField('data', Rdp_DYNVC_DATA(ValueDependency(lambda x: self.header.cbId))),
+                        
+                        # note: comrpessed DATA uses RDP8 compression and each channel uses it's own compression context
+                        # https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedyc/6d8c3338-e857-4bb2-b63b-2c89bf625839
+                        # Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA_FIRST: 
+                        #     DataUnitField('data_first', 
+                        #         Rdp_DYNVC_DATA_FIRST(
+                        #             ValueDependency(lambda x: self.header.cbId),
+                        #             ValueDependency(lambda x: self.header.Pri))),
+                        # Rdp.DynamicVirtualChannels.COMMAND_COMPRESSED_DATA: 
+                        #     DataUnitField('data', Rdp_DYNVC_DATA(ValueDependency(lambda x: self.header.cbId))),
                         
                         (Rdp.DynamicVirtualChannels.COMMAND_CREATE, RdpContext.PduSource.SERVER):
                             DataUnitField('create_request', Rdp_DYNVC_CREATE_REQ(ValueDependency(lambda x: self.header.cbId))),
@@ -230,7 +233,7 @@ class Rdp_DYNVC_DATA_FIRST(BaseDataUnit):
             PrimitiveField('ChannelId', VariableLengthIntSerializer(LengthDependency(lambda x: CBID_FROM_SERIALIZED_MAPPING[cbId_dep.get_value(None)]))),
             # Length = total length across PDUs
             PrimitiveField('Length', VariableLengthIntSerializer(LengthDependency(lambda x: CBID_FROM_SERIALIZED_MAPPING[Pri_dep.get_value(None)]))),
-            PrimitiveField('Data', RawLengthSerializer(LengthDependency(lambda x: self.Length))),
+            PrimitiveField('Data', RawLengthSerializer()),
         ])
         
     _get_channel_name = _get_channel_name

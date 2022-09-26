@@ -1265,7 +1265,7 @@ class BaseDataUnit(object):
                 depth_remaining -= 1
         
         result = {}
-        result[ItemKey(-1, '__python_type__')] = str(self.__class__)
+        result[ItemKey(-1, '__python_type__')] = str(self.__class__) + " [len=%d]" % self.get_length()
         for field_index, f in enumerate(self._fields):
             if DEBUG: print('getting dict for field: %s' % (f.name,))
             try:

@@ -37,6 +37,8 @@ import utils
 import data_model_v2
 import data_model_v2_x224
 import compression_constants
+import snapshot_utils
+import stream_processors
 
 # for python3 < 3.8
 # import sslkeylog
@@ -191,7 +193,8 @@ def main():
                         help='overwrite the capture file, it if exists')
     
     
-    print_input_file_formats = ['pcap', 'snapshot']
+    print_input_file_formats =  ['pcap', 'snapshot']
+    print_output_file_formats = ['text', 'snapshot', 'cstr-hex', 'freerdp-compression-test-data']
     parser_print = subparsers.add_parser('print', aliases=['p'], 
                         help='Print the content of a captured RDP connection in sequential order.')
     parser_print.set_defaults(cmd_name='print')
@@ -200,7 +203,7 @@ def main():
     parser_print.add_argument('-if', '--input-format', dest='file_format', type=str, action='store', default='pcap',
                         help='The file format to read. Options: %s. The file format pcap must contain the PCAP trace for an RDP session' % (print_input_file_formats,)) 
     parser_print.add_argument('-of', '--output-format', dest='output_format', type=str, action='store', default='text',
-                        help='The output format to write. Options: text, snapshot, cstr-hex.') 
+                        help='The output format to write. Options: %s.' % (print_output_file_formats,)) 
     parser_print.add_argument('-sp', '--server-port', dest='server_port', type=int, action='store', default=None,
                         help="The RDP server's port for the packet trace. Default to auto-detect based on the first PDU being an X224.TPDU_CONNECTION_REQUEST") 
     parser_print.add_argument('-o', '--offset', dest='offset', type=int, action='store', default=0,
@@ -502,85 +505,58 @@ def main():
                 # 'channel.payload',
             ])
 
+        if args.output_format not in print_output_file_formats:
+            raise ValueError('Unknown output format: %s, Supported formats are: %s' % (args.output_format, print_output_file_formats))
         i = 0
         if args.file_format == 'pcap':
             file_parser = pcap_utils.parse_packets_as_raw(args.input_file, args.server_port, parser_config = parser_config)
         elif args.file_format == 'snapshot':
-            # file_parser = []
-            # with open(args.input_file, 'r') as f:
-            #     for line in f:
-            #         snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.loads(line))
-            #         file_parser.append(snapshot)
-            def file_parser_from_snapshot():
-                with open(args.input_file, 'r') as f:
-                    for line in f:
-                        rdp_stream_snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.loads(line))
-
-                        pdu_source = rdp_stream_snapshot.pdu_source
-                        rdp_context = rdp_stream_snapshot.rdp_context.clone()
-                        err = None
-                        try:
-                            # parse and update the rdp_context
-                            pdu = parser_v2.parse(
-                                rdp_stream_snapshot.pdu_source, 
-                                rdp_stream_snapshot.pdu_bytes, 
-                                parser_config = parser_config, 
-                                rdp_context = rdp_context)
-                        except parser_v2.ParserException as e:
-                            err = e.__cause__
-                            pdu = e.pdu
-                        except Exception as e:
-                            err = e
-                            pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
-
-                        yield rdp_stream_snapshot, pdu, err, rdp_context
-
-            file_parser = file_parser_from_snapshot()
+            file_parser = snapshot_utils.file_parser_from_snapshot(args.input_file)
         else:
             raise ValueError('Unknown file format: %s' % args.file_format)
+
+        stream_printing_processors = []
+        if args.output_format == 'freerdp-compression-test-data':
+            stream_printing_processors.append(
+                stream_processors.FreerdpCompressionTestDataWriter(compression_constants.CompressionTypes.RDP_40))
 
         pdu = None
         for rdp_stream_snapshot, pdu, err, rdp_context in file_parser:
             pdu_source = rdp_stream_snapshot.pdu_source
-            # rdp_context = rdp_stream_snapshot.rdp_context.clone()
-            # err = None
             pre_parsing_rdp_context = rdp_stream_snapshot.rdp_context
-            # # pre_parsing_compression_engine_json = rdp_stream_snapshot.rdp_context.get_compression_engine(compression_constants.CompressionTypes.RDP_80).to_json()
-            # try:
-            #     pdu = parser_v2.parse(pdu_source, rdp_stream_snapshot.pdu_bytes, parser_config = parser_config, rdp_context = rdp_context)
-            # except parser_v2.ParserException as e:
-            #     err = e.__cause__
-            #     pdu = e.pdu
-            # except Exception as e:
-            #     err = e
-            #     pdu = data_model_v2.RawDataUnit().with_value(rdp_stream_snapshot.pdu_bytes)
             root_pdu = pdu
 
             # DEBUG = True
             do_print = False
+            if DEBUG: print('evaluating range offset: range=[%d, %d], offset %d' % (offset, offset + limit, i,))
             if offset <= i and i < offset + limit:
                 include = any([f(pdu,rdp_context) for f in filters_include])
                 exclude = any([f(pdu,rdp_context) for f in filters_exclude])
                 if (not include) and exclude:
-                    if DEBUG: print('skipping offset %s' % (offset,))
+                    if DEBUG: print('excluding offset %s' % (i,))
                     do_print = False
                 else:
-                    if DEBUG: print('printing offset %s, %s' % (offset, filters_include))
+                    if DEBUG: print('printing offset %s, %s' % (i, filters_include))
                     do_print = True
+            else:
+                if DEBUG: print('skipping out of range offset. range=[%d, %d], offset %d' % (offset, offset + limit, i,))
             if err:
-                if DEBUG: print('printing offset %s because of an error' % (offset,))
+                if DEBUG: print('printing offset %s because of an error' % (i,))
                 do_print = True
             if do_print:
                 with rdp_context.managed_pdu_source(pdu_source):
                     try:
+                        for processor in stream_printing_processors:
+                            processor.process_pdu(pdu, rdp_context, i)
+                        
                         pdu_inner = pdu
                         if args.path:
-                            if pdu.has_path(args.path):
-                                print('[INFO] Path into PDU: %s' % (args.path,), file=sys.stderr)
-                                pdu_inner = pdu.get_path(args.path)
-                            else:
-                                print('[WARNING] PDU does not have path: %s' % (args.path,), file=sys.stderr)
-                            
+                            # if pdu.has_path(args.path):
+                            #     # print('[INFO] Path into PDU: %s' % (args.path,), file=sys.stderr)
+                            #     pdu_inner = pdu.get_path(args.path)
+                            # else:
+                            #     print('[WARNING] PDU does not have path: %s' % (args.path,), file=sys.stderr)
+                            pdu_inner = pdu.get_path(args.path)
                             if callable(pdu_inner):
                                 try:
                                     pdu_inner = pdu_inner()
@@ -597,7 +573,7 @@ def main():
                             if isinstance(pdu_inner, data_model_v2.BaseDataUnit):
                                 pdu_inner = pdu_inner.as_wire_bytes()
                             print(utils.as_hex_cstr(pdu_inner))
-                            
+
                         elif args.output_format == 'text':
                             
                             if args.verbose in (0, 1):
@@ -637,9 +613,7 @@ def main():
                                     print(bytes(pdu_inner))
                                 else:
                                     print(pdu_inner)
-                                
-                        else:
-                            raise ValueError('Unknown output format: %s, Supported formats are: %s' % (args.output_format, print_input_file_formats))
+
                     except Exception as e:
                         if err:
                             # don't print the exception that was thrown during printing
@@ -662,9 +636,12 @@ def main():
                     raise err
 
             if offset + limit - 1 <= i: 
+                if DEBUG: print('breaking for offset %s' % (i,))
                 break
             i += 1
-
+        
+        for processor in stream_printing_processors:
+            processor.finalize_processing()
     
     if False: # connect as client
         serversock = socket.socket(AF_INET, SOCK_STREAM)

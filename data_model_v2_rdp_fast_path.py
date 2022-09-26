@@ -370,6 +370,7 @@ class Rdp_DRAWING_ORDER_header(BaseDataUnit):
                     to_human_readable = lookup_name_in(Rdp.DrawingOrders.DRAWING_ORDER_TYPE_NAMES)),
                 PolymophicField('controlFlags',
                     type_getter = ValueDependency(lambda x: self.controlFlags_class), 
+                    length_dependency = LengthDependency(lambda x: 1), # = UINT_8.get_length()
                     fields_by_type = {
                         Rdp.DrawingOrders.ORDERS_PRIMARY: 
                             PrimitiveField('controlFlags_primary',

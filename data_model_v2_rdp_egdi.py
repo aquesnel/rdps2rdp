@@ -49,7 +49,7 @@ from serializers import (
 
 from data_model_v2_rdp import Rdp
 from data_model_v2_rdp_erp import (
-    Rdp_ALTSEC_WINDOW_ORDER_HEADER,
+    Rdp_ALTSEC_WINDOW_ORDER,
 )
 
 
@@ -159,7 +159,7 @@ class Rdp_ALT_SECONDARY_DRAWING_ORDER(BaseDataUnit):
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_GDIP_CACHE_END: 
                             DataUnitField('altSecondaryOrderData_GDIP_CACHE_END', Rdp_DRAW_GDIPLUS_CACHE_END_ORDER()),
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_WINDOW: 
-                            DataUnitField('altSecondaryOrderData_WINDOW', Rdp_ALTSEC_WINDOW_ORDER_HEADER()),
+                            DataUnitField('altSecondaryOrderData_WINDOW', Rdp_ALTSEC_WINDOW_ORDER()),
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_COMPDESK_FIRST: 
                             DataUnitField('altSecondaryOrderData_COMPDESK_FIRST', Rdp_TS_COMPDESK_TOGGLE()),
                         Rdp.DrawingOrders.AltSecondaryOrderTypes.TS_ALTSEC_FRAME_MARKER: 

@@ -267,6 +267,19 @@ class Rdp_TS_RECTANGLE_16(BaseDataUnit):
             PrimitiveField('Bottom', StructEncodedSerializer(UINT_16_LE)),
         ])
 
+class Rdp_ALTSEC_WINDOW_ORDER(BaseDataUnit):
+    def __init__(self):
+        super(Rdp_ALTSEC_WINDOW_ORDER, self).__init__(fields = [
+            DataUnitField('header', Rdp_ALTSEC_WINDOW_ORDER_HEADER()),
+            # PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: (self.header.OrderSize - self.as_field_objects().header.get_length())))),
+            PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: (self.header.OrderSize 
+                                                                                            - 1 # for the Alternate Secondary Order Header
+                                                                                            - self.as_field_objects().header.get_length())))),
+            # PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: (self.header.OrderSize 
+            #                                                                                 - 1 # for the Alternate Secondary Order Header
+            #                                                                                 - self.header._fields_by_name['OrderSize'].get_length()
+            #                                                                                 - self.header._fields_by_name['FieldsPresentFlags_union'].get_length())))),
+        ])
 
 class Rdp_ALTSEC_WINDOW_ORDER_HEADER(BaseDataUnit):
     def __init__(self):
@@ -276,26 +289,30 @@ class Rdp_ALTSEC_WINDOW_ORDER_HEADER(BaseDataUnit):
                 PrimitiveField('FieldsPresentFlags_type',
                     BitMaskSerializer(Rdp.Rail.WINDOW_ORDER_TYPE_MASK, StructEncodedSerializer(UINT_32_LE)),
                     to_human_readable = lookup_name_in(Rdp.Rail.WINDOW_ORDER_TYPE_NAMES)),
+                # In the spec there is no "flags" field explicitly, but there is a common set of flags 
+                # used across all order types
                 PrimitiveField('FieldsPresentFlags_flags', 
                     BitFieldEncodedSerializer(UINT_32_LE, Rdp.Rail.WINDOW_ORDER_FLAG_NAMES.keys()), 
                     to_human_readable = lookup_name_in(Rdp.Rail.WINDOW_ORDER_FLAG_NAMES)),
+                PrimitiveField('FieldsPresentFlags_all', 
+                    BitFieldEncodedSerializer(UINT_32_LE, [(1 << x) for x in range(32)]), 
+                    to_human_readable = lookup_name_in({(1 << x): "{0:#0{1}x}".format((1 << x),10) for x in range(32)})),
                 PolymophicField('FieldsPresentFlags_fields',
                     type_getter = ValueDependency(lambda x: self.FieldsPresentFlags_type), 
+                    length_dependency = LengthDependency(lambda x: 4), # = UINT_32_LE.get_length()
                     fields_by_type = {
-                        Rdp.Rail.WINDOW_ORDER_TYPE_WINDOW: PrimitiveField('FieldsPresentFlags_flags', 
+                        Rdp.Rail.WINDOW_ORDER_TYPE_WINDOW: PrimitiveField('FieldsPresentFlags_fields_window', 
                             BitFieldEncodedSerializer(UINT_32_LE, Rdp.Rail.Window.FIELD_NAMES.keys()), 
                             to_human_readable = lookup_name_in(Rdp.Rail.Window.FIELD_NAMES)),
-                        Rdp.Rail.WINDOW_ORDER_TYPE_NOTIFY: PrimitiveField('FieldsPresentFlags_flags', 
+                        Rdp.Rail.WINDOW_ORDER_TYPE_NOTIFY: PrimitiveField('FieldsPresentFlags_fields_notify', 
                             BitFieldEncodedSerializer(UINT_32_LE, Rdp.Rail.Notification.FIELD_NAMES.keys()), 
                             to_human_readable = lookup_name_in(Rdp.Rail.Notification.FIELD_NAMES)),
-                        Rdp.Rail.WINDOW_ORDER_TYPE_DESKTOP: PrimitiveField('FieldsPresentFlags_flags', 
+                        Rdp.Rail.WINDOW_ORDER_TYPE_DESKTOP: PrimitiveField('FieldsPresentFlags_fields_desktop', 
                             BitFieldEncodedSerializer(UINT_32_LE, Rdp.Rail.Desktop.FIELD_NAMES.keys()), 
                             to_human_readable = lookup_name_in(Rdp.Rail.Desktop.FIELD_NAMES)),
                 }),
             ]),
-            PrimitiveField('payload', RawLengthSerializer(LengthDependency(lambda x: (self.OrderSize - 1 # for the Alternate Secondary Order Header
-                                                                                                    - self._fields_by_name['OrderSize'].get_length()
-                                                                                                    - self._fields_by_name['FieldsPresentFlags_union'].get_length())))),
+            # PrimitiveField('WindowId', StructEncodedSerializer(UINT_32_LE)),
         ])
 
     def _get_pdu_summary_layers(self, rdp_context):

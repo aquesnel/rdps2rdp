@@ -1025,6 +1025,7 @@ class Rdp(object):
             PACKET_COMPRESSED = 0x20
             
             PACKET_COMPR_TYPE_RDP8 = 0x04
+            PACKET_COMPR_TYPE_RDP8_LITE = 0x06
             
             @classmethod
             def to_compression_flags(cls, flags):

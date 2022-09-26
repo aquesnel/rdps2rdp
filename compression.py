@@ -24,6 +24,8 @@ class CompressionFactory(object):
             return cls.new_RDP_61(**kwargs)
         elif compression_type == compression_constants.CompressionTypes.RDP_80:
             return cls.new_RDP_80(**kwargs)
+        elif compression_type == compression_constants.CompressionTypes.RDP_80_LITE:
+            return cls.new_RDP_80_lite(**kwargs)
         else:
             raise AssertionError("Unknown compression type: %s" % ((compression_type.__class__.__name__, compression_type),))
 
@@ -143,6 +145,25 @@ class CompressionFactory(object):
     @classmethod
     def new_RDP_80(cls, **kwargs):
         history_size = 2500000
+        return compression_rdp80.Rdp80_CompressionEngine(
+                    compression_mppc.MPPC(
+                        compression_constants.CompressionTypes.RDP_80,
+                        compression_history_manager = 
+                            compression_utils.BruteForceHistoryManager(
+                                **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                                    **{'historyLength': history_size}}),
+                        decompression_history_manager = 
+                            compression_utils.BufferOnlyHistoryManager(
+                                **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                                    **{'historyLength': history_size}}),
+                        encoder_factory = compression_rdp80.Rdp80_CompressionEncodingFacotry(),
+                        add_non_compressed_data_to_history = True,
+                        **kwargs
+                        ))
+
+    @classmethod
+    def new_RDP_80_lite(cls, **kwargs):
+        history_size = 8192
         return compression_rdp80.Rdp80_CompressionEngine(
                     compression_mppc.MPPC(
                         compression_constants.CompressionTypes.RDP_80,

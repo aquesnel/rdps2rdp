@@ -380,7 +380,8 @@ def main():
                 no_throw(lambda pdu,rdp_context: compression_type == Rdp.Channel.to_compression_type(pdu.tpkt.mcs.rdp.channel.header.flags)), 
                 no_throw(lambda pdu,rdp_context: compression_type == pdu.tpkt.mcs.rdp.channel.dyvc.payload.GFX_PDU.payload.bulkData.header_CompressionType),
             )
-
+        def has_path(path):
+            return lambda pdu,rdp_context: pdu.has_path(path)
 
         filters_include = [
             # channel_name(Rdp.Channel.RAIL_CHANNEL_NAME),
@@ -508,6 +509,9 @@ def main():
 
         if args.output_format not in print_output_file_formats:
             raise ValueError('Unknown output format: %s, Supported formats are: %s' % (args.output_format, print_output_file_formats))
+        if args.path:
+            filters_include.append(has_path(args.path))
+            filters_exclude = [ALL]
         i = 0
         if args.file_format == 'pcap':
             file_parser = pcap_utils.parse_packets_as_raw(args.input_file, args.server_port, parser_config = parser_config)

@@ -45,18 +45,24 @@ class CompressionFactory(object):
         return NoOpCompressionEngine()
     
     @classmethod
-    def new_RDP_40(cls, **kwargs):
+    def new_RDP_40(cls, history_from = None, **kwargs):
         compression_config = compression_mppc.MppcCompressionConfig.RDP_40
+        
+        if False and isinstance(history_from, compression_mppc.MPPC):
+            compression_history_manager = history_from._compression_history_manager
+            decompression_history_manager = history_from._decompression_history_manager
+        else:
+            compression_history_manager = compression_utils.BruteForceHistoryManager(
+                        **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
+                            **{'historyLength': compression_config.history_size}})
+            decompression_history_manager = compression_utils.BufferOnlyHistoryManager(
+                        **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
+                            **{'historyLength': compression_config.history_size}})
+        
         return compression_mppc.MPPC(
                                     compression_constants.CompressionTypes.RDP_40,
-                                    compression_history_manager = 
-                                        compression_utils.BruteForceHistoryManager(
-                                            **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),
-                                                **{'historyLength': compression_config.history_size}}),
-                                    decompression_history_manager = 
-                                        compression_utils.BufferOnlyHistoryManager(
-                                            **{**compression_mppc.MPPC.get_field_from_json('decompression_history_manager', kwargs, {}),
-                                                **{'historyLength': compression_config.history_size}}),
+                                    compression_history_manager = compression_history_manager,
+                                    decompression_history_manager = decompression_history_manager,
                                     encoder_factory = compression_mppc.MppcEncodingFacotry(compression_config),
                                     add_non_compressed_data_to_history = False,
                                     **kwargs

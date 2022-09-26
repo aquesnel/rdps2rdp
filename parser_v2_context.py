@@ -72,7 +72,12 @@ class PduSource(Enum):
     CLIENT = 'Client'
     SERVER = 'Server'
     
-@utils.json_serializable(field_filter = lambda field_path: field_path.split('.')[-1] not in {'parser_config'})
+@utils.json_serializable(field_filter = 
+        lambda field_path: (
+            field_path.split('.')[-1] not in {'parser_config'}
+            # or
+            # not field_path.endswith('._compression_engines.RDP_40')
+            ))
 class RdpContext(object):
     PduSource = PduSource
     def __init__(self, parser_config = None, **kwargs):
@@ -100,6 +105,7 @@ class RdpContext(object):
         self.parser_config = parser_config
 
         self._compression_engines = utils.from_json_dict(compression_constants.CompressionTypes, compression_utils.CompressionEngine, kwargs.get('_compression_engines', {}))
+        # self._init_RDP40_from_50_compression()
         self.previous_primary_drawing_orders = kwargs.get('previous_primary_drawing_orders', {})
         self._channel_defs = utils.from_json_list(ChannelDef, kwargs.get('_channel_defs', []))
         self._channel_data_chunk_by_id_and_source = utils.from_json_dict(DataChunkKey, DataChunk, kwargs.get('_channel_data_chunk_by_id_and_source', {}))
@@ -198,8 +204,21 @@ class RdpContext(object):
         if compression_type is None:
             compression_type = self.compression_type
         if compression_type not in self._compression_engines:
-            self._compression_engines[compression_type] = compression.CompressionFactory.new_engine(compression_type)
+            if False and compression_type in {compression_constants.CompressionTypes.RDP_40, compression_constants.CompressionTypes.RDP_50}:
+                self._compression_engines[compression_constants.CompressionTypes.RDP_50] = compression.CompressionFactory.new_engine(compression_constants.CompressionTypes.RDP_50)
+                self._init_RDP40_from_50_compression()
+            else:
+                self._compression_engines[compression_type] = compression.CompressionFactory.new_engine(compression_type)
         return self._compression_engines[compression_type]
+
+    def _init_RDP40_from_50_compression(self):
+        return
+        # if compression_constants.CompressionTypes.RDP_50 in self._compression_engines:
+        #     # share the history buffer for RDP 4 and 5 compression
+        #     # and make the virtual buffer size dynamic so that RDP 40 only has access to the first 8KB
+        #     self._compression_engines[compression_constants.CompressionTypes.RDP_40] = compression.CompressionFactory.new_engine(
+        #         compression_constants.CompressionTypes.RDP_40, 
+        #         history_from = self._compression_engines[compression_constants.CompressionTypes.RDP_50])
 
     def is_strict_parsing_enabled(self): # Boolean
         return self.parser_config.is_strict_parsing_enabled()

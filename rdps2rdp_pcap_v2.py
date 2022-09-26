@@ -233,8 +233,10 @@ def main():
     True
     False
     global OUTPUTPCAP
+    # DEBUG = True
 
     args = parser.parse_args()
+    if DEBUG: print('sys.argv: %s\nargs: %s' % (sys.argv, args,))
     print("command = %s" % args.cmd_name, file=sys.stderr)
     if args.cmd_name == 'capture-as-mitm': # MITM
         if args.overwrite:
@@ -266,7 +268,7 @@ def main():
                 if request_type == self.RequestType.RECEIVE:
                     self._log_packet(data, pdu_source, stream_context)
         
-        class DisableCompressionInterceptor(stream.InterceptorBase):
+        class DisableStaticChannelCompressionInterceptor(stream.InterceptorBase):
             def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
                 if request_type == self.RequestType.RECEIVE:
                     if pdu.has_path('tpkt.mcs.rdp.clientNetworkData'):
@@ -276,11 +278,15 @@ def main():
                     if pdu.has_path('tpkt.mcs.rdp.TS_INFO_PACKET'):
                         pdu.tpkt.mcs.rdp.TS_INFO_PACKET.flags.discard(Rdp.Info.INFO_COMPRESSION)
                         pdu.tpkt.mcs.rdp.TS_INFO_PACKET.compressionType = Rdp.Info.PACKET_COMPR_TYPE_8K
+                    
+        class DisableVirtualChannelCompressionInterceptor(stream.InterceptorBase):
+            def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
+                if request_type == self.RequestType.RECEIVE:
                     if pdu.has_path('tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability'):
                         pdu.tpkt.mcs.rdp.TS_DEMAND_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
                     if pdu.has_path('tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets.virtualChannelCapability'):
                         pdu.tpkt.mcs.rdp.TS_CONFIRM_ACTIVE_PDU.capabilitySets.virtualChannelCapability.capabilityData.flags = Rdp.Capabilities.VirtualChannel.VCCAPS_NO_COMPR
-        
+       
         class DisableGfxInterceptor(stream.InterceptorBase):
             def intercept_pdu(self, request_type, pdu_source, pdu, stream_context):
                 if request_type == self.RequestType.RECEIVE:
@@ -290,9 +296,10 @@ def main():
                         pdu.tpkt.x224.x224_connect.rdpNegRsp.flags.discard(Rdp.Negotiate.DYNVC_GFX_PROTOCOL_SUPPORTED)
                     
         interceptors = [
-            # DisableCompressionInterceptor(),
-            # DisableGfxInterceptor(),
             LoggingInterceptor(),
+            # DisableStaticChannelCompressionInterceptor(),
+            DisableVirtualChannelCompressionInterceptor(),
+            # DisableGfxInterceptor(),
         ]
         
         host_port = (args.host_port.split(':')[0], int(args.host_port.split(':')[1]))
@@ -375,6 +382,8 @@ def main():
                 no_throw(lambda pdu, rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.mcs_user_data.channelId).name == channel_name),
                 no_throw(lambda pdu, rdp_context: rdp_context.get_channel_by_id(pdu.tpkt.mcs.rdp.channel.dyvc.payload.ChannelId).name == channel_name),
             )
+        def is_compressed():
+            return no_throw(lambda pdu,rdp_context: compression_constants.CompressionFlags.COMPRESSED in Rdp.Channel.to_compression_flags(pdu.tpkt.mcs.rdp.channel.header.flags))
         def compression_type(compression_type):
             return OR(
                 no_throw(lambda pdu,rdp_context: compression_type == Rdp.Channel.to_compression_type(pdu.tpkt.mcs.rdp.channel.header.flags)), 
@@ -385,10 +394,16 @@ def main():
 
         filters_include = [
             # channel_name(Rdp.Channel.RAIL_CHANNEL_NAME),
+            # channel_name(Rdp.Channel.GFX_CHANNEL_NAME),
             # AND(
             #     channel_name(Rdp.Channel.GFX_CHANNEL_NAME),
             #     # compression_type(Rdp.GraphicsPipelineExtention.Compression.PACKET_COMPR_TYPE_RDP8),
-            # )
+            # ),
+            
+            # AND(
+                # has_path('tpkt.mcs.rdp.channel.header.flags'),
+            #     is_compressed(),
+            # ),
         ]
         filters_exclude = [
             # ALL,
@@ -737,4 +752,12 @@ def main():
 if __name__ == '__main__':
 #    if len(sys.argv) == 1:
 #        sys.argv =["self.py", "print-context", "-f", "/home/ubuntu/dev/rdps2rdp/rdps2rdp/output.win10.rail.no-compression.success.pcap", "-o", "215"]
+    if False:
+        # print -i /home/ubuntu/dev/rdps2rdp/rdps2rdp/traffic-captures/output.win10.full.rail.pcap -if pcap -of text -vv
+        # print -i /home/ubuntu/dev/rdps2rdp/rdps2rdp/traffic-captures/output.win10.rail.full-2.pcap -if pcap -of text -vvv -o 80 -l1 
+        argv = (__file__ + """
+                print -i /home/ubuntu/dev/rdps2rdp/rdps2rdp/traffic-captures/output.win10.rail.full-2.pcap -if pcap -of freerdp-compression-test-data --path rdp_fp.fpOutputUpdates.0.updateData -spe
+                """).replace("\n", "").split(' ')
+        argv = list(filter(lambda x: x, argv))
+        sys.argv = argv
     main()

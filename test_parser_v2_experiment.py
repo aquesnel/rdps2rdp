@@ -11,7 +11,7 @@ from data_model_v2_mcs import Mcs
 from data_model_v2_rdp import Rdp
 
 import parser_v2
-from parser_v2 import parse_pdu_length, RdpContext
+import parser_v2_context
 
 def extract_as_bytes(data):
     result = ''
@@ -30,9 +30,9 @@ class TestParsing(unittest.TestCase):
     def test_parse_length_ex_1(self):
         data = extract_as_bytes("00 83 63 8b")
 
-        rdp_context = RdpContext()
+        rdp_context = parser_v2_context.RdpContext()
         rdp_context.pre_capability_exchange = False
-        length = parse_pdu_length(data, rdp_context)
+        length = parser_v2.parse_pdu_length(data, rdp_context)
         
         # self.assertEqual(length, len(data))
         
@@ -64,10 +64,20 @@ class TestParsing(unittest.TestCase):
         pdu = parser_v2.parse(snapshot.pdu_source, snapshot.pdu_bytes, snapshot.rdp_context)
 
         
-    @unittest.skip("skip for debugging")
+    # @unittest.skip("skip for debugging")
     def test_parse_from_snapshot_2(self):
-        snapshot = test_utils.load_snapshot('output.win10.full.rail.pdu-370.json')
-        pdu = parser_v2.parse(snapshot.pdu_source, snapshot.pdu_bytes, snapshot.rdp_context)
+        # import compression_rdp80; compression_rdp80.DEBUG = True
+        import compression_mppc;  compression_mppc.DEBUG = True
+        # import compression_utils; compression_utils.DEBUG = True
+        parser_config = parser_v2_context.ParserConfig(
+            # strict_parsing = False,
+            # compression_enabled = False,
+            debug_pdu_paths = [
+                # 'channel.payload',
+            ])
+        # snapshot = test_utils.load_snapshot('output.win10.full.rail.pdu-370.json')
+        snapshot = test_utils.load_snapshot('output.win10.rail.full-2.pud-491.json')
+        pdu = parser_v2.parse(snapshot.pdu_source, snapshot.pdu_bytes, snapshot.rdp_context, parser_config)
 
 if __name__ == '__main__':
     unittest.main()

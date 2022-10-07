@@ -178,6 +178,9 @@ class BaseField(object):
     def get_sub_fields(self):
         return []
 
+    def walk_fields(self):
+        yield self.name, self
+
     def get_value(self) -> Any:
         raise NotImplementedError()
     
@@ -309,7 +312,12 @@ class DataUnitField(BaseField):
 
     def get_length(self):
         return self.data_unit.get_length()
-        
+
+    def walk_fields(self):
+        yield self.name, self
+        for p, f in self.data_unit.walk_fields(self.name):
+            yield p, f
+
     def is_dirty(self) -> bool:
         return self.data_unit.is_dirty()
     
@@ -421,6 +429,9 @@ class OptionalField(BaseField):
     def get_sub_fields(self):
         return self._optional_field.get_sub_fields()
 
+    def walk_fields(self):
+        return self._optional_field.walk_fields()
+
     def get_value(self) -> Any:
         if self._value_is_present:
             return self._optional_field.get_value()
@@ -498,6 +509,12 @@ class ConditionallyPresentField(BaseField):
     def get_sub_fields(self):
         return [ConditionallyPresentWrapperField(self._is_present_condition, f) for f in self._optional_field.get_sub_fields()]
 
+    def walk_fields(self):
+        if self._is_present_condition():
+            return self._optional_field.walk_fields()
+        else:
+            return iter([])
+
     def get_value(self) -> Any:
         if self._is_present_condition():
             return self._optional_field.get_value()
@@ -568,6 +585,12 @@ class ConditionallyPresentWrapperField(BaseField):
         else:
             return []
 
+    def walk_fields(self):
+        if self._is_present_condition():
+            return self._optional_field.walk_fields()
+        else:
+            return iter([])
+
     def get_value(self) -> Any:
         if self._is_present_condition():
             return self._optional_field.get_value()
@@ -619,6 +642,9 @@ class DefaultValueField(BaseField):
 
     def get_sub_fields(self):
         return self._optional_field.get_sub_fields()
+
+    def walk_fields(self):
+        return self._optional_field.walk_fields()
 
     def get_value(self) -> Any:
         field_value = self._optional_field.get_value()
@@ -709,6 +735,9 @@ class UnionField(BaseField):
     def get_sub_fields(self):
         return (UnionWrapperField(f) for f in self._fields)
 
+    def walk_fields(self):
+        return iter([])
+
 class UnionWrapperField(BaseField):
     def __init__(self, field):
         self._field = field
@@ -728,6 +757,9 @@ class UnionWrapperField(BaseField):
     
     def get_sub_fields(self):
         return self._field.get_sub_fields()
+
+    def walk_fields(self):
+        return self._field.walk_fields()
 
     def get_length(self):
         return 0
@@ -766,6 +798,9 @@ class PeekField(BaseField):
     
     def get_sub_fields(self):
         return self._field.get_sub_fields()
+
+    def walk_fields(self):
+        return self._field.walk_fields()
 
     def get_length(self):
         return 0
@@ -832,6 +867,11 @@ class PolymophicField(BaseField):
         for field_type, field in self._fields_by_type.items():
             retval.extend([ConditionallyPresentWrapperField(lambda: field_type == self._type_getter.get_value(None), f) for f in field.get_sub_fields()])
         return retval
+
+    def walk_fields(self):
+        yield self.name, self
+        for p, f in self._get_field(allow_unknown = True).walk_fields():
+            yield p, f
         
     def get_value(self) -> Any:
         return self._get_field(allow_unknown = True).get_value()
@@ -916,6 +956,11 @@ class CompressedField(BaseField):
         retval = [self._cached_compress_struct, self._cached_compressed_bytes_struct, self._cached_decompressed_bytes_struct]
         retval.extend(self._field.get_sub_fields())
         return retval
+
+    def walk_fields(self):
+        yield self.name, self
+        for p, f in self._field.walk_fields():
+            yield p, f
 
     def get_length(self):
         if not self._is_cached_values_valid():
@@ -1213,14 +1258,9 @@ class BaseDataUnit(object):
             path_prefix = ''
         else:
             path_prefix += "."
-        path_current = path_prefix
         for field in self._fields:
-            path_current = path_prefix + field.name
-            if isinstance(field, DataUnitField):
-                for path_inner, field_inner in field.data_unit.walk_fields(path_current):
-                    yield path_inner, field_inner
-            else:
-                yield path_current, field
+            for path_inner, field_inner in field.walk_fields():
+                yield path_prefix + path_inner, field_inner
 
     def get_length(self):
         total_length = 0

@@ -538,7 +538,9 @@ def main():
         stream_printing_processors = []
         if args.output_format == 'freerdp-compression-test-data':
             stream_printing_processors.append(
-                stream_processors.FreerdpCompressionTestDataWriter(compression_constants.CompressionTypes.RDP_40))
+                stream_processors.FreerdpCompressionTestDataWriter(
+                    # compression_constants.CompressionTypes.RDP_40
+                    ))
 
         pdu = None
         for rdp_stream_snapshot, pdu, err, rdp_context in file_parser:

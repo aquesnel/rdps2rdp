@@ -1,5 +1,10 @@
+import collections
+
 import data_model_v2
 import utils
+
+DEBUG = False
+# DEBUG = True
 
 class StreamProcessor(object):
     def process_pdu(self, pdu, rdp_context, pdu_sequence_id):
@@ -8,41 +13,59 @@ class StreamProcessor(object):
     def finalize_processing(self):
         pass
 
+CompressionInfo = collections.namedtuple('CompressionInfo', 
+                                        ['pdu_sequence_id', 
+                                            'pdu_path', 
+                                            'compressed_bytes', 
+                                            'decompressed_bytes', 
+                                            'compression_type', 
+                                            'compression_flags',
+                                            'pdu_source',
+                                        ])
+
 class FreerdpCompressionTestDataWriter(StreamProcessor):
-    def __init__(self, compression_type):
-        self._compression_pairs = []
+    def __init__(self, compression_type = None):
+        self._compression_info = []
         self._compression_type = compression_type
 
     def process_pdu(self, pdu, rdp_context, pdu_sequence_id):
         for path, field in pdu.walk_fields():
+            if DEBUG: print("Processing path %s = %s" % (path, str(field.__class__)))
             if isinstance(field, data_model_v2.CompressedField):
-                if self._compression_type == field.get_compression_type():
-                    self._compression_pairs.append(
-                        (pdu_sequence_id, 
-                        path,
-                        field.get_compressed_bytes(), 
-                        field.get_decompressed_bytes())
-                        )
+                if self._compression_type is None or self._compression_type == field.get_compression_type():
+                    self._compression_info.append(
+                        CompressionInfo(pdu_sequence_id, 
+                            path,
+                            field.get_compressed_bytes(), 
+                            field.get_decompressed_bytes(),
+                            field.get_compression_type(),
+                            field.get_compression_flags(),
+                            rdp_context.pdu_source,
+                            ))
 
     def finalize_processing(self):
         freerdp_compressed_test_data = ""
-        for pdu_sequence_id, pdu_path, compressed_bytes, decompressed_bytes in self._compression_pairs:
+        for compression_info in self._compression_info:
             freerdp_compressed_test_data += """
-                { // PDU %d with path '%s'
+                { // PDU %d from %s with path '%s' and compression %s with flags %s
                     0, %d,
                     (BYTE*) %s,
                     %d, %d,
                     (BYTE*) %s,
                 },
-                """ % (pdu_sequence_id,
-                    pdu_path,
+                """ % (
+                    compression_info.pdu_sequence_id,
+                    compression_info.pdu_source,
+                    compression_info.pdu_path,
+                    compression_info.compression_type,
+                    compression_info.compression_flags,
 
-                    len(compressed_bytes), 
-                    (utils.as_hex_cstr(compressed_bytes) if compressed_bytes else "NULL"),
+                    len(compression_info.compressed_bytes), 
+                    (utils.as_hex_cstr(compression_info.compressed_bytes) if compression_info.compressed_bytes else "NULL"),
 
-                    len(decompressed_bytes), 
-                    len(decompressed_bytes),
-                    (utils.as_hex_cstr(decompressed_bytes) if decompressed_bytes else "NULL"),
+                    len(compression_info.decompressed_bytes), 
+                    len(compression_info.decompressed_bytes),
+                    (utils.as_hex_cstr(compression_info.decompressed_bytes) if compression_info.decompressed_bytes else "NULL"),
                 )
 
         print("""

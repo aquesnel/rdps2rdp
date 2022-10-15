@@ -959,6 +959,8 @@ class CompressedField(BaseField):
 
     def walk_fields(self):
         yield self.name, self
+        for p, f in self._cached_compress_struct.walk_fields():
+            yield p, f 
         for p, f in self._field.walk_fields():
             yield p, f
 

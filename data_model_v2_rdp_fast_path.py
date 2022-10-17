@@ -149,7 +149,7 @@ class Rdp_TS_FP_INPUT_PDU(BaseDataUnit):
                 lambda:  is_fips_present,
                 PrimitiveField('fipsInformation', RawLengthSerializer(LengthDependency(lambda x: 4)))),
             ConditionallyPresentField(
-                lambda:  Rdp.FastPath.FASTPATH_FLAG_SECURE_CHECKSUM in self.header.flags,
+                lambda:  Rdp.FastPath.FASTPATH_FLAG_ENCRYPTED in self.header.flags,
                 PrimitiveField('dataSignature', RawLengthSerializer(LengthDependency(lambda x: 8)))),
             ConditionallyPresentField(
                 lambda:  self.header.numEvents == 0,

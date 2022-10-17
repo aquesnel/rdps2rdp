@@ -63,8 +63,8 @@ class FreerdpCompressionTestDataWriter(StreamProcessor):
                     len(compression_info.compressed_bytes), 
                     (utils.as_hex_cstr(compression_info.compressed_bytes) if compression_info.compressed_bytes else "NULL"),
 
-                    len(compression_info.decompressed_bytes), 
-                    len(compression_info.decompressed_bytes),
+                    len(compression_info.decompressed_bytes) if compression_info.decompressed_bytes is not None else 0, 
+                    len(compression_info.decompressed_bytes) if compression_info.decompressed_bytes is not None else 0,
                     (utils.as_hex_cstr(compression_info.decompressed_bytes) if compression_info.decompressed_bytes else "NULL"),
                 )
 

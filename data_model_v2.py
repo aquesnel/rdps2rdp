@@ -921,18 +921,26 @@ class CompressedField(BaseField):
         self._cached_compressed_value = None
         self._compression_flags = None
         self._compression_type = None
-        self._field = field
         self._field_valid = False
-
+        self._field = ConditionallyPresentField(
+            lambda: self._field_valid,
+            field)
+        
         # HACK! this field is just to be able to show the compression headers when printing the field
+        self._compression_type_field = ConditionallyPresentWrapperField(
+            lambda: self._compression_type is not None,
+            PrimitiveField('__HIDDEN__compression_type_for_(field=%s)' % field.name, StaticSerializer([])))
+        self._compression_flags_field = ConditionallyPresentWrapperField(
+            lambda: self._compression_flags is not None,
+            PrimitiveField('__HIDDEN__compression_flags_for_(field=%s)' % field.name, StaticSerializer([])))
         self._cached_compress_struct = ConditionallyPresentWrapperField(
             lambda: self._compression_type in {compression_constants.CompressionTypes.RDP_61, compression_constants.CompressionTypes.RDP_80},
             BaseField('__HIDDEN__compression_struct_for_(field=%s)' % field.name))
         self._cached_compressed_bytes_struct = ConditionallyPresentWrapperField(
-            lambda: self._compression_type not in {None, compression_constants.CompressionTypes.NO_OP},
+            lambda: self._cached_compressed_value is not None,
             PrimitiveField('__HIDDEN__compressed_bytes_for_(field=%s)' % field.name, RawLengthSerializer()))
         self._cached_decompressed_bytes_struct = ConditionallyPresentWrapperField(
-            lambda: self._compression_type not in {None, compression_constants.CompressionTypes.NO_OP},
+            lambda: self._cached_decompressed_value is not None,
             PrimitiveField('__HIDDEN__decompressed_bytes_for_(field=%s)' % field.name, RawLengthSerializer()))
 
     @property
@@ -953,7 +961,13 @@ class CompressedField(BaseField):
     
     def get_sub_fields(self):
         # HACK! this is a horrible way to just be able to show the compression headers when printing the field
-        retval = [self._cached_compress_struct, self._cached_compressed_bytes_struct, self._cached_decompressed_bytes_struct]
+        retval = [
+            self._compression_type_field,
+            self._compression_flags_field,
+            self._cached_compress_struct, 
+            self._cached_compressed_bytes_struct, 
+            self._cached_decompressed_bytes_struct,
+            ]
         retval.extend(self._field.get_sub_fields())
         return retval
 
@@ -995,18 +1009,23 @@ class CompressedField(BaseField):
         self._cached_decompressed_value = decompressed_data
         self._compression_flags = flags
         self._compression_type = compression_type
-        self._cached_compressed_bytes_struct.set_value(self._cached_compressed_value)
-        self._cached_decompressed_bytes_struct.set_value(self._cached_decompressed_value)
-        if self._compression_type == compression_constants.CompressionTypes.RDP_61:
-            import data_model_v2_rdp_egdi
-            compress_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(self._cached_compressed_value)
-            self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
-        elif self._compression_type == compression_constants.CompressionTypes.RDP_80:
-            import data_model_v2_rdp_egfx
-            compress_struct = data_model_v2_rdp_egfx.Rdp_RDP_SEGMENTED_DATA().with_value(self._cached_compressed_value)
-            self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
-        elif self._compression_type is None:
-            self._cached_compress_struct._optional_field = BaseField(self._cached_compress_struct.name)
+        
+        self._compression_type_field.set_value(self._compression_type)
+        self._compression_flags_field.set_value(self._compression_flags)
+        if self._cached_decompressed_value is not None:
+            self._cached_decompressed_bytes_struct.set_value(self._cached_decompressed_value)
+        if self._cached_compressed_value is not None:
+            self._cached_compressed_bytes_struct.set_value(self._cached_compressed_value)
+            if self._compression_type == compression_constants.CompressionTypes.RDP_61:
+                import data_model_v2_rdp_egdi
+                compress_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(self._cached_compressed_value)
+                self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
+            elif self._compression_type == compression_constants.CompressionTypes.RDP_80:
+                import data_model_v2_rdp_egfx
+                compress_struct = data_model_v2_rdp_egfx.Rdp_RDP_SEGMENTED_DATA().with_value(self._cached_compressed_value)
+                self._cached_compress_struct._optional_field = DataUnitField(self._cached_compress_struct.name, compress_struct)
+            elif self._compression_type is None:
+                self._cached_compress_struct._optional_field = BaseField(self._cached_compress_struct.name)
     
     def _is_cached_values_valid(self):
         return self._cached_compressed_value is not None
@@ -1031,7 +1050,7 @@ class CompressedField(BaseField):
             self._compression_count[engine_id] = 1
             
             inflated_buffer = bytearray()
-            inflated_length = self._field.serialize_value(inflated_buffer, 0, serde_context)
+            inflated_length = self._field._optional_field.serialize_value(inflated_buffer, 0, serde_context)
             deflated = engine.compress(inflated_buffer[:inflated_length])
             
             self._update_cached_value(inflated_buffer[:inflated_length], deflated.data, deflated.flags, deflated.type)
@@ -1067,13 +1086,14 @@ class CompressedField(BaseField):
             
             return result
         except Exception as e:
-            self._update_cached_value(b'<decompression error>', data, flags, compression_type)
+            self._update_cached_value(None, data, {b'<decompression error>', *flags}, compression_type)
             raise SerializationException(
                 'Error decompressing with type: %s, flags: %s' % (compression_type, flags)
                 ) from e
 
     def set_value(self, value: Any):
-        self._field.set_value(value)
+        self._field._optional_field.set_value(value)
+        self._field_valid = True
         buffer = bytearray()
         length = self._field.serialize_value(buffer, 0, SerializationContext(SerializationContext.Operation.SERIALIZE))
         self._update_cached_value(buffer[:length], buffer[:length], set(), compression_constants.CompressionTypes.NO_OP)
@@ -1092,30 +1112,20 @@ class CompressedField(BaseField):
             return False
     
     def _deserialize_value(self, raw_data: bytes, offset: int, serde_context: SerializationContext) -> int:
-        try:
-            length = self._compressed_length.get_length(raw_data)
-            if serde_context.is_compression_enabled():
-                inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
-                if serde_context.is_debug_enabled(DEBUG): print('Decompressing complete, deserializing field with path "%s": %s' % (serde_context.get_debug_field_path(), self._field.name, ))
-                inner_length_consumed = self._field.deserialize_value(inflated, 0, serde_context)
-                self._field_valid = True
-                # if serde_context.is_strict_parsing_enabled() and inner_length_consumed != len(inflated):
-                #     raise ValueError('The field %s with path "%s" was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, serde_context.get_debug_field_path(), len(inflated), inner_length_consumed))
-            else:
-                # flags = self._decompression_flags_getter.get_value(None)
-                # compression_type = self._decompression_type_getter.get_value(None)
-                # self._update_cached_value(memoryview(raw_data)[offset : offset + length], flags, compression_type)
-                self._update_cached_value(memoryview(raw_data)[offset : offset + length], memoryview(raw_data)[offset : offset + length], set(), compression_constants.CompressionTypes.NO_OP)
-                
-            return length
-        except Exception as e:
-            # raise NotImplementedError('just checking')
-            # self._update_cached_value(memoryview(raw_data)[offset : ], memoryview(raw_data)[offset : ], set(), compression_constants.CompressionTypes.NO_OP)
-            # raise e
-            raise SerializationException(
-                'Error decompressing from data offset: %s, length: %s' % (offset, length)
-                ) from e
-
+        length = self._compressed_length.get_length(raw_data)
+        if serde_context.is_compression_enabled():
+            inflated = self.decompress_field(memoryview(raw_data)[offset : offset + length], serde_context)
+            if serde_context.is_debug_enabled(DEBUG): print('Decompressing complete, deserializing field with path "%s": %s' % (serde_context.get_debug_field_path(), self._field.name, ))
+            inner_length_consumed = self._field._optional_field.deserialize_value(inflated, 0, serde_context)
+            self._field_valid = True
+            # if serde_context.is_strict_parsing_enabled() and inner_length_consumed != len(inflated):
+            #     raise ValueError('The field %s with path "%s" was expected to consume all of the decompressed data but it did not. decompressed byte length: %d, consumed length %d' % (self._field, serde_context.get_debug_field_path(), len(inflated), inner_length_consumed))
+        else:
+            flags = self._decompression_flags_getter.get_value(None)
+            compression_type = self._decompression_type_getter.get_value(None)
+            self._update_cached_value(None, memoryview(raw_data)[offset : offset + length], {'<compression disabled>', *flags}, compression_type)
+            
+        return length
     
     def _serialize_value(self, buffer: bytes, offset: int, serde_context: SerializationContext) -> int:
         if not self._is_cached_values_valid():

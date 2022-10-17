@@ -23,17 +23,26 @@ STRING_WITH_LENGTH = '%ds'
 
 DEBUG = False
             
+import numbers
+
 class LengthDependency(object):
     def __init__(self, length_getter: Callable[[Any], int] = len):
         self._length_getter = length_getter
         
     def get_length(self, value: Any) -> int:
+        result = None
         try:
-            return self._length_getter(value)
+            result = self._length_getter(value)
         except TypeError:
             if value is None:
                 return 0
             raise
+        if result is None and value is None:
+            return 0
+        # if result is None or result < 0:
+        #     raise ValueError("Expected a positive number as the length: [%s] %s" % (result.__class__.__name__, result))
+        return result
+
 
 class ValueDependency(Generic[VALUE_RESULT_TYPE]):
     def __init__(self, value_getter: Callable[[Any], VALUE_RESULT_TYPE]):

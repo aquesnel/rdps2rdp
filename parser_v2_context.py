@@ -62,8 +62,9 @@ class DataChunk(object):
     def is_full(self):
         return len(self._data) == self._expected_total_len
 
-    def get_data(self):
-        if len(self._data) != self._expected_total_len:
+    def get_data(self, require_full_data = True):
+        if (len(self._data) != self._expected_total_len
+                and require_full_data):
             raise ValueError('The data chunk is not the expected size. Expected %d, acctual %d' % (self._expected_total_len, len(self._data)))
         return self._data
 

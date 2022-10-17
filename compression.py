@@ -172,7 +172,7 @@ class CompressionFactory(object):
         history_size = 8192
         return compression_rdp80.Rdp80_CompressionEngine(
                     compression_mppc.MPPC(
-                        compression_constants.CompressionTypes.RDP_80,
+                        compression_constants.CompressionTypes.RDP_80_LITE,
                         compression_history_manager = 
                             compression_utils.BruteForceHistoryManager(
                                 **{**compression_mppc.MPPC.get_field_from_json('compression_history_manager', kwargs, {}),

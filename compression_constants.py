@@ -15,4 +15,4 @@ class CompressionTypes(enum.Enum):
     RDP_60 = 'RDP_60'
     RDP_61 = 'RDP_61'
     RDP_80 = 'RDP_80'
-    RDP_80_LITE = 'RDP_80_LITE'
+    RDP_80_LITE = 'RDP_80_LITE' # https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-rdpedyc/b0a9b542-0221-429d-b18e-07bded361435

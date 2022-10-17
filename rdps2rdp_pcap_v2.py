@@ -628,6 +628,10 @@ def main():
                                         len(rdp_stream_snapshot.pdu_bytes), 
                                         pdu.get_pdu_name(rdp_context)))
                             
+                            if args.verbose >= 4:
+                                print("PDU Bytes (hex): [len %d]" % len(rdp_stream_snapshot.pdu_bytes))
+                                print(rdp_stream_snapshot.pdu_bytes_hex)
+                            
                             if args.verbose >= 3:
                                 if isinstance(pdu_inner, data_model_v2.BaseDataUnit):
                                     print(pdu_inner.as_str(args.depth))

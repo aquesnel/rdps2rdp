@@ -1,4 +1,6 @@
 import collections
+import textwrap
+import sys
 
 import data_model_v2
 import utils
@@ -44,31 +46,46 @@ class FreerdpCompressionTestDataWriter(StreamProcessor):
                             ))
 
     def finalize_processing(self):
+        FreeRdpTestDataPrinter().print_freerdp_compression_test_data(self._compression_info)
+
+class FreeRdpTestDataPrinter(object):
+    def print_freerdp_compression_test_data(self, compression_infos, output_stream=sys.stdout):
         freerdp_compressed_test_data = ""
-        for compression_info in self._compression_info:
-            freerdp_compressed_test_data += """
-                { // PDU %d from %s with path '%s' and compression %s with flags %s
-                    0, %d,
-                    (BYTE*) %s,
-                    %d, %d,
-                    (BYTE*) %s,
-                },
-                """ % (
-                    compression_info.pdu_sequence_id,
-                    compression_info.pdu_source,
-                    compression_info.pdu_path,
-                    compression_info.compression_type,
-                    compression_info.compression_flags,
+        compression_info_by_type = collections.defaultdict(list)
+        for compression_info in compression_infos:
+            compression_info_by_type[compression_info.compression_type].append(compression_info)
+        for compression_type, compression_infos in compression_info_by_type.items():
+            freerdp_compressed_test_structs = ""
+            for compression_info in compression_infos:
+                freerdp_compressed_test_structs += textwrap.dedent("""
+                    { // PDU %d from %s with path '%s' and compression %s with flags %s
+                        0, %d,
+                        (BYTE*) %s,
+                        %d, %d,
+                        (BYTE*) %s,
+                    },
+                    """) % (
+                        compression_info.pdu_sequence_id,
+                        compression_info.pdu_source,
+                        compression_info.pdu_path,
+                        compression_info.compression_type,
+                        compression_info.compression_flags,
 
-                    len(compression_info.compressed_bytes), 
-                    (utils.as_hex_cstr(compression_info.compressed_bytes) if compression_info.compressed_bytes else "NULL"),
+                        len(compression_info.compressed_bytes), 
+                        (utils.as_hex_cstr(compression_info.compressed_bytes) if compression_info.compressed_bytes else "NULL"),
 
-                    len(compression_info.decompressed_bytes) if compression_info.decompressed_bytes is not None else 0, 
-                    len(compression_info.decompressed_bytes) if compression_info.decompressed_bytes is not None else 0,
-                    (utils.as_hex_cstr(compression_info.decompressed_bytes) if compression_info.decompressed_bytes else "NULL"),
-                )
+                        len(compression_info.decompressed_bytes) if compression_info.decompressed_bytes is not None else 0, 
+                        len(compression_info.decompressed_bytes) if compression_info.decompressed_bytes is not None else 0,
+                        (utils.as_hex_cstr(compression_info.decompressed_bytes) if compression_info.decompressed_bytes else "NULL"),
+                    )
+            freerdp_compressed_test_data += textwrap.dedent("""
+                static const Test_Data COMPRESSION_TEST_DATA_%s[] =
+                {
+                    %s
+                };
+            """) % (compression_type.value, freerdp_compressed_test_structs)
 
-        print("""
+        print(textwrap.dedent("""
             #ifndef RDP_INSPECTOR_COMPRESSION_TEST_DATA_H
             #define RDP_INSPECTOR_COMPRESSION_TEST_DATA_H
 
@@ -84,10 +101,8 @@ class FreerdpCompressionTestDataWriter(StreamProcessor):
                 const BYTE* plaintextBytes;
             } Test_Data;
 
-            static const Test_Data COMPRESSION_TEST_DATA[] =
-                {
-                    %s
-                };
+            %s
 
             #endif /* RDP_INSPECTOR_COMPRESSION_TEST_DATA_H */
-            """ % freerdp_compressed_test_data)
+            """) % (freerdp_compressed_test_data,),
+            file=output_stream)

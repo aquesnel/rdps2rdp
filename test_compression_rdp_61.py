@@ -1,5 +1,13 @@
 import unittest
 import binascii
+import json
+import os
+
+import data_model_v2_rdp
+import data_model_v2_rdp_egdi
+import parser_v2
+import parser_v2_context
+import stream_processors
 
 import compression
 import compression_constants
@@ -7,6 +15,8 @@ import test_utils
 from compression_utils import (
     CompressionArgs,
 )
+
+SELF_DIR = os.path.dirname(__file__)
 
 # test data copied from https://github.com/FreeRDP/FreeRDP/blob/master/libfreerdp/codec/test/TestFreeRDPCodecXCrush.c
 # limitations of that test data:
@@ -168,6 +178,94 @@ class TestCompressionRdp61(unittest.TestCase):
         # print("inflated 2:     ",binascii.hexlify(inflated_2))
         self.assertEqual(inflated_2, data)
     
+    @unittest.skip("skip for debugging")
+    def test_from_snapshot_split_l1_vs_l2_decompression(self):
+        # A PDU from a real connection
+        # copied from the output of:
+        # ```
+        # venv-py3/bin/python3 rdps2rdp_pcap_v2.py print -i traffic-captures/output.win10.rail.no-compression-channels.success.pcap -if pcap -of snapshot -o 106 -l 1 > test_data/output.win10.rail.no-compression-channels.success.pdu-106.json
+        # venv-py3/bin/python3 rdps2rdp_pcap_v2.py print -i traffic-captures/output.win10.rail.no-compression-channels.success.pcap -if pcap -of snapshot -o 755 -l 1 > test_data/output.win10.rail.no-compression-channels.success.pdu-755.json
+        # ```
+        with open(SELF_DIR + '/test_data/output.win10.rail.no-compression-channels.success.pdu-106.json', 'r') as f:
+            snapshot = parser_v2_context.RdpStreamSnapshot.from_json(json.load(f))
+        # import compression_rdp61; compression_rdp61.DEBUG = True
+        # import compression_mppc;  compression_mppc.DEBUG = True
+        # import compression_utils; compression_utils.DEBUG = True
+        
+        # d_l1 = compression.CompressionFactory.new_RDP_61_L1()
+
+        d = snapshot.rdp_context.clone().get_compression_engine(compression_constants.CompressionTypes.RDP_61)
+        d_l1 = d._l1_compression_engine
+        d_l2 = d._l2_compression_engine
+        try:
+            pdu = parser_v2.parse(snapshot.pdu_source, snapshot.pdu_bytes, snapshot.rdp_context, parser_config = parser_v2_context.ParserConfig(compression_enabled = False))#, allow_partial_parsing = ALLOW_PARTIAL_PARSING)
+        except parser_v2.ParserException as e:
+            err = e.__cause__
+            pdu = e.pdu
+        compressed_data = pdu.rdp_fp.fpOutputUpdates[0].as_field_objects().updateData.get_compressed_bytes()
+
+        compressed_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(compressed_data)
+        L1_flags = data_model_v2_rdp.Rdp.Compression61.to_L1_compression_flags(compressed_struct.header.Level1ComprFlags)
+        L2_flags = data_model_v2_rdp.Rdp.Compression61.to_L2_compression_flags(compressed_struct.header.Level2ComprFlags)
+        
+        if compression_constants.CompressionFlags.COMPRESSED in L2_flags:
+            compression_args_l2 = CompressionArgs(data = compressed_struct.payload, flags = L2_flags, type = compression_constants.CompressionTypes.RDP_61)
+            print("RDP_61 L2 compression:")
+            print("flags:          ",L2_flags)
+            print("history:        ",binascii.hexlify(d_l2._decompression_history_manager._history[:d_l2._decompression_history_manager._historyOffset]))
+            print("compressed_data:",binascii.hexlify(compressed_data))
+            data_l2 = d_l2.decompress(compression_args_l2)
+        else:
+            print("RDP_61 L2 compression: skipped")
+            data_l2 = compressed_struct.payload
+        print("flags:          ",L2_flags)
+        print("compressed_data:",binascii.hexlify(compressed_data))
+        print("inflated 1:     ",binascii.hexlify(data_l2))
+        
+        
+        print("RDP_61 L1 compression:")
+        print("flags:          ",L1_flags)
+        print("history:        ",binascii.hexlify(d_l1._decompression_history_manager._history[:d_l1._decompression_history_manager._historyOffset]))
+        print("compressed_data:",binascii.hexlify(data_l2))
+        compression_args_l1 = CompressionArgs(data = data_l2, flags = L1_flags, type = compression_constants.CompressionTypes.RDP_61)
+        data_l1 = d_l1.decompress(compression_args_l1)
+        print("flags:          ",L1_flags)
+        print("compressed_data:",binascii.hexlify(data_l2))
+        print("inflated 1:     ",binascii.hexlify(data_l1))
+
+        path = SELF_DIR + '/test_data/output.win10.rail.no-compression-channels.success.pdu-106.test_data_61.h'
+        path = "/home/ubuntu/dev/freerdp/FreeRDP/libfreerdp/codec/test/output.win10.rail.no-compression-channels.success.pdu-106.test_data_61.h"
+        do_write = False
+        if do_write:
+            with open(path, 'w') as f:
+                printer = stream_processors.FreeRdpTestDataPrinter()
+                printer.print_freerdp_compression_test_data(output_stream=f, compression_infos = [
+                    stream_processors.CompressionInfo(snapshot.pdu_sequence_id, 
+                                    "RDP 6.1 compression",
+                                    compressed_data, 
+                                    data_l1,
+                                    compression_constants.CompressionTypes.RDP_61,
+                                    set(),
+                                    snapshot.pdu_source,
+                                    ),
+                    stream_processors.CompressionInfo(snapshot.pdu_sequence_id, 
+                                    "RDP 6.1 L2 compression",
+                                    compressed_data, 
+                                    data_l2,
+                                    compression_constants.CompressionTypes.RDP_61_L2,
+                                    L2_flags,
+                                    snapshot.pdu_source,
+                                    ),
+                    stream_processors.CompressionInfo(snapshot.pdu_sequence_id, 
+                                    "RDP 6.1 L1 compression",
+                                    data_l2,
+                                    data_l1,
+                                    compression_constants.CompressionTypes.RDP_61_L1,
+                                    L1_flags,
+                                    snapshot.pdu_source,
+                                    ),
+                ])
+
 
 if __name__ == '__main__':
     unittest.main()

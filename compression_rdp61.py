@@ -37,7 +37,7 @@ class Rdp61_L1_CompressionEncoder(compression_utils.Encoder):
         elif symbol_type == SymbolType.COPY_OFFSET:
             match_details = data_model_v2_rdp_egdi.Rdp_RDP61_MATCH_DETAILS()
             match_details.MatchLength = value.length_of_match
-            match_details.MatchOutputOffset = len(self.literals)
+            match_details.MatchOutputOffset = self.output_len
             match_details.MatchHistoryOffset = value.history_absolute_offset
             self.matches.append(match_details)
             self.output_len += value.length_of_match
@@ -64,10 +64,11 @@ class Rdp61_L1_CompressionDecoder(compression_utils.Decoder):
         literals_index = 0
         output_length = 0
         for match in match_details:
+            if DEBUG: print("processing match: %s" % (match))
             if literals_index > match.MatchOutputOffset:
                 raise ValueError("match %s references an offset location that has already been copied to the output. current literals_index = %s" % (match, literals_index))
             if literals_index < match.MatchOutputOffset:
-                literals_length = match.MatchOutputOffset - literals_index
+                literals_length = match.MatchOutputOffset - output_length
                 literals_copy_end = literals_index + literals_length
                 if DEBUG: print("copying literals to output: len = %s, literals_index = %s, literals = %s" % (literals_length, literals_index, literals[literals_index : literals_copy_end].tobytes()))
                 yield (SymbolType.LITERAL, literals[literals_index : literals_copy_end])
@@ -75,7 +76,7 @@ class Rdp61_L1_CompressionDecoder(compression_utils.Decoder):
                 literals_index = literals_copy_end
                 
             # assert: output_length == match.MatchOutputOffset
-            if DEBUG: print("copying match: %s" % (match))
+            if DEBUG: print("copying history to output: len = %s, history_index = %s, bytes = ???" % (match.MatchLength, match.MatchHistoryOffset))
             yield (SymbolType.COPY_OFFSET, compression_utils.CopyTupleV2(match.MatchHistoryOffset, match.MatchLength, is_relative_offset = False))
             output_length += match.MatchLength
 
@@ -127,17 +128,31 @@ class Rdp61_CompressionEngine(compression_utils.CompressionEngine):
                     flags = set(),
                     type = compression_constants.CompressionTypes.RDP_61)
 
-    def decompress(self, compression_args):
+    def decompress(self, compression_args, strict_parsing = False):
         compressed_struct = data_model_v2_rdp_egdi.Rdp_RDP61_COMPRESSED_DATA().with_value(compression_args.data)
         L1_flags = Rdp.Compression61.to_L1_compression_flags(compressed_struct.header.Level1ComprFlags)
         L2_flags = Rdp.Compression61.to_L2_compression_flags(compressed_struct.header.Level2ComprFlags)
         
-        if compression_constants.CompressionFlags.INNER_COMPRESSION in L1_flags:
+        # The MS-RDPEGDI spec says that the INNER_COMPRESSION flag must be set before 
+        # processing the L2 flags field.
+        # FreeRDP ignores the INNER_COMPRESSION flag and just uses the L2 Compression flag.
+        # The L2 compression flag is handeled in the L2 compression engine
+        if not strict_parsing or (compression_constants.CompressionFlags.INNER_COMPRESSION in L1_flags):
             compression_args_l2 = CompressionArgs(data = compressed_struct.payload, flags = L2_flags, type = compression_constants.CompressionTypes.RDP_61)
             data_l2 = self._l2_compression_engine.decompress(compression_args_l2)
         else:
             data_l2 = compressed_struct.payload
         
-        compression_args_l1 = CompressionArgs(data = data_l2, flags = L1_flags, type = compression_constants.CompressionTypes.RDP_61)
-        data = self._l1_compression_engine.decompress(compression_args_l1)
+        if compression_constants.CompressionFlags.COMPRESSED in L1_flags:
+            compression_args_l1 = CompressionArgs(data = data_l2, flags = L1_flags, type = compression_constants.CompressionTypes.RDP_61)
+            data = self._l1_compression_engine.decompress(compression_args_l1)
+        elif strict_parsing and compression_constants.CompressionFlags.NOT_COMPRESSED in L1_flags:
+            raise NotImplementedError("the NOT_COMPRESSED flag is not correctly implemented yet")
+        # elif compression_constants.CompressionFlags.NOT_COMPRESSED in L1_flags:
+        #     # TODO: add the payload to the history buffer
+        #     compression_args_l1 = CompressionArgs(data = data_l2, flags = L1_flags, type = compression_constants.CompressionTypes.RDP_61)
+        #     data = self._l1_compression_engine.decompress(compression_args_l1)
+        else:
+            data = data_l2
+        
         return data

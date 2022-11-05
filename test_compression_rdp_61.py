@@ -17,7 +17,7 @@ from compression_utils import (
 
 class TestCompressionRdp61(unittest.TestCase):
     
-    @unittest.skip("not needed anymore")
+    # @unittest.skip("skip for debugging")
     def test_one_char_at_a_time(self):
         data = b'\x01\x01'
         compressed_data = test_utils.extract_as_bytes("""
@@ -33,12 +33,13 @@ class TestCompressionRdp61(unittest.TestCase):
                                 01
                                 """)
 
-        c = compression.CompressionFactory.new_RDP_61()
-        d = compression.CompressionFactory.new_RDP_61()
+        c = compression.CompressionFactory.new_RDP_61_L1()
+        d = compression.CompressionFactory.new_RDP_61_L1()
         
-        inflated_1 = d.decompress(compressed_data, l1_compressed = True, l2_compressed = False)
-        print("data: %s" % data.hex())
-        print("infa: %s" % inflated_1.hex())
+        compression_args = CompressionArgs(data = compressed_data, flags = {compression_constants.CompressionFlags.COMPRESSED}, type = compression_constants.CompressionTypes.RDP_61)
+        inflated_1 = d.decompress(compression_args)
+        # print("data: %s" % data.hex())
+        # print("infa: %s" % inflated_1.hex())
         self.assertEqual(inflated_1, data)
         # self.assertEqual(inflated_1.hex(), data.hex())
         
@@ -70,19 +71,21 @@ class TestCompressionRdp61(unittest.TestCase):
                                 0300
                                 # MatchTuple(length_of_match=15, output_offset=24, history_offset=8)
                                 0f00 1800 08000000
-                                # MatchTuple(length_of_match=4, output_offset=25, history_offset=0)
-                                0400 1900 00000000
-                                # MatchTuple(length_of_match=3, output_offset=25, history_offset=25)
-                                0300 1900 19000000
-                                # literals
+                                # MatchTuple(length_of_match=4, output_offset=40, history_offset=0)
+                                0400 2800 00000000
+                                # MatchTuple(length_of_match=3, output_offset=44, history_offset=25)
+                                0300 2c00 19000000
+                                # literals = b'for.whom.the.bell.tolls,.e!'
                                 666f722e77686f6d2e7468652e62656c6c2e746f6c6c732c2e6521
                                 """)
 
+        d = compression.CompressionFactory.new_RDP_61_L1()
+        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = {compression_constants.CompressionFlags.COMPRESSED}, type = compression_constants.CompressionTypes.RDP_61))
+        self.assertEqual(inflated_1, data)
+        self.assertEqual(inflated_1.hex(), data.hex())
+        
         c = compression.CompressionFactory.new_RDP_61_L1()
         d = compression.CompressionFactory.new_RDP_61_L1()
-        inflated_1 = d.decompress(CompressionArgs(data = compressed_data, flags = set(), type = compression_constants.CompressionTypes.RDP_61))
-        # self.assertEqual(inflated_1, data)
-        # self.assertEqual(inflated_1.hex(), data.hex())
         
         deflated_1 = c.compress(data)
         self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
@@ -99,25 +102,60 @@ class TestCompressionRdp61(unittest.TestCase):
 
         inflated_2 = d.decompress(deflated_2)
         self.assertEqual(inflated_2, data)
-    
-    def test_compress_ISLAND_same_packet_twice(self):
+
+    # @unittest.skip("skip for debugging")
+    def test_compress_ISLAND_L1_NoCompression_L2_Compression(self):
         data = b"""No man is an island entire of itself; every man is a piece of the continent, a part of the main; if a clod be washed away by the sea, Europe is the less, as well as if a promontory were, aswell as any manner of thy friends or of thine own were; any man's death diminishes me, because I am involved in mankind. And therefore never send to know for whom the bell tolls; it tolls for thee."""
-        compressed_data = test_utils.extract_as_bytes('1121290005000a00040000000900260002f9005002b0019f900300310015f912640029f20080067f28000010006c0075f624f80133f84aa002b7e095f002ff916fbf8258c012fe84b480467f44b48030fd896d0043f912dc0053f825c80231e18972008efe8974002af900600770053f900700810053bf84c08011bf04c180269fc260e0144fb13160070f91319009c7c89967829e18897005e3e84cd40047e45c43e44ce40063f04cebd64fa113a00807d0b3701fa1141003ff900500a30043fec4d1c027dfa2699e9a796229a00d1f8269a00adfc269a00c1f209cde40dac2dc40d2e640d8c2dcc840cadce8d2e4ca40decc40d2e8e6cad8cc7640caeccae4f240e0d2cac6e8d0ca40c6dedc58c2e4e8dac2d2dc7640d2ccc6d8dec840c4ca40eec2e6d0cac840c2eec2f240c4f2e6cac258408aeae4dee0cad8cae6e6e640eecad8d8e0e4dedadeeecae4cac2dcdde128667269656e6473206f206f776e3b27732064656174682064696d696ef271b589958d85d5cd9481248185b481a5b9d9bdb1d9a5b9ada5b990b88105c99599bdb9bc81adb9bddc8081dda1bdb589d1bdb1b1cdd194b8') 
+        
+        # L1 compression flags = b"12" = (L1_INNER_COMPRESSION, L1_NO_COMPRESSION)
+        # L2 compression flags = b"61" = (PACKET_COMPR_TYPE_64K, PACKET_COMPRESSED, PACKET_AT_FRONT)
+        compressed_data = test_utils.extract_as_bytes("""12614e6f206d616e20697320f8d2d8c2dcc840cadce8d2e4ca40decc40d2e8e6cad8cc7640caeccae4f3fa712070696563fc12e8d0ca40c6dffbcddfd05840c240e0c2e4e9fe63ecc36b0b4b71d9034b37d731b637b2103132903bb0b9b432b21030bbb0bc90313c907e687365612c204575726f7065f2347d386c657373f069cc81dd95b1b08185cfc094e0e4dedbe2b37f924eecae4cbf863f060c2dde5d96e6572f1e53c90333934b2b732399037fd2b696ef381ddbbc2472653bf55bf8493b9903232b0ba34103234b6b4b734f96ce640dbe193132b1b0bab9b290249030b69034b73b37b63b79d4d2ddec186b696e642e2041f733cd47265666ff749bbdbf040e7e31103a379035b737bb907d8103bb437b6fa8e58bd0f0e8ded8d8e7ecf3a7e47ca7e29f01994b80""")
+
+        d = compression.CompressionFactory.new_RDP_61()
+        compression_args = CompressionArgs(data = compressed_data, flags = set(), type = compression_constants.CompressionTypes.RDP_61)
+        inflated_1 = d.decompress(compression_args)
+        # print("data 1    :     ",binascii.hexlify(data))
+        # print("deflated 1:     ",binascii.hexlify(compression_args.data))
+        # print("inflated 1:     ",binascii.hexlify(inflated_1))
+        self.assertEqual(inflated_1, data)
 
         c = compression.CompressionFactory.new_RDP_61()
         d = compression.CompressionFactory.new_RDP_61()
-   
-        # L1 compression flags(L1_COMPRESSED)
-        # 11
-        # L2 compression flags (PACKET_COMPR_TYPE_64K, PACKET_COMPRESSED)
-        # 21
-        
-        deflated_1 = c.compress(data)
-        self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
 
+        deflated_1 = c.compress(data)
         inflated_1 = d.decompress(deflated_1)
         # print("data 1    :     ",binascii.hexlify(data))
         # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
+        # print("inflated 1:     ",binascii.hexlify(inflated_1))
+        self.assertEqual(inflated_1, data)
+
+
+    # @unittest.skip("skip for debugging")
+    def test_compress_ISLAND_same_packet_twice(self):
+        data = b"""No man is an island entire of itself; every man is a piece of the continent, a part of the main; if a clod be washed away by the sea, Europe is the less, as well as if a promontory were, aswell as any manner of thy friends or of thine own were; any man's death diminishes me, because I am involved in mankind. And therefore never send to know for whom the bell tolls; it tolls for thee."""
+        # L1 compression flags = b"11" = (L1_INNER_COMPRESSION, L1_COMPRESSED)
+        # L2 compression flags = b"21" = (PACKET_COMPR_TYPE_64K, PACKET_COMPRESSED)
+        compressed_data = test_utils.extract_as_bytes('1121290005000a000400000009002b0002f900500390019f900300440015f912900029f200800980065f201000a60075f6258fe93f843e002b7e09860017fc8988003efe098c0025fd099080467f44c940187ec4cb8010fe44cc800a7f04ce7f53c3113d008efe89a380157c8030053fc5400000700b00053bf84d9c011bf04db80269fc26e80144fb121602e1f224440671f2249c05cbc312580378fa126e0223f224e80621f225040463f04a280937d094901807a82804dc07e842b809ffc802802f80c3fec4b280cfbf44b700aff9625c805a3f04bc00ab7f097d0160f904e6f206d616e206973206c616e6420656e74697265206f6620697473656c663b206576657279207069656374686520636f6e2c6172746d61696e3b206966636c6f642062652077617368656420617761792062797365612c204575726f70656c657373732077656c6c70726f6d6f77657265616e6ef094333934b2b7323990379037bbb71d93b9903232b0ba34103234b6b4b77938dac4cac6c2eae6ca409240c2da40d2dcecded8ecd2dcd6d2dcc85c4082e4caccdedcde40d6dcdeee4040eed0dedac4e8ded8d8e6e8ca5c0') 
+
+        d = compression.CompressionFactory.new_RDP_61()
+        compression_args = CompressionArgs(data = compressed_data, flags = set(), type = compression_constants.CompressionTypes.RDP_61)
+        inflated_1 = d.decompress(compression_args)
+        # print("data 1    :     ",binascii.hexlify(data))
+        # print("deflated 1:     ",binascii.hexlify(compressed_data))
+        # print("inflated 1:     ",binascii.hexlify(inflated_1))
+        self.assertEqual(inflated_1, data)
+
+        c = compression.CompressionFactory.new_RDP_61()
+        d = compression.CompressionFactory.new_RDP_61()
+        
+        deflated_1 = c.compress(data)
+        # print("data 1    :     ",binascii.hexlify(data))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1.data))
+        # self.assertEqual(deflated_1.data.hex(), compressed_data.hex())
+
+        inflated_1 = d.decompress(deflated_1)
+        # print("data 1    :     ",binascii.hexlify(data))
+        # print("deflated 1:     ",binascii.hexlify(deflated_1))
         # print("inflated 1:     ",binascii.hexlify(inflated_1))
         self.assertEqual(inflated_1, data)
         
